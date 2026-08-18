@@ -214,3 +214,87 @@ TEST_F(PresentationMetricsTest, ResetClearsEverything)
 	EXPECT_EQ(snap.real_frames, 0u);
 	EXPECT_FLOAT_EQ(snap.real_frametime_avg_ms, 0.0f);
 }
+
+// --- acumulação de sessão (Fase 6) ---
+
+// A janela de 1 s responde "como está agora"; um benchmark precisa do trecho inteiro. Amostrar a
+// janela periodicamente daria contagem dupla, porque janelas se sobrepõem — por isso a sessão tem
+// contadores próprios.
+TEST_F(PresentationMetricsTest, SessionCountsTheWholeRunNotTheWindow)
+{
+	GSPresentationMetrics::BeginSession();
+
+	// 10 segundos a 30 FPS: muito além da janela de 1 s.
+	for (int i = 0; i < 300; i++)
+	{
+		if (i > 0)
+			AdvanceMs(33.333);
+		GSPresentationMetrics::NotePresented(FrameKind::Real);
+	}
+
+	GSPresentationMetrics::EndSession();
+	const auto session = GSPresentationMetrics::GetSessionStats();
+
+	EXPECT_EQ(session.real_frames, 300u);
+	EXPECT_NEAR(session.duration_seconds, 9.967, 0.05);
+	EXPECT_NEAR(session.real_fps, 30.0f, 0.5f);
+	EXPECT_NEAR(session.frametime_avg_ms, 33.333f, 0.1f);
+}
+
+TEST_F(PresentationMetricsTest, SessionKeepsRealAndPresentedApart)
+{
+	GSPresentationMetrics::BeginSession();
+	for (int i = 0; i < 100; i++)
+	{
+		if (i > 0)
+			AdvanceMs(16.667);
+		GSPresentationMetrics::NotePresented(FrameKind::Real);
+		AdvanceMs(16.667);
+		GSPresentationMetrics::NotePresented(FrameKind::Generated);
+	}
+	GSPresentationMetrics::EndSession();
+
+	const auto session = GSPresentationMetrics::GetSessionStats();
+	EXPECT_EQ(session.real_frames, 100u);
+	EXPECT_EQ(session.generated_frames, 100u);
+	// O apresentado é o dobro do real, e os dois campos continuam distintos.
+	EXPECT_NEAR(session.presented_fps / session.real_fps, 2.0f, 0.05f);
+}
+
+// O pico tem que sobreviver ao histograma: é o número que decide se um driver engasga.
+TEST_F(PresentationMetricsTest, SessionPercentilesExposeTheSpike)
+{
+	GSPresentationMetrics::BeginSession();
+	for (int i = 0; i < 199; i++)
+	{
+		if (i > 0)
+			AdvanceMs(10.0);
+		GSPresentationMetrics::NotePresented(FrameKind::Real);
+	}
+	AdvanceMs(120.0);
+	GSPresentationMetrics::NotePresented(FrameKind::Real);
+	GSPresentationMetrics::EndSession();
+
+	const auto session = GSPresentationMetrics::GetSessionStats();
+	EXPECT_NEAR(session.frametime_max_ms, 120.0f, 0.1f);
+	// O 1% pior de 200 amostras são 2 quadros; um deles é o pico de 120 ms.
+	EXPECT_GT(session.frametime_low1_ms, 30.0f);
+	EXPECT_LT(session.frametime_avg_ms, 12.0f);
+	EXPECT_GE(session.stutter_count, 1u);
+}
+
+TEST_F(PresentationMetricsTest, SessionIsInertBeforeBeginAndAfterEnd)
+{
+	// Sem BeginSession, nada é acumulado.
+	PresentRealFrames(10, 10.0);
+	EXPECT_EQ(GSPresentationMetrics::GetSessionStats().real_frames, 0u);
+
+	GSPresentationMetrics::BeginSession();
+	PresentRealFrames(5, 10.0);
+	GSPresentationMetrics::EndSession();
+	const u64 after_end = GSPresentationMetrics::GetSessionStats().real_frames;
+
+	// Depois de EndSession os números congelam, mesmo com o jogo continuando.
+	PresentRealFrames(50, 10.0);
+	EXPECT_EQ(GSPresentationMetrics::GetSessionStats().real_frames, after_end);
+}

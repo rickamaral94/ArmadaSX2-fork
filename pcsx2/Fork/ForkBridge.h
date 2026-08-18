@@ -28,6 +28,11 @@ namespace ForkBridge
 	///   `driver.status`             o que está rodando de fato (Fase 4, item 2)
 	///   `gpu.capabilities`          suporte a Turnip neste aparelho e o porquê (Fase 3)
 	///   `config.options`            a tabela de opções do fork, para a UI se construir sozinha
+	///   `benchmark.begin:<rótulo>`  inicia uma execução medida (Fase 6)
+	///   `benchmark.end`             encerra e devolve o resultado
+	///   `benchmark.status`          estado atual
+	///   `benchmark.runs`            todas as execuções, em JSON
+	///   `benchmark.clear`           descarta as execuções guardadas
 	///
 	/// Nunca devolve string vazia: erro também é JSON.
 	std::string Query(std::string_view request);

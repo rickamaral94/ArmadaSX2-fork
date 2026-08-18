@@ -6,6 +6,7 @@ add_pcsx2_test(fork_config_tests
 	driver_package_tests.cpp
 	driver_identity_tests.cpp
 	bridge_tests.cpp
+	benchmark_tests.cpp
 )
 
 target_include_directories(fork_config_tests PRIVATE

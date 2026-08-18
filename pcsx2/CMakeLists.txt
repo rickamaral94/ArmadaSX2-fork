@@ -542,6 +542,7 @@ set(pcsx2GSSources
 	GS/Renderers/Common/GSGPUProfilePowerVR.cpp
 	GS/Renderers/Common/GSPassScheduler.cpp
 	GS/Renderers/Common/GSPresentationMetrics.cpp
+	Fork/ForkBenchmark.cpp
 	Fork/ForkBridge.cpp
 	Fork/ForkConfig.cpp
 	Fork/ForkDriverPackage.cpp
@@ -599,6 +600,7 @@ set(pcsx2GSHeaders
 	GS/Renderers/Common/GSInterlaceModePolicy.h
 	GS/Renderers/Common/GSPassScheduler.h
 	GS/Renderers/Common/GSPresentationMetrics.h
+	Fork/ForkBenchmark.h
 	Fork/ForkBridge.h
 	Fork/ForkConfig.h
 	Fork/ForkDriverPackage.h

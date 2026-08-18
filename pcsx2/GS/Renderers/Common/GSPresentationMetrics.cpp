@@ -8,6 +8,7 @@
 #include "fmt/format.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <mutex>
 
@@ -31,9 +32,61 @@ namespace
 		GSPresentationMetrics::FrameKind kind;
 	};
 
+	/// Histograma de frametimes da sessão. Guardar cada amostra daria percentis exatos, mas 30
+	/// minutos a 60 Hz são ~108 mil floats — memória que o emulador não tem sobrando em um
+	/// celular. 0,25 ms por balde até 250 ms cobre de 400 FPS a 4 FPS com erro de percentil
+	/// menor que a variação que estamos tentando medir, em 4 KB fixos.
+	constexpr double HISTOGRAM_BUCKET_MS = 0.25;
+	constexpr size_t HISTOGRAM_BUCKETS = 1000;
+
+	struct Session
+	{
+		bool active = false;
+		Common::Timer::Value started_at = 0;
+		Common::Timer::Value ended_at = 0;
+
+		u64 real_frames = 0;
+		u64 duplicated_frames = 0;
+		u64 generated_frames = 0;
+		u64 skipped_presents = 0;
+		u64 present_errors = 0;
+
+		u64 interval_count = 0;
+		double interval_total_ms = 0.0;
+		double interval_min_ms = 0.0;
+		double interval_max_ms = 0.0;
+		std::array<u32, HISTOGRAM_BUCKETS> histogram = {};
+
+		u64 generation_samples = 0;
+		double generation_total_ms = 0.0;
+
+		void Record(double interval_ms)
+		{
+			if (interval_count == 0)
+			{
+				interval_min_ms = interval_ms;
+				interval_max_ms = interval_ms;
+			}
+			else
+			{
+				interval_min_ms = std::min(interval_min_ms, interval_ms);
+				interval_max_ms = std::max(interval_max_ms, interval_ms);
+			}
+			interval_count++;
+			interval_total_ms += interval_ms;
+
+			// Acima do teto tudo cai no último balde: um frametime de 300 ms já é catastrófico, e
+			// distinguir 300 de 400 não muda nenhuma decisão.
+			const size_t bucket = std::min(static_cast<size_t>(interval_ms / HISTOGRAM_BUCKET_MS),
+				HISTOGRAM_BUCKETS - 1);
+			histogram[bucket]++;
+		}
+	};
+
 	struct State
 	{
 		std::mutex mutex;
+		Session session;
 
 		std::vector<PresentedSample> presented;
 		/// Intervalos entre quadros reais consecutivos, em ms, alinhados com o instante do quadro
@@ -150,6 +203,11 @@ bool GSPresentationMetrics::IsEnabled()
 void GSPresentationMetrics::Reset()
 {
 	std::lock_guard lock(s_state.mutex);
+	// A sessão vai junto. Reset é chamado ao ligar/desligar a métrica e ao recriar a swapchain —
+	// e uma sessão que sobreviva a isso passa a reportar números de ANTES do evento como se fossem
+	// da medição atual. Um benchmark que herda contagens de outra execução é pior que um
+	// benchmark que reporta zero: o zero é visível, a herança não.
+	s_state.session = Session();
 	s_state.presented.clear();
 	s_state.real_intervals.clear();
 	s_state.present_calls.clear();
@@ -175,8 +233,26 @@ void GSPresentationMetrics::NotePresented(FrameKind kind)
 		{
 			const double interval_ms = Common::Timer::ConvertValueToMilliseconds(now - s_state.last_real_at);
 			PushCapped(s_state.real_intervals, std::make_pair(now, interval_ms));
+			if (s_state.session.active)
+				s_state.session.Record(interval_ms);
 		}
 		s_state.last_real_at = now;
+	}
+
+	if (s_state.session.active)
+	{
+		switch (kind)
+		{
+			case FrameKind::Real:
+				s_state.session.real_frames++;
+				break;
+			case FrameKind::Duplicate:
+				s_state.session.duplicated_frames++;
+				break;
+			case FrameKind::Generated:
+				s_state.session.generated_frames++;
+				break;
+		}
 	}
 
 	ExpireAll(now);
@@ -190,6 +266,8 @@ void GSPresentationMetrics::NoteSkippedPresent()
 	const Common::Timer::Value now = Now();
 	std::lock_guard lock(s_state.mutex);
 	PushCapped(s_state.skipped, now);
+	if (s_state.session.active)
+		s_state.session.skipped_presents++;
 	ExpireAll(now);
 }
 
@@ -202,7 +280,11 @@ void GSPresentationMetrics::NotePresentCall(double ms, bool ok)
 	std::lock_guard lock(s_state.mutex);
 	PushCapped(s_state.present_calls, std::make_pair(now, ms));
 	if (!ok)
+	{
 		PushCapped(s_state.errors, now);
+		if (s_state.session.active)
+			s_state.session.present_errors++;
+	}
 	ExpireAll(now);
 }
 
@@ -214,6 +296,11 @@ void GSPresentationMetrics::NoteGenerationCost(double ms)
 	const Common::Timer::Value now = Now();
 	std::lock_guard lock(s_state.mutex);
 	PushCapped(s_state.generation_costs, std::make_pair(now, ms));
+	if (s_state.session.active)
+	{
+		s_state.session.generation_samples++;
+		s_state.session.generation_total_ms += ms;
+	}
 	ExpireAll(now);
 }
 
@@ -356,4 +443,135 @@ void GSPresentationMetrics::Detail::SetClockForTesting(ClockFn fn)
 {
 	s_clock = fn;
 	Reset();
+}
+
+namespace
+{
+	/// Percentil a partir do histograma. Devolve o limite superior do balde onde a contagem
+	/// acumulada cruza `fraction` — resolução de HISTOGRAM_BUCKET_MS, que é o preço de não guardar
+	/// cada amostra.
+	double PercentileFromHistogram(const Session& session, double fraction)
+	{
+		if (session.interval_count == 0)
+			return 0.0;
+
+		const u64 target = static_cast<u64>(static_cast<double>(session.interval_count) * fraction);
+		u64 seen = 0;
+		for (size_t bucket = 0; bucket < HISTOGRAM_BUCKETS; bucket++)
+		{
+			seen += session.histogram[bucket];
+			if (seen >= target)
+				return static_cast<double>(bucket + 1) * HISTOGRAM_BUCKET_MS;
+		}
+		return session.interval_max_ms;
+	}
+
+	/// Média do 1% PIOR (os frametimes mais altos), percorrendo o histograma de trás para frente.
+	double Worst1PercentFromHistogram(const Session& session)
+	{
+		if (session.interval_count == 0)
+			return 0.0;
+
+		const u64 target = std::max<u64>(1, session.interval_count / 100);
+		u64 taken = 0;
+		double total = 0.0;
+		for (size_t i = HISTOGRAM_BUCKETS; i-- > 0;)
+		{
+			const u32 in_bucket = session.histogram[i];
+			if (in_bucket == 0)
+				continue;
+
+			const u64 take = std::min<u64>(in_bucket, target - taken);
+			// Meio do balde: o erro é de meio bucket (0,125 ms), muito abaixo da diferença que um
+			// A/B de driver precisa distinguir.
+			total += static_cast<double>(take) * ((static_cast<double>(i) + 0.5) * HISTOGRAM_BUCKET_MS);
+			taken += take;
+			if (taken >= target)
+				break;
+		}
+		return (taken > 0) ? (total / static_cast<double>(taken)) : 0.0;
+	}
+} // namespace
+
+void GSPresentationMetrics::BeginSession()
+{
+	std::lock_guard lock(s_state.mutex);
+	s_state.session = Session();
+	s_state.session.active = true;
+	s_state.session.started_at = Now();
+}
+
+void GSPresentationMetrics::EndSession()
+{
+	std::lock_guard lock(s_state.mutex);
+	if (!s_state.session.active)
+		return;
+	s_state.session.active = false;
+	s_state.session.ended_at = Now();
+}
+
+GSPresentationMetrics::SessionStats GSPresentationMetrics::GetSessionStats()
+{
+	std::lock_guard lock(s_state.mutex);
+	const Session& session = s_state.session;
+
+	SessionStats out;
+	out.active = session.active;
+	if (session.started_at == 0)
+		return out;
+
+	const Common::Timer::Value end = session.active ? Now() : session.ended_at;
+	out.duration_seconds = (end > session.started_at)
+							   ? Common::Timer::ConvertValueToSeconds(end - session.started_at)
+							   : 0.0;
+
+	out.real_frames = session.real_frames;
+	out.duplicated_frames = session.duplicated_frames;
+	out.generated_frames = session.generated_frames;
+	out.skipped_presents = session.skipped_presents;
+	out.present_errors = session.present_errors;
+
+	if (out.duration_seconds > 0.0)
+	{
+		const double presented = static_cast<double>(
+			session.real_frames + session.duplicated_frames + session.generated_frames);
+		// Reais e apresentados divididos pela MESMA duração e mantidos em campos distintos: é a
+		// regra do projeto, e é o que impede um relatório de somar suavidade com velocidade.
+		out.real_fps = static_cast<float>(static_cast<double>(session.real_frames) / out.duration_seconds);
+		out.presented_fps = static_cast<float>(presented / out.duration_seconds);
+	}
+
+	if (session.interval_count > 0)
+	{
+		out.frametime_avg_ms =
+			static_cast<float>(session.interval_total_ms / static_cast<double>(session.interval_count));
+		out.frametime_min_ms = static_cast<float>(session.interval_min_ms);
+		out.frametime_max_ms = static_cast<float>(session.interval_max_ms);
+		out.frametime_p95_ms = static_cast<float>(PercentileFromHistogram(session, 0.95));
+		out.frametime_p99_ms = static_cast<float>(PercentileFromHistogram(session, 0.99));
+
+		const double low1 = Worst1PercentFromHistogram(session);
+		out.frametime_low1_ms = static_cast<float>(low1);
+		out.low1_fps = ToFps(low1);
+
+		const double median = PercentileFromHistogram(session, 0.5);
+		if (median > 0.0)
+		{
+			const double threshold = median * STUTTER_FACTOR;
+			for (size_t bucket = 0; bucket < HISTOGRAM_BUCKETS; bucket++)
+			{
+				if ((static_cast<double>(bucket) * HISTOGRAM_BUCKET_MS) > threshold)
+					out.stutter_count += session.histogram[bucket];
+			}
+		}
+	}
+
+	out.generation_total_ms = session.generation_total_ms;
+	if (session.generation_samples > 0)
+	{
+		out.generation_avg_ms = static_cast<float>(
+			session.generation_total_ms / static_cast<double>(session.generation_samples));
+	}
+
+	return out;
 }

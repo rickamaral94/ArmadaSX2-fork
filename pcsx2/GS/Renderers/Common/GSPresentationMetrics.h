@@ -63,6 +63,49 @@ namespace GSPresentationMetrics
 		u64 present_errors;
 	};
 
+	/// Totais desde `BeginSession()`, para medir uma EXECUÇÃO INTEIRA em vez da janela de 1 s.
+	///
+	/// A janela deslizante responde "como está agora", que é o que o overlay precisa. Um benchmark
+	/// precisa de outra coisa: o acumulado de um trecho inteiro, sem depender de quando alguém
+	/// olhou. Amostrar a janela periodicamente daria números aproximados e com contagem dupla
+	/// (janelas se sobrepõem), então a sessão tem contadores próprios, alimentados pelos mesmos
+	/// `Note*`.
+	struct SessionStats
+	{
+		bool active = false;
+		double duration_seconds = 0.0;
+
+		u64 real_frames = 0;
+		u64 duplicated_frames = 0;
+		u64 generated_frames = 0;
+		u64 skipped_presents = 0;
+		u64 present_errors = 0;
+
+		float real_fps = 0.0f; ///< quadros reais / duração
+		float presented_fps = 0.0f; ///< tudo que chegou ao display / duração
+
+		float frametime_avg_ms = 0.0f;
+		float frametime_min_ms = 0.0f;
+		float frametime_max_ms = 0.0f;
+		/// Percentis do histograma de frametimes reais (resolução de 0,25 ms).
+		float frametime_p95_ms = 0.0f;
+		float frametime_p99_ms = 0.0f;
+		/// Média do 1% pior, e a mesma coisa em FPS.
+		float frametime_low1_ms = 0.0f;
+		float low1_fps = 0.0f;
+		/// Intervalos acima de 2x a mediana da sessão.
+		u64 stutter_count = 0;
+
+		double generation_total_ms = 0.0;
+		float generation_avg_ms = 0.0f;
+	};
+
+	/// Zera e começa a acumular. Chamar de novo reinicia.
+	void BeginSession();
+	/// Para de acumular; os números continuam legíveis.
+	void EndSession();
+	SessionStats GetSessionStats();
+
 	/// Desligado por padrão. Ligar não realoca nada: os buffers são fixos e alocados uma vez.
 	void SetEnabled(bool enabled);
 	bool IsEnabled();

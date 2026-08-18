@@ -3,6 +3,7 @@
 
 #include "Fork/ForkBridge.h"
 
+#include "Fork/ForkBenchmark.h"
 #include "Fork/ForkConfig.h"
 #include "Fork/ForkDriverIdentity.h"
 #include "Fork/ForkDriverPackage.h"
@@ -175,6 +176,37 @@ std::string ForkBridge::Query(std::string_view request)
 		return GpuCapabilities();
 	if (command == "config.options")
 		return ConfigOptions();
+	if (command == "benchmark.begin")
+	{
+		if (argument.empty())
+			return Error("rótulo vazio: uma execução sem nome não serve para comparar");
+		ForkBenchmark::Begin(argument);
+		return fmt::format(R"({{"ok":true,"running":true,"label":"{}"}})", EscapeJson(argument));
+	}
+	if (command == "benchmark.end")
+	{
+		if (!ForkBenchmark::IsRunning())
+			return Error("nenhuma execução em andamento");
+		const ForkBenchmark::Run run = ForkBenchmark::End();
+		return fmt::format(
+			R"({{"ok":true,"label":"{}","realFps":{:.3f},"presentedFps":{:.3f},"low1Fps":{:.3f},)"
+			R"("durationSeconds":{:.1f},"driverAsRequested":{},"shaderCompiles":{}}})",
+			EscapeJson(run.label), run.real_fps, run.presented_fps, run.low1_fps, run.duration_seconds,
+			run.driver_as_requested ? "true" : "false", run.shader_compiles);
+	}
+	if (command == "benchmark.status")
+	{
+		return fmt::format(R"({{"ok":true,"running":{},"label":"{}","runs":{}}})",
+			ForkBenchmark::IsRunning() ? "true" : "false", EscapeJson(ForkBenchmark::CurrentLabel()),
+			ForkBenchmark::GetRuns().size());
+	}
+	if (command == "benchmark.runs")
+		return ForkBenchmark::ToJson();
+	if (command == "benchmark.clear")
+	{
+		ForkBenchmark::ClearRuns();
+		return R"({"ok":true})";
+	}
 
 	// Consulta desconhecida acontece de verdade: APK novo com Kotlin velho, ou o contrário. Um
 	// erro nomeado permite ao frontend degradar; string vazia seria indistinguível de falha.

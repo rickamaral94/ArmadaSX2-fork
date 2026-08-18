@@ -16,6 +16,14 @@ namespace GSShaderCompileIndicator
 	inline std::atomic<u64> s_time_ns{0};
 	inline std::atomic<u64> s_last_time{0};
 
+	/// Totais que NUNCA zeram. Os contadores acima existem para o indicador de tela e são zerados
+	/// entre rajadas, o que os torna inúteis para contabilidade: o benchmark da Fase 6 mede
+	/// "tempo de compilação de shader" ao longo de uma execução inteira, por diferença entre
+	/// início e fim. Custo: dois incrementos relaxed por shader compilado, algo que já leva
+	/// milissegundos.
+	inline std::atomic<u32> s_total_count{0};
+	inline std::atomic<u64> s_total_time_ns{0};
+
 	inline u64 GetRecentCompileHold()
 	{
 		static const u64 hold = static_cast<u64>(Common::Timer::ConvertNanosecondsToValue(static_cast<double>(RECENT_COMPILE_HOLD_NS)));
@@ -34,6 +42,8 @@ namespace GSShaderCompileIndicator
 
 		s_count.fetch_add(1, std::memory_order_relaxed);
 		s_time_ns.fetch_add(duration_ns, std::memory_order_relaxed);
+		s_total_count.fetch_add(1, std::memory_order_relaxed);
+		s_total_time_ns.fetch_add(duration_ns, std::memory_order_relaxed);
 		s_last_time.store(now, std::memory_order_relaxed);
 	}
 
