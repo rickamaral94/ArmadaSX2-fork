@@ -60,7 +60,10 @@ justificativa, o fork está saindo do trilho.
 | `pcsx2/GS/Renderers/Vulkan/VKShaderCache.{h,cpp}` | nome do cache de pipeline por driver + poda | com nome fixo, alternar drivers sobrescreve o cache do outro e o A/B da Fase 6 mediria compilação a frio (Fase 4, item 3) |
 | `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h` | +1 acessor `GetDeviceDriverProperties` | a chave do cache precisa do `driverID` |
 | `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` | registra o resultado do carregamento do driver | o fallback para o driver do sistema é silencioso; sem esse registro não há como saber que driver está rodando (Fase 4, item 2) |
-| `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional | esconde a seção de driver em GPU incompatível (Fase 3) |
+| `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional, +1 card de status | esconde a seção em GPU incompatível (Fase 3); mostra o driver ativo e avisa quando não é o pedido (Fase 4, item 4) |
+| `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
+| `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI | implementação da porta única |
+| `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar | Fase 4, item 5 |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
 | `.github/dependabot.yml` | removido | O Dependabot do upstream mantém as versões das *actions* de um pipeline que não é nosso. Cada PR semanal dele dispararia `build-all.yml` (~2 h de CI arm64) no nosso repositório, para atualizar workflows que só o upstream usa. As atualizações chegam pelo merge do upstream. |
 | `.github/workflows/upload-moonstore.yml` | gatilho `workflow_run` removido (só `workflow_dispatch`) | Publica builds em uma loja de terceiros do upstream. Nossos builds não devem ir para lá. |

@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.armsx2.CustomDriver
 import com.armsx2.fork.ForkGpuCapabilities
+import com.armsx2.fork.ForkNative
 import com.armsx2.i18n.str
 import com.armsx2.runtime.MainActivityRuntime
 import com.armsx2.ui.InGameOverlay
@@ -124,6 +125,61 @@ fun DriverManagerSection() {
                 }
                 gpuRec?.reason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
+        }
+
+        // Fase 4 do fork, item 4: o que está RODANDO, e um aviso quando não é o que foi pedido.
+        //
+        // O fallback do VKLoader para o driver do sistema é silencioso por desenho — derrubar o
+        // boot porque um driver importado não abriu seria pior. O efeito colateral era o usuário
+        // achar que está no Turnip enquanto roda o blob da Qualcomm, e medir o driver errado.
+        val driverStatus = remember(InGameOverlay.settingsState.value.customDriverId) {
+            ForkNative.driverStatus()
+        }
+        if (driverStatus != null && driverStatus.probed) {
+            val problem = driverStatus.unexpected
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (problem) MaterialTheme.colorScheme.errorContainer
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        with(ForkNative) { driverStatus.summaryLine() },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (problem) MaterialTheme.colorScheme.onErrorContainer
+                                else MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        driverStatus.reason,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (problem) MaterialTheme.colorScheme.onErrorContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // O erro cru do carregador só aparece quando houve um: é a informação que
+                    // transforma "não funcionou" em algo diagnosticável num relatório.
+                    if (driverStatus.error.isNotBlank()) {
+                        Text(
+                            driverStatus.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Recusa de import explicada, em vez de a lista simplesmente não crescer.
+        CustomDriver.lastRejection?.let { rejection ->
+            Text(
+                rejection,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
 
         DriverRow(

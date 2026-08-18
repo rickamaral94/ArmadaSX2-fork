@@ -3,7 +3,7 @@
 **Objetivo:** que o emulador só entregue ao `adrenotools_open_libvulkan` um arquivo que ele já
 verificou, e que saiba dizer exatamente **qual** binário está rodando.
 
-Estado: **itens 1, 2 e 3 concluídos**. Os demais estão listados na seção 6.
+Estado: **concluída** — itens 1 a 5.
 
 ---
 
@@ -179,13 +179,57 @@ chave; Turnip e Qualcomm na mesma GPU dão chaves diferentes; cada campo partici
 `driverVersion`, para que uma atualização do Turnip gere cache novo); poda mantém os mais recentes;
 o ativo sobrevive mesmo sendo o mais antigo; nada é podado abaixo do limite.
 
-## 6. Itens restantes
+## 6. Itens 4 e 5 — a ponte e a UI (feito)
 
-| # | Item | Onde |
-|---|---|---|
-| 4 | Erro de carga visível na UI (hoje o `Error` morre no log) e "System Driver" fixo no topo | `TryOpenAdrenotoolsDriver` → JNI → UI |
-| 5 | Ligar o validador ao fluxo de import do Kotlin | `CustomDriver.installFromStream` + JNI |
+### Uma porta, não uma função por consulta
 
-O item 5 depende de uma função JNI nova — a primeira desde a superfície de configuração, e vale
-avaliar se ela deve ser genérica (validar caminho → JSON) para não repetir o custo a cada
-verificação futura.
+O item 5 precisava de JNI nova — a primeira desde a superfície de configuração. Uma função por
+consulta (inspecionar pacote, estado do driver, capacidades da GPU, opções...) exigiria editar
+`NativeApp.java` e `native-lib.cpp`, **ambos do upstream**, a cada recurso, para sempre.
+
+`pcsx2/Fork/ForkBridge.h` é uma porta única: **texto entra, JSON sai**.
+
+```
+NativeApp.forkQuery("driver.inspect:/caminho/libvulkan_freedreno.so")
+NativeApp.forkQuery("driver.status")
+NativeApp.forkQuery("gpu.capabilities")
+NativeApp.forkQuery("config.options")
+```
+
+Consulta nova custa uma linha em `ForkBridge::Query` e uma em `ForkNative.kt` — zero arquivos do
+upstream. O preço é despacho por string, que o compilador não confere; ele é pago com testes, um
+por consulta, mais o caso da **consulta desconhecida**, que responde erro estruturado em vez de
+string vazia (vazio é indistinguível de "a chamada falhou" do lado Kotlin).
+
+`config.options` devolve a tabela inteira de opções do fork, para a UI se construir sozinha em vez
+de manter uma lista paralela que sai de sincronia na primeira opção nova.
+
+### Item 5 — validação no import
+
+`CustomDriver.installFromStream` agora inspeciona o `.so` **antes** de comprometer o pacote:
+arquitetura errada, truncado ou página HTML são recusados ali, com o motivo guardado em
+`CustomDriver.lastRejection` para a UI explicar. Em caso de sucesso, o **SHA-256 é gravado no
+`meta.json`** — é o que faz o A/B da Fase 6 e o relatório da Fase 7 identificarem o *binário*, e
+não o nome que o pacote se deu.
+
+### Item 4 — a divergência fica visível
+
+O "System Driver" já era a primeira linha da lista na base — nada a fazer ali. O que faltava era
+mostrar **o que está rodando**: um card com `driver ativo · Mesa X.Y.Z · Vulkan A.B.C`, que fica
+vermelho quando `unexpected` (fallback silencioso ou ICD que não é Turnip) e mostra o erro cru do
+carregador quando houve um.
+
+Antes disso, a única pista de que o Turnip selecionado não subiu era um `Console.Warning` no meio
+do log — e o usuário mediria o driver errado sem saber.
+
+### Verificação
+
+`tests/ctest/core/fork/bridge_tests.cpp` — 9 casos, **9/9**: consulta desconhecida com erro
+estruturado; toda resposta com a chave `ok` e JSON bem formado; argumento contendo `:` (caminhos de
+armazenamento externo contêm) tratado como argumento e não como comando; inspeção de arquivo
+ausente; caminho vazio; `config.options` descrevendo a tabela inteira; `driver.status` e
+`gpu.capabilities` respondendo "não sondado" antes de qualquer renderer; e o escape de JSON contra
+aspas, contrabarra, controles e UTF-8 (acentos passam intactos — quebrar multibyte corromperia
+nomes de arquivo e as nossas próprias mensagens).
+
+O lado Android não tem teste automatizado; é o que a verificação em dispositivo cobre.

@@ -41,7 +41,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 
 | Módulo | Onde | Estado |
 |---|---|---|
-| `android_driver_manager` | `platforms/android/.../com/armsx2/driver/` | Fase 4-5 |
+| `android_driver_manager` | `platforms/android/.../com/armsx2/` | **feito** (Fase 4) |
 | `adrenotools_backend` | `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` (existente) | Fase 4 |
 | `gpu_capabilities` | `pcsx2/Fork/ForkGpuCapabilities.*` + `com.armsx2.fork` | **feito** (Fase 3) |
 | `fork_config` | `pcsx2/Fork/` + `com.armsx2.fork` | **feito** (infraestrutura) |

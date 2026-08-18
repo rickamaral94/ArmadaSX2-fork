@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import kr.co.iefriends.pcsx2.HttpClient
+import com.armsx2.fork.ForkNative
 import kr.co.iefriends.pcsx2.NativeApp
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,6 +39,12 @@ import java.util.zip.ZipInputStream
 object CustomDriver {
 
     private const val TAG = "CustomDriver"
+
+    /** Motivo da última recusa de import, para a UI explicar em vez de só dizer que falhou.
+     *  Limpo a cada import bem-sucedido. */
+    @Volatile
+    var lastRejection: String? = null
+        private set
 
     /** Source repos for the remote driver list. Each ships GitHub releases
      *  whose .zip assets are adrenotools driver packs (`meta.json` +
@@ -384,6 +391,27 @@ object CustomDriver {
             Log.w(TAG, "install: zip missing $libName")
             tmpDir.deleteRecursively()
             return null
+        }
+
+        // Fase 4 do fork, itens 1 e 5: confere que o .so é MESMO uma biblioteca AArch64 e registra
+        // o SHA-256 antes de comprometer o pacote. Sem isso, um driver de outra arquitetura ou um
+        // download interrompido só falha lá adiante, dentro do dlopen, no meio do boot.
+        val inspection = ForkNative.inspectDriver(File(tmpDir, libName).absolutePath)
+        if (inspection != null && !inspection.usable) {
+            Log.w(TAG, "install: rejeitado (${inspection.verdict}): ${inspection.reason}")
+            lastRejection = inspection.reason
+            tmpDir.deleteRecursively()
+            return null
+        }
+        lastRejection = null
+        if (inspection != null && inspection.sha256.isNotEmpty()) {
+            // Gravado no manifesto para que o A/B da Fase 6 e o relatório da Fase 7 identifiquem o
+            // BINÁRIO, e não o nome que o pacote se deu.
+            runCatching {
+                val json = JSONObject(meta.readText())
+                json.put("sha256", inspection.sha256)
+                meta.writeText(json.toString())
+            }
         }
 
         if (targetDir.exists()) targetDir.deleteRecursively()

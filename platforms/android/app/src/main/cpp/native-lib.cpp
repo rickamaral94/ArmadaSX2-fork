@@ -9,6 +9,7 @@
 #include "common/StringUtil.h"
 #include "common/FileSystem.h"
 #include "common/ZipHelpers.h"
+#include "pcsx2/Fork/ForkBridge.h"
 #include "pcsx2/GS.h"
 #include "pcsx2/Counters.h"
 #include "pcsx2/VMManager.h"
@@ -1465,6 +1466,15 @@ static bool ApplyLiveGSSettings(const char* reason, std::function<bool()> mutate
 // VM. Type comes as a string from Java to keep the JNI surface flat —
 // only four primitives are supported (bool/int/float/string), enough
 // for every EmuCore key the UI needs to push.
+// Porta única do fork (ver pcsx2/Fork/ForkBridge.h). Uma função para todas as consultas, para
+// não pagar JNI nova — neste arquivo e no NativeApp.java, ambos do upstream — a cada recurso.
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_kr_co_iefriends_pcsx2_NativeApp_forkQuery(JNIEnv* env, jclass, jstring p_request) {
+    const std::string request = GetJavaString(env, p_request);
+    return env->NewStringUTF(ForkBridge::Query(request).c_str());
+}
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_kr_co_iefriends_pcsx2_NativeApp_setSetting(JNIEnv *env, jclass clazz,

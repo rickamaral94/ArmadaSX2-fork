@@ -138,6 +138,13 @@ public class NativeApp {
 	 * Setting writes here are NOT live until commitSettings() is called.
 	 * Batch the writes, then commit once so the VM applies them atomically.
 	 */
+	/** Porta única para os módulos do fork: texto entra, JSON sai. Ver pcsx2/Fork/ForkBridge.h.
+	 *
+	 *  Deliberadamente genérica: uma função JNI por consulta exigiria editar este arquivo e
+	 *  native-lib.cpp — ambos do upstream — a cada recurso novo, e o custo se repetiria para
+	 *  sempre. Nunca devolve string vazia; erro também é JSON. */
+	public static native String forkQuery(String request);
+
 	public static native void setSetting(String section, String key, String type, String value);
 
 	/**
