@@ -44,6 +44,12 @@ namespace
 			"Diretório das bibliotecas de hook do adrenotools."},
 		{Option::DriverId, "Driver.Id", Type::String, false, 0, 0.0f, "",
 			"Id do pacote de driver selecionado."},
+		{Option::FrameGenMode, "FrameGen.Mode", Type::String, false, 0, 0.0f, "off",
+			"Frame Generation: off, auto ou 2x. Não aumenta a velocidade da emulação."},
+		{Option::FrameGenBudgetMs, "FrameGen.BudgetMs", Type::Float, false, 0, 6.0f, "",
+			"Teto de tempo para gerar um quadro, em ms."},
+		{Option::FrameGenMinRealFps, "FrameGen.MinRealFps", Type::Float, false, 0, 25.0f, "",
+			"FPS real mínimo para Frame Generation engatar."},
 	}};
 
 	// Um desalinhamento entre o enum e a tabela faria uma opção ler o valor da vizinha — sem erro,

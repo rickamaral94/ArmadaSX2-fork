@@ -82,6 +82,15 @@ namespace ForkConfig
 		/// Id do pacote, só para a UI casar a seleção com a lista instalada.
 		DriverId,
 
+		// --- frame generation (Fase 7) ---
+
+		/// `off` (padrão), `auto` ou `2x`.
+		FrameGenMode,
+		/// Teto de tempo, em ms, para produzir o quadro gerado.
+		FrameGenBudgetMs,
+		/// FPS real abaixo disto não engata: suavizar emulação lenta é mascarar.
+		FrameGenMinRealFps,
+
 		Count,
 	};
 

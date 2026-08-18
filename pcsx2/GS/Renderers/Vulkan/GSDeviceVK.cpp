@@ -7,6 +7,7 @@
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #include "Fork/ForkDriverIdentity.h"
+#include "Fork/ForkFrameGen.h"
 #include "Fork/ForkGpuCapabilities.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h"
@@ -1689,6 +1690,9 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 
 	if (present_swap_chain)
 	{
+		// Fase 7 do fork: a política de frame generation é avaliada aqui, no único ponto por onde
+		// todo quadro apresentado passa. Ela NÃO apresenta nada a mais nesta fase — calcula,
+		// registra e a UI mostra. Ver pcsx2/Fork/ForkFrameGen.h.
 		// Consumed here rather than only reset in BeginPresent: RenderBlankFrame() presents
 		// without going through BeginPresent at all, so a flag left set by the last real frame
 		// would tell frame generation that a cleared image was fresh game output.
@@ -1698,6 +1702,8 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 		// semaphore for its own copy, then presents the interpolated frames and the real one in
 		// order. It returns false without consuming anything if it cannot run this frame, which
 		// is the ordinary path on every build and device without it.
+		ForkFrameGen::EvaluateAtPresent(/*supported=*/true, has_new_frame);
+
 		if (GSLsfg::IsActive() &&
 			GSLsfg::PresentWithGeneration(m_present_queue, present_swap_chain,
 				present_swap_chain->GetRenderingFinishedSemaphore(), has_new_frame))

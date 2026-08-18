@@ -547,6 +547,7 @@ set(pcsx2GSSources
 	Fork/ForkConfig.cpp
 	Fork/ForkDriverPackage.cpp
 	Fork/ForkDriverIdentity.cpp
+	Fork/ForkFrameGen.cpp
 	Fork/ForkGpuCapabilities.cpp
 	Fork/ForkRuntime.cpp
 	GS/Renderers/Common/GSRenderer.cpp
@@ -605,6 +606,7 @@ set(pcsx2GSHeaders
 	Fork/ForkConfig.h
 	Fork/ForkDriverPackage.h
 	Fork/ForkDriverIdentity.h
+	Fork/ForkFrameGen.h
 	Fork/ForkGpuCapabilities.h
 	Fork/ForkRuntime.h
 	GS/Renderers/Common/GSPresentationPolicy.h

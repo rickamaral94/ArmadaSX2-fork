@@ -82,6 +82,8 @@ SmallString s_gpu_debug_info_line;
 // Fase 2 do fork: cadência da apresentação (FPS real x apresentado). std::string porque
 // GSPresentationMetrics devolve uma; montada uma vez por frame de OSD, como as vizinhas.
 std::string s_presentation_metrics_line;
+// Fase 7 do fork: estado do frame generation.
+std::string s_framegen_line;
 SmallString s_gpu_stats_line;
 SmallString s_lsfg_line;
 SmallString s_speed_icon;
@@ -129,6 +131,7 @@ namespace GSLsfg
 // Fase 2 do fork: cadência da apresentação. Cabeçalho próprio (não passa por VKLoader.h), então
 // pode ser incluído aqui sem arrastar os headers do Vulkan para esta TU multiplataforma.
 #include "Fork/ForkConfig.h"
+#include "Fork/ForkFrameGen.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
 
 /// Frame generation's own status line, or empty when the user has not switched it on. Behind a
@@ -739,6 +742,11 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 					? GSPresentationMetrics::GetOverlayLine()
 					: std::string();
 
+			// Estado do frame generation. Aparece sempre que FG está ligado, inclusive — e
+			// principalmente — quando não está engatado: sem isso o usuário liga a opção, não vê
+			// nada acontecer e não distingue "não engatou" de "está quebrado".
+			s_framegen_line = ForkFrameGen::StatusLine(ForkFrameGen::GetLastDecision());
+
 			if (GSConfig.OsdShowGPUDebug)
 			{
 #ifdef _WIN32
@@ -841,6 +849,9 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 
 			if (!s_presentation_metrics_line.empty())
 				DRAW_LINE(osd_font, font_size, s_presentation_metrics_line.c_str(), OsdTextColor());
+
+			if (!s_framegen_line.empty())
+				DRAW_LINE(osd_font, font_size, s_framegen_line.c_str(), OsdTextColor());
 
 			if (GSConfig.OsdShowGPUStats)
 			{
