@@ -64,7 +64,7 @@ justificativa, o fork está saindo do trilho.
 | `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional, +1 card de status | esconde a seção em GPU incompatível (Fase 3); mostra o driver ativo e avisa quando não é o pedido (Fase 4, item 4) |
 | `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
 | `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI | implementação da porta única |
-| `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar | Fase 4, item 5 |
+| `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar; grava a seleção na configuração | Fase 4 item 5, Fase 5 |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
 | `.github/dependabot.yml` | removido | O Dependabot do upstream mantém as versões das *actions* de um pipeline que não é nosso. Cada PR semanal dele dispararia `build-all.yml` (~2 h de CI arm64) no nosso repositório, para atualizar workflows que só o upstream usa. As atualizações chegam pelo merge do upstream. |
 | `.github/workflows/upload-moonstore.yml` | gatilho `workflow_run` removido (só `workflow_dispatch`) | Publica builds em uma loja de terceiros do upstream. Nossos builds não devem ir para lá. |

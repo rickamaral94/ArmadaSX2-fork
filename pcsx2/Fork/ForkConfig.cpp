@@ -32,6 +32,18 @@ namespace
 			"Mede FPS real e FPS apresentado, frametime e 1% low na camada de apresentação."},
 		{Option::PresentationMetricsOverlay, "PresentationMetrics.Overlay", Type::Bool, false, 0, 0.0f, "",
 			"Mostra a linha de cadência da apresentação no OSD."},
+		{Option::DriverMode, "Driver.Mode", Type::String, false, 0, 0.0f, "inherit",
+			"Como escolher o driver Vulkan: inherit, system ou custom."},
+		{Option::DriverDir, "Driver.Dir", Type::String, false, 0, 0.0f, "",
+			"Diretório do pacote de driver customizado."},
+		{Option::DriverName, "Driver.Name", Type::String, false, 0, 0.0f, "",
+			"Soname da biblioteca do driver."},
+		{Option::DriverRedirectDir, "Driver.RedirectDir", Type::String, false, 0, 0.0f, "",
+			"Diretório de cache do driver."},
+		{Option::DriverHookLibDir, "Driver.HookLibDir", Type::String, false, 0, 0.0f, "",
+			"Diretório das bibliotecas de hook do adrenotools."},
+		{Option::DriverId, "Driver.Id", Type::String, false, 0, 0.0f, "",
+			"Id do pacote de driver selecionado."},
 	}};
 
 	// Um desalinhamento entre o enum e a tabela faria uma opção ler o valor da vizinha — sem erro,
@@ -267,4 +279,25 @@ void ForkConfig::RegisterChangeCallback(ChangeCallback callback)
 		return;
 	std::lock_guard lock(s_callback_mutex);
 	s_callbacks.push_back(callback);
+}
+
+ForkConfig::DriverSelection ForkConfig::ResolveDriverSelection(
+	std::string_view mode, std::string_view dir, std::string_view name, std::string_view hook_lib_dir)
+{
+	if (mode == "system")
+		return DriverSelection::System;
+
+	if (mode == "custom")
+	{
+		// Modo custom sem os caminhos é configuração quebrada — INI editado à mão, pacote apagado
+		// por fora, migração incompleta. Cair em System deixa o jogo rodando de forma previsível e
+		// visível; cair em Inherit o deixaria com o driver de outro jogo, que é pior porque
+		// parece que funcionou.
+		if (dir.empty() || name.empty() || hook_lib_dir.empty())
+			return DriverSelection::System;
+		return DriverSelection::Custom;
+	}
+
+	// Qualquer outra coisa (inclusive vazio e lixo) é "não opino".
+	return DriverSelection::Inherit;
 }

@@ -22,6 +22,23 @@ object ForkSettings {
     object Keys {
         const val PRESENTATION_METRICS_ENABLED = "PresentationMetrics.Enabled"
         const val PRESENTATION_METRICS_OVERLAY = "PresentationMetrics.Overlay"
+
+        const val DRIVER_MODE = "Driver.Mode"
+        const val DRIVER_DIR = "Driver.Dir"
+        const val DRIVER_NAME = "Driver.Name"
+        const val DRIVER_REDIRECT_DIR = "Driver.RedirectDir"
+        const val DRIVER_HOOK_LIB_DIR = "Driver.HookLibDir"
+        const val DRIVER_ID = "Driver.Id"
+    }
+
+    /** Modos aceitos por `Driver.Mode`. */
+    object DriverMode {
+        /** Não opina — herda o que estiver valendo. É o padrão de um jogo sem override. */
+        const val INHERIT = "inherit"
+        /** Força o driver do sistema, mesmo que o global seja um Turnip. */
+        const val SYSTEM = "system"
+        /** Usa os caminhos configurados. */
+        const val CUSTOM = "custom"
     }
 
     /**
@@ -49,4 +66,60 @@ object ForkSettings {
     }
 
     fun putForGameBool(key: String, value: Boolean) = putForGame(key, value.toString())
+
+    // ---- Seleção de driver (Fase 5) -----------------------------------------
+
+    /** Caminhos de um pacote instalado, no formato que o adrenotools espera. */
+    data class DriverPaths(
+        val id: String,
+        val dir: String,
+        val libraryName: String,
+        val redirectDir: String,
+        val hookLibDir: String,
+    )
+
+    /**
+     * Grava a seleção global. Não aplica nada por si: o núcleo lê estas chaves em
+     * VMManager::LoadSettings, que roda antes do primeiro MTGS::Open — que é onde o VKLoader
+     * consome o driver. Passe null para o driver do sistema.
+     */
+    fun selectDriverGlobally(paths: DriverPaths?) {
+        if (paths == null) {
+            putGlobal(Keys.DRIVER_MODE, DriverMode.SYSTEM)
+            putGlobal(Keys.DRIVER_ID, "")
+        } else {
+            putGlobal(Keys.DRIVER_MODE, DriverMode.CUSTOM)
+            putGlobal(Keys.DRIVER_ID, paths.id)
+            putGlobal(Keys.DRIVER_DIR, paths.dir)
+            putGlobal(Keys.DRIVER_NAME, paths.libraryName)
+            putGlobal(Keys.DRIVER_REDIRECT_DIR, paths.redirectDir)
+            putGlobal(Keys.DRIVER_HOOK_LIB_DIR, paths.hookLibDir)
+        }
+        commit()
+    }
+
+    /**
+     * Override por jogo. O chamador abre a escrita do INI do jogo antes, como nas demais opções.
+     *
+     * `paths = null` força o driver do SISTEMA neste jogo, mesmo com um Turnip global — que é o
+     * caso de uso principal do override: um jogo que quebra no Turnip. Para remover o override e
+     * voltar a seguir o global, use [clearGameDriverOverride].
+     */
+    fun selectDriverForGame(paths: DriverPaths?) {
+        if (paths == null) {
+            putForGame(Keys.DRIVER_MODE, DriverMode.SYSTEM)
+        } else {
+            putForGame(Keys.DRIVER_MODE, DriverMode.CUSTOM)
+            putForGame(Keys.DRIVER_ID, paths.id)
+            putForGame(Keys.DRIVER_DIR, paths.dir)
+            putForGame(Keys.DRIVER_NAME, paths.libraryName)
+            putForGame(Keys.DRIVER_REDIRECT_DIR, paths.redirectDir)
+            putForGame(Keys.DRIVER_HOOK_LIB_DIR, paths.hookLibDir)
+        }
+    }
+
+    /** Faz o jogo voltar a seguir a seleção global. */
+    fun clearGameDriverOverride() {
+        putForGame(Keys.DRIVER_MODE, DriverMode.INHERIT)
+    }
 }

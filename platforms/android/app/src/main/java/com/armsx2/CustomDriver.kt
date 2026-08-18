@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import kr.co.iefriends.pcsx2.HttpClient
 import com.armsx2.fork.ForkNative
+import com.armsx2.fork.ForkSettings
 import kr.co.iefriends.pcsx2.NativeApp
 import org.json.JSONArray
 import org.json.JSONObject
@@ -434,6 +435,9 @@ object CustomDriver {
     fun applyToNative(context: Context, installed: InstalledDriver?) {
         if (installed == null) {
             NativeApp.setCustomVulkanDriver("", "", "", "")
+            // Fase 5: a mesma seleção vai para a configuração do fork, que é lida em camadas —
+            // é o que permite um jogo específico sobrescrevê-la sem código de coordenação aqui.
+            ForkSettings.selectDriverGlobally(null)
             return
         }
         // adrenotools' path resolution wants the driver dir to end with
@@ -444,5 +448,14 @@ object CustomDriver {
         val hookLibDir = context.applicationInfo.nativeLibraryDir
         NativeApp.setCustomVulkanDriver(
             driverDirPath, installed.libraryName, redirectDirPath, hookLibDir)
+        ForkSettings.selectDriverGlobally(
+            ForkSettings.DriverPaths(
+                id = installed.id,
+                dir = driverDirPath,
+                libraryName = installed.libraryName,
+                redirectDir = redirectDirPath,
+                hookLibDir = hookLibDir,
+            )
+        )
     }
 }

@@ -58,6 +58,30 @@ namespace ForkConfig
 		/// querer medir sem poluir a captura de tela.
 		PresentationMetricsOverlay,
 
+		// --- seleção de driver Vulkan (Fase 5) ---
+		//
+		// Moram aqui, e não em um estado próprio do frontend, exatamente para herdar o override
+		// por jogo: a leitura passa pelo SettingsInterface em camadas, então estas chaves no INI
+		// de um jogo prevalecem sobre as globais sem uma linha de código nossa.
+
+		/// `inherit` (padrão), `system` ou `custom`.
+		///
+		/// `inherit` existe porque "vazio" não consegue distinguir "este jogo não opina" de "este
+		/// jogo quer o driver do sistema" — e sem essa distinção não dá para forçar o driver do
+		/// sistema em um jogo específico enquanto o global é Turnip, que é justamente o caso de
+		/// uso mais comum (um jogo que quebra no Turnip).
+		DriverMode,
+		/// Diretório do pacote, com barra ao final (contrato do adrenotools).
+		DriverDir,
+		/// Soname da biblioteca, ex.: `libvulkan_freedreno.so`.
+		DriverName,
+		/// Diretório onde o driver pode escrever o cache dele.
+		DriverRedirectDir,
+		/// Diretório das bibliotecas de hook do adrenotools.
+		DriverHookLibDir,
+		/// Id do pacote, só para a UI casar a seleção com a lista instalada.
+		DriverId,
+
 		Count,
 	};
 
@@ -111,6 +135,25 @@ namespace ForkConfig
 
 	/// Volta tudo ao padrão. Não persiste.
 	void ResetToDefaults();
+
+	/// Como a seleção de driver deve ser aplicada, depois de resolvida.
+	enum class DriverSelection : u8
+	{
+		/// Nada a fazer — mantém o que o frontend já tiver configurado.
+		Inherit,
+		/// Força o driver do sistema, mesmo que o global seja um Turnip.
+		System,
+		/// Usa os caminhos configurados.
+		Custom,
+	};
+
+	/// Resolve o modo lido do INI. Pura, para poder ser testada sem Vulkan e sem Android.
+	///
+	/// Um modo `custom` sem os caminhos necessários vira `System`, não `Inherit`: uma configuração
+	/// quebrada tem que cair em algo previsível e visível, e "inherit" deixaria o jogo rodando com
+	/// o driver de outro jogo.
+	DriverSelection ResolveDriverSelection(std::string_view mode, std::string_view dir,
+		std::string_view name, std::string_view hook_lib_dir);
 
 	/// Chamado depois de cada LoadSettings/SetAndSave, para os módulos reagirem (ligar métrica,
 	/// trocar driver, etc). Registre no arranque; não há remoção, porque nada aqui é temporário.

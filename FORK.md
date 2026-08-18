@@ -58,6 +58,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 2 — métricas da camada de apresentação](docs/fase2-presentation-metrics.md)
 - [Fase 3 — capacidades da GPU e gating do Turnip](docs/fase3-gpu-capabilities.md)
 - [Fase 4 — endurecer o gerenciador de driver Vulkan](docs/fase4-driver-manager.md)
+- [Fase 5 — driver Vulkan por jogo](docs/fase5-driver-por-jogo.md)
 - [Fase 6 — framework de benchmark A/B](docs/fase6-benchmark.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 

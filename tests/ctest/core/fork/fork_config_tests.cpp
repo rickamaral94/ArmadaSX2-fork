@@ -137,3 +137,59 @@ TEST_F(ForkConfigTest, SetAndSaveRejectsInvalidValues)
 	EXPECT_TRUE(ForkConfig::SetAndSave(Option::PresentationMetricsEnabled, "true"));
 	EXPECT_TRUE(ForkConfig::GetBool(Option::PresentationMetricsEnabled));
 }
+
+// --- seleção de driver por jogo (Fase 5) ---
+
+using ForkConfig::DriverSelection;
+
+TEST_F(ForkConfigTest, DriverModeResolvesTheThreeStates)
+{
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("inherit", "", "", ""), DriverSelection::Inherit);
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("system", "", "", ""), DriverSelection::System);
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("custom", "/drivers/t1/", "libvulkan_freedreno.so", "/hooks/"),
+		DriverSelection::Custom);
+}
+
+// "inherit" existe porque vazio não distingue "este jogo não opina" de "este jogo quer o driver do
+// sistema" — e é justamente forçar o sistema em UM jogo (que quebra no Turnip) enquanto o global
+// segue Turnip o caso de uso mais comum do override.
+TEST_F(ForkConfigTest, EmptyAndGarbageMeanNoOpinion)
+{
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("", "", "", ""), DriverSelection::Inherit);
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("qualquer coisa", "", "", ""), DriverSelection::Inherit);
+}
+
+// Configuração quebrada cai em System, não em Inherit: previsível e visível. Inherit deixaria o
+// jogo rodando com o driver de OUTRO jogo, que é pior porque parece que funcionou.
+TEST_F(ForkConfigTest, CustomWithoutPathsFallsBackToSystemNotInherit)
+{
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("custom", "", "libvulkan_freedreno.so", "/hooks/"),
+		DriverSelection::System);
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("custom", "/drivers/t1/", "", "/hooks/"),
+		DriverSelection::System);
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection("custom", "/drivers/t1/", "libvulkan_freedreno.so", ""),
+		DriverSelection::System);
+}
+
+// O que faz o override por jogo funcionar: as chaves são lidas da interface em camadas, então uma
+// camada de jogo que declare `system` vence o global `custom` sem código nosso para isso.
+TEST_F(ForkConfigTest, GameLayerCanForceTheSystemDriverOverAGlobalTurnip)
+{
+	MemorySettingsInterface global_only;
+	global_only.SetStringValue(ForkConfig::SECTION, "Driver.Mode", "custom");
+	global_only.SetStringValue(ForkConfig::SECTION, "Driver.Dir", "/drivers/turnip/");
+	global_only.SetStringValue(ForkConfig::SECTION, "Driver.Name", "libvulkan_freedreno.so");
+	global_only.SetStringValue(ForkConfig::SECTION, "Driver.HookLibDir", "/hooks/");
+	ForkConfig::LoadSettings(global_only);
+	EXPECT_EQ(ForkConfig::GetString(Option::DriverMode), "custom");
+
+	// O PCSX2 monta a camada; aqui o efeito é o mesmo: a chave do jogo sobrescreve.
+	MemorySettingsInterface with_game_override;
+	with_game_override.SetStringValue(ForkConfig::SECTION, "Driver.Mode", "system");
+	ForkConfig::LoadSettings(with_game_override);
+
+	EXPECT_EQ(ForkConfig::ResolveDriverSelection(ForkConfig::GetString(Option::DriverMode),
+				  ForkConfig::GetString(Option::DriverDir), ForkConfig::GetString(Option::DriverName),
+				  ForkConfig::GetString(Option::DriverHookLibDir)),
+		DriverSelection::System);
+}
