@@ -216,13 +216,13 @@ jobs:
           submodules: recursive
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install NDK + CMake
         run: yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
@@ -376,7 +376,7 @@ jobs:
           echo "Release assets:"; ls -la out
 
       - name: Publish GitHub pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly-${{ needs.gate.outputs.date }}
           name: "ARMSX2 nightly ${{ needs.gate.outputs.date }} (${{ needs.gate.outputs.sha }})"

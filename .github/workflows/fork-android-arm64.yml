@@ -42,14 +42,14 @@ jobs:
           submodules: recursive
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # Versões espelhadas de build-all.yml: o NDK é o que o AGP resolve por padrão e o cmake
       # 3.31.6 é o piso real das dependências do shaderc (3.22.1 falha ao configurar spirv-tools).

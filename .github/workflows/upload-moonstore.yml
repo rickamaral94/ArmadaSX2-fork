@@ -58,7 +58,7 @@ jobs:
           printf 'run_started_at=%s\n' "$(jq -r '.run_started_at' source-run.json)" >> "$GITHUB_OUTPUT"
 
       - name: Download completed platform builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
