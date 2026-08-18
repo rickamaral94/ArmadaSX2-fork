@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.armsx2.CustomDriver
+import com.armsx2.fork.ForkGpuCapabilities
 import com.armsx2.i18n.str
 import com.armsx2.runtime.MainActivityRuntime
 import com.armsx2.ui.InGameOverlay
@@ -52,6 +53,19 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun DriverManagerSection() {
+    // Fase 3 do fork: em GPU incompatível a seção inteira não aparece — carregar um driver
+    // freedreno em Mali/PowerVR não é uma opção arriscada, é a arquitetura errada. Some apenas
+    // quando há CERTEZA negativa; com a sonda de GPU falhando a seção continua visível e o
+    // carregador mantém o próprio fallback para o driver do sistema.
+    if (!ForkGpuCapabilities.shouldShowDriverSection()) {
+        Text(
+            text = ForkGpuCapabilities.reason(),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+        return
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val installed = remember { mutableStateListOf<CustomDriver.InstalledDriver>() }

@@ -6,6 +6,7 @@
 #include "GS/GSPerfMon.h"
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
+#include "Fork/ForkGpuCapabilities.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h"
 #include "GS/Renderers/Vulkan/VKBuilders.h"
@@ -3447,6 +3448,12 @@ bool GSDeviceVK::CheckFeatures()
 		GSConfig.AndroidGpuProfileOverride, std::string_view(), m_device_properties.deviceName,
 		driver_context);
 	SetMobileDriverProfile(mobile_profile.driver);
+
+	// Veredito único do fork sobre este aparelho (Fase 3): fabricante, geração Adreno, Vulkan,
+	// versão do Android e se troca de driver Turnip pode sequer ser oferecida. Publicado aqui
+	// porque é o ponto em que o perfil acabou de ser resolvido; fora do bloco Android de propósito,
+	// para que as outras plataformas recebam "NotAndroid" em vez de ficarem em "não sondado".
+	ForkGpuCapabilities::Publish(mobile_profile, m_device_properties.apiVersion);
 #if defined(__ANDROID__)
 	// MediaTek (Dimensity/Helio) Mali Vulkan stacks return zero/stale destination color
 	// through ROAA (black / missing textures) across GPU generations, so detect the SoC
