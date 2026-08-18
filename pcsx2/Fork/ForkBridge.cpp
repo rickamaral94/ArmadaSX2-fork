@@ -7,6 +7,7 @@
 #include "Fork/ForkConfig.h"
 #include "Fork/ForkDriverIdentity.h"
 #include "Fork/ForkDriverPackage.h"
+#include "Fork/ForkFrameGen.h"
 #include "Fork/ForkGpuCapabilities.h"
 
 #include "fmt/format.h"
@@ -82,6 +83,22 @@ namespace
 			ForkBridge::EscapeJson(caps.gpu_name), GpuProfileDetector::RuntimeProfileToString(caps.vendor),
 			GpuProfileDetector::ArchitectureToString(caps.architecture),
 			ForkGpuCapabilities::FormatVulkanVersion(caps.vulkan_api_version), caps.android_sdk);
+	}
+
+	std::string FrameGenStatus()
+	{
+		// O aviso vem daqui, verbatim, em vez de a UI guardar a própria cópia. Uma cópia no
+		// frontend pode ser reescrita de forma mais otimista — "FG aumenta o desempenho" — e é
+		// exatamente essa frase que o projeto proíbe. A UI mostra o que o núcleo diz.
+		const ForkFrameGen::Policy policy = ForkFrameGen::PolicyFromConfig();
+		const ForkFrameGen::Decision decision = ForkFrameGen::GetLastDecision();
+		return fmt::format(
+			R"({{"ok":true,"mode":"{}","warning":"{}","state":"{}","reason":"{}",)"
+			R"("framesToGenerate":{},"budgetMs":{:.2f},"minRealFps":{:.1f},"statusLine":"{}"}})",
+			ForkFrameGen::ModeToString(policy.mode), ForkBridge::EscapeJson(ForkFrameGen::USER_WARNING),
+			ForkFrameGen::StateToString(decision.state),
+			ForkBridge::EscapeJson(ForkFrameGen::ReasonText(decision.reason)), decision.frames_to_generate,
+			policy.budget_ms, policy.min_real_fps, ForkBridge::EscapeJson(ForkFrameGen::StatusLine(decision)));
 	}
 
 	std::string ConfigOptions()
@@ -176,6 +193,8 @@ std::string ForkBridge::Query(std::string_view request)
 		return GpuCapabilities();
 	if (command == "config.options")
 		return ConfigOptions();
+	if (command == "framegen.status")
+		return FrameGenStatus();
 	if (command == "benchmark.begin")
 	{
 		if (argument.empty())

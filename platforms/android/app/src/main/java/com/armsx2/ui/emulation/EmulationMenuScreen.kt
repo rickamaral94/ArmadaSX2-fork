@@ -1111,6 +1111,10 @@ private fun PerformancePane(state: EmulationMenuUiState, viewModel: EmulationMen
                 dllPath = settings.lsfgDllPath,
                 performance = settings.lsfgPerformance,
                 flowScale = settings.lsfgFlowScale,
+                forkFrameGenMode = settings.forkFrameGenMode,
+                onForkFrameGenModeChange = { mode ->
+                    viewModel.updateSettings { it.copy(forkFrameGenMode = mode) }
+                },
             ) { on, mult, dll, perf, flow ->
                 viewModel.updateSettings {
                     it.copy(

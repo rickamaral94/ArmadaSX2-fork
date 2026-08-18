@@ -4,6 +4,7 @@
 #include "Fork/ForkBridge.h"
 
 #include "Fork/ForkConfig.h"
+#include "Fork/ForkFrameGen.h"
 
 #include <gtest/gtest.h>
 
@@ -112,4 +113,28 @@ TEST(ForkBridge, Utf8PassesThroughUnbroken)
 {
 	const std::string accented = "não é uma biblioteca nativa";
 	EXPECT_EQ(ForkBridge::EscapeJson(accented), accented);
+}
+
+// O aviso obrigatório atravessa a ponte verbatim. A UI não guarda cópia própria justamente para
+// não poder reescrevê-lo de forma mais otimista — se ele parar de vir por aqui, a tela fica sem
+// aviso, e este teste é o que impede isso de passar despercebido.
+TEST(ForkBridge, FrameGenStatusCarriesTheMandatoryWarning)
+{
+	const std::string response = ForkBridge::Query("framegen.status");
+	EXPECT_TRUE(Contains(response, "\"ok\":true"));
+	EXPECT_TRUE(Contains(response, ForkFrameGen::USER_WARNING));
+	EXPECT_TRUE(Contains(response, "\"mode\""));
+	EXPECT_TRUE(Contains(response, "\"state\""));
+	EXPECT_TRUE(Contains(response, "\"reason\""));
+	EXPECT_TRUE(Contains(response, "\"minRealFps\""));
+}
+
+// Sem VM e sem renderer a resposta é "desligado", não um erro: a tela de configuração abre antes
+// de qualquer jogo rodar, e é exatamente ali que o usuário escolhe o modo.
+TEST(ForkBridge, FrameGenStatusAnswersBeforeAnyRenderer)
+{
+	const std::string response = ForkBridge::Query("framegen.status");
+	EXPECT_TRUE(Contains(response, "\"mode\":\"off\""));
+	EXPECT_TRUE(Contains(response, "\"state\":\"Disabled\""));
+	EXPECT_TRUE(Contains(response, "\"framesToGenerate\":0"));
 }

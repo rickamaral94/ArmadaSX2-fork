@@ -62,6 +62,7 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("perf.ntscFramerate.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.palFramerate.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.frameSkip.label", true, SettingsCategory.Performance),
+    SettingsSearchEntry("perf.fg.mode.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.lsfg.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.lsfg.multiplier.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.lsfg.performance.label", true, SettingsCategory.Performance),

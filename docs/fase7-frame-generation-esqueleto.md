@@ -80,6 +80,32 @@ FrameGen.MinRealFps = 25.0
 Com override por jogo, pelas camadas (Fase 5). Modo inválido cai em `off`: o padrão seguro é não
 fazer nada.
 
+## 5.1 A tela
+
+Política e backend ficam na **mesma seção** da UI — a de Frame Generation, no *Performance* e no
+menu de pausa — e nessa ordem: o modo (Off / Auto / 2x), o aviso obrigatório logo abaixo dele, o
+estado ao vivo quando ligado, e só então o backend LSFG com o seletor do `Lossless.dll` que o
+usuário fornece. Separar as duas coisas em telas diferentes seria convidar exatamente a leitura
+errada: que ligar um backend basta, e que a régua é um detalhe de outro lugar.
+
+O aviso exibido vem do núcleo pela ponte (`framegen.status` → `warning`), não de uma string da
+UI. Uma cópia no frontend pode ser suavizada — por uma edição bem-intencionada ou por uma
+tradução — até virar "FG aumenta o desempenho", que é precisamente a frase proibida. Quando a
+ponte não responde (biblioteca nativa ainda não subiu, núcleo antigo), a UI mostra o texto de
+reserva dela: sem aviso é o único estado que a seção não pode ter.
+
+`FrameGen.BudgetMs` e `FrameGen.MinRealFps` **não** estão na tela. São as travas da régua, e
+oferecê-las ao lado do botão que liga o recurso é oferecer o caminho de afrouxá-las até FG engatar
+em cima de uma emulação lenta. Quem precisa mexer nelas tem a seção `[Fork]` do INI — e aí é uma
+decisão consciente, não um deslize de dois toques.
+
+O modo viaja pela mesma máquina de configuração das opções do upstream (`Settings.forkFrameGenMode`
+→ `put("Fork", "FrameGen.Mode", …)`), o que lhe dá persistência, exportação e override por jogo sem
+código novo. A escrita fica em `applyTo()`, não em `writeGsToNative()`: o caminho de GS ao vivo
+pula o `commitSettings()`, e é ele que faz `VMManager::LoadSettings` — logo `ForkRuntime::LoadSettings`
+— reler a seção `[Fork]`. Uma chave nossa escrita pelo caminho de GS seria persistida sem tomar
+efeito, que é o pior dos dois resultados.
+
 ## 6. Verificação
 
 `tests/ctest/core/fork/framegen_tests.cpp` — 11 casos, **11/11**: engate em quadro saudável;
@@ -88,6 +114,11 @@ suavizar emulação lenta; lento-mas-regular ainda recusado por ser lento (prova
 degraus); recusa a ritmo instável; orçamento estourado suspendendo em vez de esperar, com o limite
 exato ainda cabendo; parsing de modo caindo em `off`; a linha de status falando sempre que ligado;
 todo motivo com texto; e o aviso dizendo o que precisa dizer.
+
+`tests/ctest/core/fork/bridge_tests.cpp` — 11 casos, **11/11**, dois deles novos: `framegen.status`
+levando o aviso obrigatório verbatim (se ele parar de vir por ali, a tela fica sem aviso), e a
+consulta respondendo "desligado" — não erro — antes de qualquer renderer, porque a tela de
+configuração abre antes de qualquer jogo rodar e é ali que o modo é escolhido.
 
 ## 7. Próximo
 

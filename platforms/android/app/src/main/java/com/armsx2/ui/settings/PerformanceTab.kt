@@ -354,6 +354,8 @@ fun PerformanceTab(state: MutableState<Settings>) {
             dllPath = s.lsfgDllPath,
             performance = s.lsfgPerformance,
             flowScale = s.lsfgFlowScale,
+            forkFrameGenMode = s.forkFrameGenMode,
+            onForkFrameGenModeChange = { apply(s.copy(forkFrameGenMode = it)) },
         ) { on, mult, dll, perf, flow ->
             apply(s.copy(
                 lsfgEnabled = on,

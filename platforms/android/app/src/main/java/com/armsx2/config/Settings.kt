@@ -592,6 +592,15 @@ data class Settings(
      *  image (25..100). Lower is cheaper and blurrier. The native side inverts it: the library
      *  takes a divisor, so 25% becomes 4.0. See GSLsfg.cpp. */
     val lsfgFlowScale: Int = 100,
+    /** [Fork]/FrameGen.Mode — "off", "auto" or "2x". The fork's own frame-generation POLICY,
+     *  which is a different thing from the LSFG backend above: the policy decides whether
+     *  generating is allowed AT ALL right now, and it refuses in the cases where a generated
+     *  frame would lie about the emulator's speed — real FPS under the floor, unstable pacing,
+     *  no new frame from the game, generation over its time budget. Frame generation never
+     *  changes the emulated speed, so this key can only affect what is PRESENTED. Read by
+     *  pcsx2/Fork/ForkFrameGen.cpp through the layered settings interface, which is what gives
+     *  it a per-game override for free. */
+    val forkFrameGenMode: String = "off",
     /** Tweaked shader parameters, as `preset path -> (parameter name -> value)`.
      *
      *  Sparse: a parameter the user hasn't touched is simply absent, and the author's own
@@ -870,6 +879,12 @@ data class Settings(
         put("EmuCore/CPU", "FPU.Roundmode", "int", eeFpuRoundMode.coerceIn(0, 3).toString())
         put("EmuCore/CPU", "VU0.Roundmode", "int", vu0RoundMode.coerceIn(0, 3).toString())
         put("EmuCore/CPU", "VU1.Roundmode", "int", vu1RoundMode.coerceIn(0, 3).toString())
+        // The fork's own section. Written here rather than in writeGsToNative() on purpose:
+        // the GS-live path deliberately skips commitSettings(), and it is commitSettings() that
+        // makes VMManager::LoadSettings — and with it ForkRuntime::LoadSettings — re-read [Fork].
+        // A Fork key written down the live-GS path would persist and not take effect, which is
+        // the worst of the two outcomes.
+        put("Fork", "FrameGen.Mode", "string", forkFrameGenMode)
         // Display + GS renderer + hardware/upscaling-fix keys are all written
         // together in writeGsToNative() below (shared with applyGsLive()).
         // DEV9. Networking/HDD are initialized with the VM, so changes
@@ -1197,6 +1212,7 @@ data class Settings(
             lsfgDllPath = strAt("EmuCore/GS/LsfgDllPath") ?: this.lsfgDllPath,
             lsfgPerformance = boolAt("EmuCore/GS/LsfgPerformance") ?: this.lsfgPerformance,
             lsfgFlowScale = intAt("EmuCore/GS/LsfgFlowScale") ?: this.lsfgFlowScale,
+            forkFrameGenMode = strAt("Fork/FrameGen.Mode") ?: this.forkFrameGenMode,
             shaderChainParams = strAt("EmuCore/GS/ShaderChainParams")?.let { raw ->
                 // Hand-editable file, so a malformed blob is a real possibility: keep the
                 // rest of the recovered settings rather than throwing the lot away.
@@ -1817,6 +1833,7 @@ data class Settings(
         put("lsfgDllPath", lsfgDllPath)
         put("lsfgPerformance", lsfgPerformance)
         put("lsfgFlowScale", lsfgFlowScale)
+        put("forkFrameGenMode", forkFrameGenMode)
         put("casMode", casMode)
         put("casSharpness", casSharpness)
         put("upscaler", upscaler)
@@ -2103,6 +2120,7 @@ data class Settings(
                 lsfgDllPath = json.optString("lsfgDllPath", def.lsfgDllPath),
                 lsfgPerformance = json.optBoolean("lsfgPerformance", def.lsfgPerformance),
                 lsfgFlowScale = json.optInt("lsfgFlowScale", def.lsfgFlowScale),
+                forkFrameGenMode = json.optString("forkFrameGenMode", def.forkFrameGenMode),
                 casMode = json.optInt("casMode", def.casMode),
                 casSharpness = json.optInt("casSharpness", def.casSharpness),
                 upscaler = json.optInt("upscaler", def.upscaler),
@@ -2347,6 +2365,7 @@ data class Settings(
             if (current.lsfgDllPath         != base.lsfgDllPath)         j.put("lsfgDllPath", current.lsfgDllPath)
             if (current.lsfgPerformance     != base.lsfgPerformance)     j.put("lsfgPerformance", current.lsfgPerformance)
             if (current.lsfgFlowScale       != base.lsfgFlowScale)       j.put("lsfgFlowScale", current.lsfgFlowScale)
+            if (current.forkFrameGenMode    != base.forkFrameGenMode)    j.put("forkFrameGenMode", current.forkFrameGenMode)
             if (current.casMode             != base.casMode)             j.put("casMode", current.casMode)
             if (current.casSharpness        != base.casSharpness)        j.put("casSharpness", current.casSharpness)
             if (current.upscaler            != base.upscaler)            j.put("upscaler", current.upscaler)
@@ -2608,6 +2627,7 @@ data class Settings(
             lsfgDllPath = if (overrides.has("lsfgDllPath")) overrides.getString("lsfgDllPath") else base.lsfgDllPath,
             lsfgPerformance = if (overrides.has("lsfgPerformance")) overrides.getBoolean("lsfgPerformance") else base.lsfgPerformance,
             lsfgFlowScale = if (overrides.has("lsfgFlowScale")) overrides.getInt("lsfgFlowScale") else base.lsfgFlowScale,
+            forkFrameGenMode = if (overrides.has("forkFrameGenMode")) overrides.getString("forkFrameGenMode") else base.forkFrameGenMode,
             casMode = if (overrides.has("casMode")) overrides.getInt("casMode") else base.casMode,
             casSharpness = if (overrides.has("casSharpness")) overrides.getInt("casSharpness") else base.casSharpness,
             upscaler = if (overrides.has("upscaler")) overrides.getInt("upscaler") else base.upscaler,

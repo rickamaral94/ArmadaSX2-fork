@@ -65,6 +65,11 @@ justificativa, o fork está saindo do trilho.
 | `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
 | `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI | implementação da porta única |
 | `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar; grava a seleção na configuração | Fase 4 item 5, Fase 5 |
+| `platforms/android/.../ui/common/LsfgSection.kt` | +2 parâmetros, +1 bloco de política acima do backend | junta a política de FG (Fase 7) ao seletor do `Lossless.dll` que já existia — política e backend na mesma seção, com o aviso obrigatório entre eles |
+| `platforms/android/.../config/Settings.kt` | +1 campo `forkFrameGenMode` (7 pontos: campo, `applyTo`, INI, JSON ida e volta, diff e merge por jogo) | a chave `[Fork] FrameGen.Mode` passa a andar pela mesma máquina das opções do upstream, o que lhe dá persistência e override por jogo sem código novo |
+| `platforms/android/.../ui/settings/PerformanceTab.kt`, `.../ui/emulation/EmulationMenuScreen.kt` | +2 argumentos em cada chamada | os dois pontos que renderizam a seção de FG |
+| `platforms/android/.../i18n/I18n.kt` | +4 chaves `perf.fg.*` | rótulos da política; o aviso vem do núcleo, e estas são o texto de reserva quando a ponte não responde |
+| `platforms/android/.../ui/settingshub/SettingsSearchIndex.kt`, `.../SettingsResetFields.kt` | +1 linha em cada | a opção nova aparece na busca e volta ao padrão no Reset, como as demais |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
 | `.github/dependabot.yml` | removido | O Dependabot do upstream mantém as versões das *actions* de um pipeline que não é nosso. Cada PR semanal dele dispararia `build-all.yml` (~2 h de CI arm64) no nosso repositório, para atualizar workflows que só o upstream usa. As atualizações chegam pelo merge do upstream. |
 | `.github/workflows/upload-moonstore.yml` | gatilho `workflow_run` removido (só `workflow_dispatch`) | Publica builds em uma loja de terceiros do upstream. Nossos builds não devem ir para lá. |

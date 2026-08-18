@@ -29,6 +29,10 @@ object ForkSettings {
         const val DRIVER_REDIRECT_DIR = "Driver.RedirectDir"
         const val DRIVER_HOOK_LIB_DIR = "Driver.HookLibDir"
         const val DRIVER_ID = "Driver.Id"
+
+        const val FRAMEGEN_MODE = "FrameGen.Mode"
+        const val FRAMEGEN_BUDGET_MS = "FrameGen.BudgetMs"
+        const val FRAMEGEN_MIN_REAL_FPS = "FrameGen.MinRealFps"
     }
 
     /** Modos aceitos por `Driver.Mode`. */
@@ -39,6 +43,17 @@ object ForkSettings {
         const val SYSTEM = "system"
         /** Usa os caminhos configurados. */
         const val CUSTOM = "custom"
+    }
+
+    /** Modos aceitos por `FrameGen.Mode`. Mesmas strings que `ForkFrameGen::ParseMode` entende —
+     *  o núcleo cai em [FrameGenMode.OFF] diante de qualquer valor que não reconheça, então uma
+     *  divergência aqui desliga FG em vez de fazer algo inesperado. */
+    object FrameGenMode {
+        const val OFF = "off"
+        /** Engata sozinho quando o ritmo está estável e desengata quando não está. */
+        const val AUTO = "auto"
+        /** 2x sempre que as condições de segurança permitirem — as condições continuam valendo. */
+        const val X2 = "2x"
     }
 
     /**
@@ -121,5 +136,23 @@ object ForkSettings {
     /** Faz o jogo voltar a seguir a seleção global. */
     fun clearGameDriverOverride() {
         putForGame(Keys.DRIVER_MODE, DriverMode.INHERIT)
+    }
+
+    // ---- Frame Generation (Fase 7) ------------------------------------------
+
+    /**
+     * Grava o modo de FG globalmente. Só o modo: orçamento e FPS real mínimo são as travas de
+     * segurança da régua, e expô-las na mesma tela em que se liga o recurso convida a afrouxá-las
+     * até FG engatar em cima de uma emulação lenta — que é precisamente o que ele não pode fazer.
+     * Quem precisa mexer nelas tem a seção `[Fork]` do INI.
+     */
+    fun setFrameGenModeGlobally(mode: String) {
+        putGlobal(Keys.FRAMEGEN_MODE, mode)
+        commit()
+    }
+
+    /** Override por jogo. O chamador abre a escrita do INI do jogo antes, como nas demais opções. */
+    fun setFrameGenModeForGame(mode: String) {
+        putForGame(Keys.FRAMEGEN_MODE, mode)
     }
 }

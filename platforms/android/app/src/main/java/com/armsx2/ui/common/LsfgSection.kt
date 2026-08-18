@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.armsx2.BuildConfig
+import com.armsx2.fork.ForkNative
+import com.armsx2.fork.ForkSettings
 import com.armsx2.i18n.str
 import com.armsx2.ui.settings.IntSliderRow
 import com.armsx2.ui.settings.SegmentedRow
@@ -38,8 +40,18 @@ import kr.co.iefriends.pcsx2.NativeApp
 import java.io.File
 
 /**
- * LSFG frame-generation rows: a master toggle, a multiplier, the shader family, the motion-detail
- * slider, and the Lossless.dll picker.
+ * Frame generation, in one place: the fork's POLICY rows on top, then the LSFG backend — master
+ * toggle, multiplier, shader family, motion-detail slider — and the Lossless.dll picker.
+ *
+ * ## Policy and backend are not the same control
+ *
+ * The backend is what can produce a frame; the policy is whether presenting one is allowed right
+ * now. They are separate because the policy is the part that must be able to say NO: real FPS
+ * under the floor, unstable pacing, no new frame from the game, generation over its time budget.
+ * Frame generation moves the PRESENTED number, never the emulated one — 22 real FPS shown as 44
+ * is not a success, and the policy exists so that case cannot be reached by turning a backend on.
+ * The rule lives in pcsx2/Fork/ForkFrameGen.cpp; this file only offers the mode and reports what
+ * the rule decided.
  *
  * Presentation only — the caller wires [onChange] to its OWN settings tier, exactly like
  * [ShaderChainSection]. That is what lets one definition serve both the All Settings
@@ -97,6 +109,11 @@ private fun LsfgReason.message(): String = when (this) {
 private fun lsfgDllTarget(context: Context): File =
     File(File(context.filesDir, "lsfg").apply { mkdirs() }, "Lossless.dll")
 
+/** Modes offered by the policy row, in the order they are shown. Index is the wire value's
+ *  position — `ForkFrameGen::ParseMode` falls back to "off" for anything it does not recognize,
+ *  so a mismatch here disables frame generation rather than doing something unexpected. */
+private val FG_MODES = listOf(ForkSettings.FrameGenMode.OFF, ForkSettings.FrameGenMode.AUTO, ForkSettings.FrameGenMode.X2)
+
 @Composable
 fun LsfgSection(
     enabled: Boolean,
@@ -104,9 +121,14 @@ fun LsfgSection(
     dllPath: String,
     performance: Boolean,
     flowScale: Int,
+    forkFrameGenMode: String,
+    onForkFrameGenModeChange: (String) -> Unit,
     onChange: (enabled: Boolean, multiplier: Int, dllPath: String, performance: Boolean, flowScale: Int) -> Unit,
 ) {
     if (!BuildConfig.LSFG) return
+
+    ForkFrameGenPolicyRows(forkFrameGenMode, onForkFrameGenModeChange)
+    SettingsDivider()
 
     val context = LocalContext.current
     var path by remember { mutableStateOf(dllPath) }
@@ -215,6 +237,53 @@ fun LsfgSection(
                 // step rather than a second row to go and find.
                 if (path.isBlank()) picker.launch(arrayOf("*/*"))
             },
+        )
+    }
+}
+
+/**
+ * The fork's frame-generation policy: the mode, the warning that must always be next to it, and
+ * what the rule decided on the last presented frame.
+ *
+ * The warning text comes from the core (`ForkFrameGen::USER_WARNING`, relayed by the bridge) and
+ * not from this file's own string table. That is deliberate: a copy living in the UI can be
+ * softened — into "frame generation boosts performance" — by a well-meaning edit or translation,
+ * and that sentence is exactly the claim the project forbids. When the bridge cannot answer (the
+ * native library is not up yet, or an older core), the section still shows the built-in wording
+ * below rather than showing the mode with no warning at all.
+ */
+@Composable
+private fun ForkFrameGenPolicyRows(mode: String, onModeChange: (String) -> Unit) {
+    // Re-read per composition rather than cached: the state moves with the game that is running,
+    // and it is one JNI call returning a small JSON object.
+    val status = ForkNative.frameGenStatus()
+    val selected = FG_MODES.indexOf(mode).takeIf { it >= 0 } ?: 0
+
+    SegmentedRow(
+        label = str("perf.fg.mode.label"),
+        options = listOf(str("common.off"), str("perf.fg.mode.auto"), "2x"),
+        selectedIndex = selected,
+        description = str("perf.fg.mode.description"),
+    ) { index -> onModeChange(FG_MODES.getOrElse(index) { ForkSettings.FrameGenMode.OFF }) }
+
+    Text(
+        status?.warning?.takeIf { it.isNotBlank() } ?: str("perf.fg.warning"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+
+    // Why it is not generating is the whole point of showing a state at all: "on but nothing
+    // happening" and "on and refusing because the emulation is too slow to smooth honestly" look
+    // identical otherwise, and only the second one tells the user what to do next.
+    if (mode != ForkSettings.FrameGenMode.OFF && status != null && status.statusLine.isNotBlank()) {
+        Text(
+            status.statusLine,
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 14.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
         )
     }
 }

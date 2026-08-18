@@ -83,4 +83,41 @@ object ForkNative {
         if (mesa.isNotBlank()) add("Mesa $mesa")
         if (vulkan.isNotBlank()) add("Vulkan $vulkan")
     }.joinToString(" · ")
+
+    // ---- Frame Generation --------------------------------------------------
+
+    /**
+     * Política de FG e o que ela decidiu no último quadro.
+     *
+     * [warning] vem do núcleo (`ForkFrameGen::USER_WARNING`) em vez de ser uma string da UI. A
+     * diferença importa: uma cópia no frontend pode ser reescrita numa tradução mais otimista —
+     * "FG aumenta o desempenho" — e é exatamente essa frase que o projeto proíbe. Se a ponte não
+     * responder, a UI cai no texto embutido abaixo, que diz a mesma coisa; o que ela nunca faz é
+     * mostrar a seção sem aviso nenhum.
+     */
+    data class FrameGenStatus(
+        val mode: String,
+        val warning: String,
+        val state: String,
+        val reason: String,
+        val framesToGenerate: Int,
+        val budgetMs: Double,
+        val minRealFps: Double,
+        val statusLine: String,
+    )
+
+    fun frameGenStatus(): FrameGenStatus? {
+        val json = query("framegen.status") ?: return null
+        if (!json.optBoolean("ok", false)) return null
+        return FrameGenStatus(
+            mode = json.optString("mode", "off"),
+            warning = json.optString("warning"),
+            state = json.optString("state"),
+            reason = json.optString("reason"),
+            framesToGenerate = json.optInt("framesToGenerate", 0),
+            budgetMs = json.optDouble("budgetMs", 0.0),
+            minRealFps = json.optDouble("minRealFps", 0.0),
+            statusLine = json.optString("statusLine"),
+        )
+    }
 }
