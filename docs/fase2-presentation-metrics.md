@@ -98,14 +98,17 @@ custo de geração; o overlay nomeia os dois números; `Reset` limpa tudo.
 
 Executados localmente antes do commit: **10/10**.
 
-## 6. O que fica para depois
+## 6. Interruptor próprio (resolvido)
 
-**Interruptor dedicado na UI.** Hoje a métrica pega carona no `OsdShowGPUDebug`, que fora do
-Windows não desenha nada. Um campo próprio custaria acrescentar um bit em `Config.h` e propagá-lo
-por `Pcsx2Config.cpp`, `GS.cpp`, `FullscreenUI`, o Qt, o `Settings.kt` do Android e o
-`native-lib.cpp` — sete arquivos do upstream, e de novo a cada opção futura (driver por jogo, FG
-on/auto/2x).
+A carona no `OsdShowGPUDebug` foi substituída pela superfície de configuração do fork:
 
-A decisão a tomar antes da Fase 4 é criar **uma superfície de configuração própria do fork**, com
-suas opções em um espaço de nomes separado, em vez de somar bits ao `Config.h` do upstream a cada
-recurso. Isso mantém o diff de merge pequeno e é o que torna as fases seguintes baratas.
+```ini
+[Fork]
+PresentationMetrics.Enabled = true   ; mede
+PresentationMetrics.Overlay = true   ; mostra
+```
+
+Medir e mostrar são chaves separadas — o benchmark A/B da Fase 6 vai querer medir sem poluir a
+captura de tela. As duas aceitam override por jogo pelo mesmo mecanismo do upstream.
+
+Ver [a superfície de configuração do fork](superficie-configuracao-fork.md).

@@ -23,6 +23,9 @@ endif()
 # Fase 2 do fork: métricas da camada de apresentação (arch-neutral, sem GPU).
 add_subdirectory(presentation)
 
+# Superfície de configuração do fork (arch-neutral).
+add_subdirectory(fork)
+
 # GS vertex front-end kernel oracle (arch-neutral).
 add_subdirectory(gs)
 

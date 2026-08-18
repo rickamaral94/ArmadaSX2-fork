@@ -53,7 +53,8 @@ justificativa, o fork está saindo do trilho.
 | Arquivo | Mudança | Motivo |
 |---|---|---|
 | `.github/workflows/nightly.yml` | `schedule` removido (só `workflow_dispatch`) | O nightly do upstream constrói macOS/Windows/Linux arm64 + iOS (~2 h) e **publica releases**. No nosso repositório ele rodaria diariamente no branch padrão, gastando CI e criando releases que não são nossas. |
-| `pcsx2/CMakeLists.txt` | +2 linhas | registra os fontes de `GSPresentationMetrics` (Fase 2) |
+| `pcsx2/CMakeLists.txt` | +6 linhas | registra os fontes de `GSPresentationMetrics` e de `Fork/` |
+| `pcsx2/VMManager.cpp` | +1 include, +1 chamada | `ForkRuntime::LoadSettings` no mesmo ponto em que o upstream reconstrói a configuração — é o que dá override por jogo de graça. Ver docs/superficie-configuracao-fork.md |
 | `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp` | 6 ganchos pequenos | pontos de medição da apresentação — o único lugar por onde todo quadro apresentado passa. Ver docs/fase2-presentation-metrics.md |
 | `pcsx2/ImGui/ImGuiOverlays.cpp` | +1 linha de overlay | exibe FPS real x apresentado |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |

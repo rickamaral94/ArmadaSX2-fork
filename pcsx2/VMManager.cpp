@@ -11,6 +11,7 @@
 #include "DebugTools/SymbolImporter.h"
 #include "Elfheader.h"
 #include "FW.h"
+#include "Fork/ForkRuntime.h"
 #include "GS.h"
 #include "GS/Renderers/HW/GSTextureReplacements.h"
 #include "GSDumpReplayer.h"
@@ -683,6 +684,9 @@ void VMManager::LoadSettings()
 	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
 	SettingsInterface* si = Host::GetSettingsInterface();
 	LoadCoreSettings(*si);
+	// Configuração do fork: mesma interface em camadas, então o override por jogo vale aqui
+	// exatamente como vale para as opções do upstream. Ver pcsx2/Fork/ForkConfig.h.
+	ForkRuntime::LoadSettings(*si);
 	Pad::LoadConfig(*si);
 	Host::LoadSettings(*si, lock);
 	InputManager::ReloadSources(*si, lock);

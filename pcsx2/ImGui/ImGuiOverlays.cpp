@@ -128,6 +128,7 @@ namespace GSLsfg
 
 // Fase 2 do fork: cadência da apresentação. Cabeçalho próprio (não passa por VKLoader.h), então
 // pode ser incluído aqui sem arrastar os headers do Vulkan para esta TU multiplataforma.
+#include "Fork/ForkConfig.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
 
 /// Frame generation's own status line, or empty when the user has not switched it on. Behind a
@@ -731,12 +732,12 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				DRAW_LINE(osd_font, font_size, s_gpu_usage_line.c_str(), OsdTextColor());
 			}
 
-			// Hospedada no interruptor de depuração de GPU por ora: fora do Windows ele não desenha
-			// nada hoje, e usá-lo evita acrescentar um campo em Config.h e propagá-lo por sete
-			// frontends. O interruptor dedicado vem com a superfície de configuração do fork
-			// (ver docs/fase2-presentation-metrics.md).
-			if (GSConfig.OsdShowGPUDebug)
-				s_presentation_metrics_line = GSPresentationMetrics::GetOverlayLine();
+			// Interruptor próprio do fork (`[Fork] PresentationMetrics.Overlay`), independente das
+			// opções de OSD do upstream — e com override por jogo pelo mesmo mecanismo.
+			s_presentation_metrics_line =
+				ForkConfig::GetBool(ForkConfig::Option::PresentationMetricsOverlay)
+					? GSPresentationMetrics::GetOverlayLine()
+					: std::string();
 
 			if (GSConfig.OsdShowGPUDebug)
 			{
@@ -836,9 +837,10 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				if (g_gs_device->GetRenderAPI() == RenderAPI::D3D12)
 					DRAW_LINE(osd_font, font_size, s_gpu_debug_info_line.c_str(), OsdTextColor());
 #endif
-				if (!s_presentation_metrics_line.empty())
-					DRAW_LINE(osd_font, font_size, s_presentation_metrics_line.c_str(), OsdTextColor());
 			}
+
+			if (!s_presentation_metrics_line.empty())
+				DRAW_LINE(osd_font, font_size, s_presentation_metrics_line.c_str(), OsdTextColor());
 
 			if (GSConfig.OsdShowGPUStats)
 			{

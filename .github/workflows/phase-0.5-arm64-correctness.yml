@@ -251,6 +251,25 @@ jobs:
         run: |
           "$RECOMPILER_TESTS_BIN" --gtest_output=xml:recompiler-tests.xml
 
+      # Suítes NOSSAS (Fase 2 em diante). São novas, não têm falha herdada, então aqui o critério
+      # é ZERO falhas: a regra diferencial do job `compare` existe para a suíte que veio do
+      # upstream, não para a que escrevemos hoje. Só na perna candidate — no commit-base estes
+      # alvos não existem.
+      - name: Build and run fork test suites
+        if: matrix.label == 'candidate'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for target in presentation_metrics_tests fork_config_tests; do
+            cmake --build build --target "$target" --parallel "$(nproc)"
+            bin="$(find build -type f -name "$target" -perm -u+x -print -quit)"
+            if [ -z "$bin" ]; then
+              echo "!! $target não encontrado após o build"
+              exit 1
+            fi
+            "$bin" --gtest_output="xml:fork-$target.xml"
+          done
+
       - name: Summarize test XML
         if: always()
         shell: bash
@@ -283,6 +302,7 @@ jobs:
           path: |
             recompiler-tests-list.txt
             recompiler-tests.xml
+            fork-*.xml
           if-no-files-found: warn
 
   compare:

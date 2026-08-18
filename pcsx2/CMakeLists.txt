@@ -542,6 +542,8 @@ set(pcsx2GSSources
 	GS/Renderers/Common/GSGPUProfilePowerVR.cpp
 	GS/Renderers/Common/GSPassScheduler.cpp
 	GS/Renderers/Common/GSPresentationMetrics.cpp
+	Fork/ForkConfig.cpp
+	Fork/ForkRuntime.cpp
 	GS/Renderers/Common/GSRenderer.cpp
 	GS/Renderers/Common/GSTexture.cpp
 	GS/Renderers/Common/GSVertexTrace.cpp
@@ -593,6 +595,8 @@ set(pcsx2GSHeaders
 	GS/Renderers/Common/GSInterlaceModePolicy.h
 	GS/Renderers/Common/GSPassScheduler.h
 	GS/Renderers/Common/GSPresentationMetrics.h
+	Fork/ForkConfig.h
+	Fork/ForkRuntime.h
 	GS/Renderers/Common/GSPresentationPolicy.h
 	GS/Renderers/Common/GSRenderer.h
 	GS/Renderers/Common/GSShaderEnums.h

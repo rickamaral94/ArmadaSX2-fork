@@ -1458,10 +1458,6 @@ bool GSDeviceVK::SetGPUPipelineStatisticsEnabled(bool enabled)
 void GSDeviceVK::EnableExtendedStats(bool enabled)
 {
 	VKSwapChain::SetPresentStatsEnabled(enabled);
-	// Enquanto o fork não tem superfície própria de configuração (ver docs/fase2-presentation-
-	// metrics.md), as métricas de apresentação seguem o mesmo interruptor das estatísticas
-	// estendidas: nenhum plumbing novo em Config.h, e o custo continua opt-in.
-	GSPresentationMetrics::SetEnabled(enabled);
 }
 
 std::vector<std::string> GSDeviceVK::GetExtendedStats() const
