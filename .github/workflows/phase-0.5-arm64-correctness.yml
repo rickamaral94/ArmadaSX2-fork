@@ -1,27 +1,134 @@
+# Fase 0.5 — gate de correctness do recompilador ARM64.
+#
+# POR QUE ESTE WORKFLOW EXISTE
+# O JIT ARM64 desta base foi traduzido do x86-64 com forte auxílio de LLM (declarado no README do
+# ARMSX2). Bugs assim não aparecem em compilação: aparecem como corrupção gráfica, física errada ou
+# travamento em um jogo específico. `recompiler_tests` (132 arquivos, ~1.830 casos, incluindo
+# conformance de FPU/cache do EE e VU contra o console) é a única rede que pega isso ANTES do
+# dispositivo — e só vale em arm64 NATIVO, porque é o recompilador de verdade que precisa rodar.
+#
+# COMO ELE JULGA
+# Duas pernas — baseline e candidate — produzem relatórios JUnit, e um terceiro job COMPARA os
+# conjuntos. Exigir "zero falhas" faria um gate vermelho permanente (a suíte tem falhas herdadas
+# que não são nossas), e gate cronicamente vermelho é gate ignorado. Então o critério é
+# diferencial: reprova em REGRESSÃO (falha nova) ou em TESTE SUMIDO — nunca em falha preexistente.
+# A regra de teste sumido está lá porque apagar o teste que incomoda é a forma mais fácil de fingir
+# verde.
+#
+# QUAL BASELINE
+# `tools/fork/UPSTREAM_BASE` — o commit do ARMSX2 sobre o qual este fork está montado, atualizado
+# por tools/fork/sync-upstream.sh a cada merge do upstream. A pergunta que o gate responde é
+# "nossas mudanças quebraram algo que o upstream fazia certo?", e essa é a única referência que
+# responde isso sem envelhecer sozinha.
 name: Phase 0.5 ARM64 Correctness
 
 on:
+  # Só dispara quando código de emulação/build muda. Pela política do fork (FORK.md, regra 1) nós
+  # não encostamos no núcleo, então na prática isto roda depois de um merge do upstream ou quando
+  # alguém mexe onde não deveria — que são exatamente as duas horas em que ele importa. Commits de
+  # documentação e de UI Android não pagam ~90 min de CI arm64 por nada.
   push:
     branches:
-      - phase-0.5-arm64-correctness-hardening
+      - 'claude/**'
+      - 'fork/**'
+      - 'phase-0.5-**'
+      - main
+    # (a lista se repete no gatilho de pull_request: o parser do GitHub Actions não
+    # aceita âncoras YAML, então duplicar é a única forma — mantenha as duas em sincronia)
+    paths:
+      - 'pcsx2/**'
+      - 'common/**'
+      - 'tests/**'
+      - '3rdparty/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'tools/fork/compare-gtest-xml.py'
+      - '.github/workflows/phase-0.5-arm64-correctness.yml'
+  pull_request:
+    paths:
+      - 'pcsx2/**'
+      - 'common/**'
+      - 'tests/**'
+      - '3rdparty/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'tools/fork/compare-gtest-xml.py'
+      - '.github/workflows/phase-0.5-arm64-correctness.yml'
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: 'Baseline alternativo (padrão: tools/fork/UPSTREAM_BASE)'
+        required: false
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: phase-0.5-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # O baseline sai de um arquivo versionado, não de um SHA colado no YAML: um SHA fixo aqui
+  # envelhece a cada merge do upstream e passa a comparar contra uma base que já não é a nossa.
+  resolve-baseline:
+    name: Resolver baseline
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      baseline_sha: ${{ steps.build.outputs.baseline_sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          entrada='${{ inputs.baseline_ref }}'
+          if [ -n "$entrada" ]; then
+            baseline="$entrada"
+            origem="workflow_dispatch"
+          else
+            baseline="$(tr -d '[:space:]' < tools/fork/UPSTREAM_BASE)"
+            origem="tools/fork/UPSTREAM_BASE"
+          fi
+          echo "baseline=$baseline (origem: $origem)"
+          echo "baseline_sha=$baseline" >> "$GITHUB_OUTPUT"
+          python3 - "$baseline" "${{ github.sha }}" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          baseline, candidate = sys.argv[1], sys.argv[2]
+          matrix = {"include": [
+            {"label": "baseline", "ref": baseline},
+            {"label": "candidate", "ref": candidate},
+          ]}
+          print("matrix=" + json.dumps(matrix))
+          PY
+
+      - name: Resumo
+        shell: bash
+        run: |
+          {
+            echo "### Fase 0.5 — correctness ARM64"
+            echo ""
+            echo "| perna | ref |"
+            echo "|---|---|"
+            echo "| baseline | \`${{ steps.build.outputs.baseline_sha }}\` |"
+            echo "| candidate | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   recompiler-tests:
     name: recompiler_tests (${{ matrix.label }})
+    needs: resolve-baseline
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    # 90 min não cobria o build das dependências Qt/FFmpeg + Release LTO no mesmo job. Com o cache
+    # de deps e o ccache abaixo o caminho quente é curto, mas o PRIMEIRO run de cada perna (cache
+    # frio) precisa desta folga — e um gate que expira por tempo não é um gate.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: baseline-1032f021
-            ref: 1032f021bf35c90b4db447b03206ff005bfc5616
-          - label: candidate
-            ref: ${{ github.sha }}
+      matrix: ${{ fromJson(needs.resolve-baseline.outputs.matrix) }}
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
 
     steps:
       - name: Checkout tested revision
@@ -39,7 +146,7 @@ jobs:
           echo "tested_sha=$(git rev-parse HEAD)"
           uname -a
           uname -m
-          clang --version || true
+          nproc
           cmake --version
           ninja --version
 
@@ -59,9 +166,31 @@ jobs:
             libxcb-shm0-dev libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev libxcb-xinput-dev libxcb-xkb-dev libxext-dev libxkbcommon-x11-dev libxrandr-dev \
             lld-17 llvm-17 nasm ninja-build patchelf pkg-config zlib1g-dev
 
+      # Mesmo par de caches do linux_build_qt.yml do upstream: deps chaveado pelo hash do script
+      # que as constrói, ccache com chave datada + restore-keys para aproveitar o run anterior.
+      - name: Cache deps
+        id: cache-deps
+        uses: actions/cache@v6
+        with:
+          path: ~/deps
+          key: arm64 phase05 deps ${{ hashFiles('.github/workflows/scripts/linux/build-dependencies-qt.sh', '.github/workflows/scripts/common/*.patch') }}
+
       - name: Build dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
         shell: bash
         run: BUILD_FFMPEG=1 .github/workflows/scripts/linux/build-dependencies-qt.sh "$HOME/deps"
+
+      - name: Prepare ccache timestamp
+        id: ccache_timestamp
+        shell: bash
+        run: echo "timestamp=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache ccache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: arm64 phase05 ccache ${{ matrix.label }} ${{ steps.ccache_timestamp.outputs.timestamp }}
+          restore-keys: arm64 phase05 ccache ${{ matrix.label }}
 
       - name: Configure Release test build
         shell: bash
@@ -73,6 +202,8 @@ jobs:
             -DCMAKE_PREFIX_PATH="$HOME/deps" \
             -DCMAKE_C_COMPILER=clang-17 \
             -DCMAKE_CXX_COMPILER=clang++-17 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_EXE_LINKER_FLAGS_INIT="-fuse-ld=lld" \
             -DCMAKE_MODULE_LINKER_FLAGS_INIT="-fuse-ld=lld" \
             -DENABLE_SETCAP=OFF \
@@ -83,13 +214,21 @@ jobs:
 
       - name: Build recompiler_tests
         shell: bash
-        run: cmake --build build --target recompiler_tests --parallel 2
+        run: |
+          set -euxo pipefail
+          ccache -z
+          cmake --build build --target recompiler_tests --parallel "$(nproc)"
+          ccache -s
 
       - name: List recompiler tests
         shell: bash
         run: ./build/bin/tests/recompiler_tests --gtest_list_tests | tee recompiler-tests-list.txt
 
+      # continue-on-error de propósito: falha de teste é DADO para o job de comparação, não o
+      # veredito. O veredito é diferencial e sai no job `compare`. Falha de BUILD continua matando
+      # o job — e aí o compare reprova por relatório ausente, que é o comportamento correto.
       - name: Run recompiler tests
+        continue-on-error: true
         shell: bash
         run: ./build/bin/tests/recompiler_tests --gtest_output=xml:recompiler-tests.xml
 
@@ -116,12 +255,61 @@ jobs:
                       print(f"FAIL {suite.get('name')}.{case.get('name')}")
           PY
 
+      # Nome estável (sem run_id): o job de comparação baixa por nome.
       - name: Upload qualification logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: phase-0.5-${{ matrix.label }}-${{ github.run_id }}
+          name: phase-0.5-${{ matrix.label }}
           path: |
             recompiler-tests-list.txt
             recompiler-tests.xml
+          if-no-files-found: warn
+
+  compare:
+    name: Veredito (baseline x candidate)
+    needs: [resolve-baseline, recompiler-tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download baseline report
+        uses: actions/download-artifact@v7
+        with:
+          name: phase-0.5-baseline
+          path: relatorios/baseline
+
+      - name: Download candidate report
+        uses: actions/download-artifact@v7
+        with:
+          name: phase-0.5-candidate
+          path: relatorios/candidate
+
+      - name: Comparar conjuntos de testes
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 tools/fork/compare-gtest-xml.py \
+            relatorios/baseline/recompiler-tests.xml \
+            relatorios/candidate/recompiler-tests.xml \
+            --json-out veredito.json | tee veredito.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo "### Veredito Fase 0.5"
+            echo ""
+            echo '```'
+            cat veredito.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload veredito
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phase-0.5-veredito
+          path: |
+            veredito.txt
+            veredito.json
           if-no-files-found: warn

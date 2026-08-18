@@ -43,6 +43,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 
 - [Fase 1 — avaliação técnica e escolha da base](docs/fase1-avaliacao-tecnica-base.md)
 - [Fase 0 — setup do fork, CI e política de sincronização](docs/fase0-setup.md)
+- [Fase 0.5 — gate de correctness do recompilador ARM64](docs/fase0.5-correctness-arm64.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 
 ## Licença
