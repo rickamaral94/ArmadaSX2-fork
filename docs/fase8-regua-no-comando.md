@@ -172,3 +172,36 @@ Agora são dois degraus, com papéis distintos:
 
 O valor de 90% é um ponto de partida declarado, não uma medição: será ajustado com os dados da
 alpha 2. O que não é chute é a mudança de GRANDEZA — essa o aparelho provou.
+
+
+## 10. Adendo (8.3) — contexto suficiente para o número significar algo
+
+A primeira análise de log real gastou uma rodada inteira descobrindo, na unha, que a sessão media
+estava com o despejo de texturas ligado — 246 arquivos gravados em disco durante a partida. Todo
+número daquela sessão era lixo, e o log não dizia isso.
+
+Duas linhas novas no bloco:
+
+```
+@@FORK@@ hygiene   MEDICAO CONTAMINADA: despejo-de-texturas(grava em disco por draw) | upscale=2.75x blend=1
+@@FORK@@ load      speed=87.5% vps=52.40 cpu=96% gs=41% gpu=38% internal_fps=29.97 shader_compiles=7
+```
+
+**`hygiene`** lista o que faz o NÚMERO MENTIR — não o que faz o jogo renderizar errado, que é
+outra lista e o PCSX2 já tem a dele. Curta de propósito: lista longa vira ruído e ninguém lê. Sai
+também com o contexto mínimo (upscale, nível de blend), porque um frametime sem saber o upscale é
+ininterpretável.
+
+**`load`** responde a PRIMEIRA pergunta de qualquer relato de lentidão — *é CPU ou GPU?* — que o
+bloco anterior não respondia de jeito nenhum. `cpu=96% gs=41%` e `cpu=40% gpu=99%` pedem trabalhos
+opostos, e sem esses números os dois chegam como "está lento". `shader_compiles` é DELTA do
+intervalo, não acumulado: o total da sessão não diz em qual intervalo houve o engasgo, que é
+justamente a pergunta. E `internal_fps` só aparece quando o método consegue medi-lo — um `0.00`
+indistinguível de "não sei" faria o leitor concluir que o jogo renderiza a zero.
+
+A linha de carga não repete FPS apresentado nem quadros gerados. Ela fala de **custo**; misturar
+ali o número que o usuário vê na tela seria começar a confundir os dois de novo.
+
+`ForkDiagnostics` não lê o config global: a higiene entra por parâmetro, preenchida pelo
+`GSDeviceVK`, que já vive nesse mundo. É o que mantém o módulo inteiro exercitável sem VM — as
+funções de formato são puras e todos os casos acima têm teste.

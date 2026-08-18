@@ -7,6 +7,9 @@
 #include "Fork/ForkDriverIdentity.h"
 #include "Fork/ForkGpuCapabilities.h"
 
+#include "GS/GSShaderCompileIndicator.h"
+#include "PerformanceMetrics.h"
+
 #include "common/Console.h"
 #include "common/Timer.h"
 
@@ -14,6 +17,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <vector>
 
 namespace
 {
@@ -32,6 +36,7 @@ namespace
 	ForkDiagnostics::Accumulator s_accumulator;
 	u64 s_window_start = 0;
 	bool s_identity_written = false;
+	u32 s_last_shader_compiles = 0;
 } // namespace
 
 void ForkDiagnostics::Detail::SetClockForTesting(u64 (*clock)())
@@ -103,6 +108,59 @@ std::string ForkDiagnostics::FormatFrameGenLine(
 		policy.min_real_fps);
 }
 
+std::string ForkDiagnostics::FormatLoadLine(const Load& load)
+{
+	// Uma linha só, e sem FPS de apresentação nenhum: este bloco fala de CUSTO, e misturar aqui o
+	// número que o usuário vê na tela é o começo de confundir os dois de novo.
+	std::string line = fmt::format(
+		"{} load      speed={:.1f}% vps={:.2f} cpu={:.0f}% gs={:.0f}%", PREFIX, load.speed_percent, load.vps,
+		load.cpu_thread_usage, load.gs_thread_usage);
+
+	if (load.has_gs_back_thread)
+		line += fmt::format(" gs_back={:.0f}%", load.gs_back_thread_usage);
+	if (load.vu_thread_usage > 0.0f)
+		line += fmt::format(" vu={:.0f}%", load.vu_thread_usage);
+	if (load.gpu_usage > 0.0f)
+		line += fmt::format(" gpu={:.0f}%", load.gpu_usage);
+	// Só quando o método de medição é válido: um "0.00" indistinguível de "não sei" é pior que a
+	// ausência do campo.
+	if (load.internal_fps_valid)
+		line += fmt::format(" internal_fps={:.2f}", load.internal_fps);
+	line += fmt::format(" shader_compiles={}", load.shader_compiles);
+	return line;
+}
+
+std::string ForkDiagnostics::FormatHygieneLine(const Hygiene& hygiene)
+{
+	std::vector<const char*> problems;
+
+	// Cada item aqui é algo que faz o NÚMERO MENTIR, não algo que faz o jogo renderizar errado.
+	// A lista é curta de propósito: uma lista longa vira ruído e ninguém lê.
+	if (hygiene.dumping_textures)
+		problems.push_back("despejo-de-texturas(grava em disco por draw)");
+	if (hygiene.loading_texture_pack)
+		problems.push_back("pacote-de-texturas(I/O e VRAM extras)");
+	if (hygiene.ee_cycle_rate_changed)
+		problems.push_back("EECycleRate!=0(muda o tempo emulado)");
+	if (hygiene.ee_cycle_skip_changed)
+		problems.push_back("EECycleSkip!=0(muda o tempo emulado)");
+
+	const std::string context =
+		fmt::format(" | upscale={:.2f}x blend={}", hygiene.upscale_multiplier, hygiene.blending_level);
+
+	if (problems.empty())
+		return fmt::format("{} hygiene   limpo{}", PREFIX, context);
+
+	std::string list;
+	for (const char* problem : problems)
+	{
+		if (!list.empty())
+			list += ", ";
+		list += problem;
+	}
+	return fmt::format("{} hygiene   MEDICAO CONTAMINADA: {}{}", PREFIX, list, context);
+}
+
 std::string ForkDiagnostics::FormatIdentityLine()
 {
 	const ForkDriverIdentity::Identity identity = ForkDriverIdentity::Get();
@@ -124,9 +182,10 @@ void ForkDiagnostics::Reset()
 	s_accumulator = Accumulator{};
 	s_window_start = 0;
 	s_identity_written = false;
+	s_last_shader_compiles = GSShaderCompileIndicator::s_total_count.load(std::memory_order_relaxed);
 }
 
-void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision)
+void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const Hygiene& hygiene)
 {
 	if (!ForkConfig::GetBool(ForkConfig::Option::DiagnosticsLog))
 		return;
@@ -137,6 +196,8 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision)
 	const GSPresentationMetrics::Snapshot snapshot = GSPresentationMetrics::GetSnapshot();
 
 	std::string identity_line;
+	std::string hygiene_line;
+	std::string load_line;
 	std::string real_line;
 	std::string presented_line;
 	std::string framegen_line;
@@ -160,8 +221,28 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision)
 		if (!s_identity_written)
 		{
 			identity_line = FormatIdentityLine();
+			hygiene_line = FormatHygieneLine(hygiene);
 			s_identity_written = true;
 		}
+
+		Load load;
+		load.speed_percent = PerformanceMetrics::GetSpeed();
+		load.vps = PerformanceMetrics::GetFPS();
+		load.internal_fps = PerformanceMetrics::GetInternalFPS();
+		load.internal_fps_valid = PerformanceMetrics::IsInternalFPSValid();
+		load.cpu_thread_usage = PerformanceMetrics::GetCPUThreadUsage();
+		load.gs_thread_usage = PerformanceMetrics::GetGSThreadUsage();
+		load.has_gs_back_thread = PerformanceMetrics::HasGSBackThread();
+		load.gs_back_thread_usage = PerformanceMetrics::GetGSBackThreadUsage();
+		load.vu_thread_usage = PerformanceMetrics::GetVUThreadUsage();
+		load.gpu_usage = PerformanceMetrics::GetGPUUsage();
+
+		// Delta, não acumulado: o total de uma sessão inteira não diz em QUAL intervalo o
+		// engasgo aconteceu, que é justamente a pergunta.
+		const u32 compiles_now = GSShaderCompileIndicator::s_total_count.load(std::memory_order_relaxed);
+		load.shader_compiles = compiles_now - s_last_shader_compiles;
+		s_last_shader_compiles = compiles_now;
+		load_line = FormatLoadLine(load);
 		real_line = FormatRealLine(snapshot);
 		presented_line = FormatPresentedLine(snapshot);
 		framegen_line = FormatFrameGenLine(s_accumulator, ForkFrameGen::PolicyFromConfig(), snapshot.generation_avg_ms);
@@ -174,7 +255,11 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision)
 	// segurar o mutex durante a escrita colocaria o thread de GS atrás do escritor de log a cada
 	// bloco.
 	if (!identity_line.empty())
+	{
 		Console.WriteLn("%s", identity_line.c_str());
+		Console.WriteLn("%s", hygiene_line.c_str());
+	}
+	Console.WriteLn("%s", load_line.c_str());
 	Console.WriteLn("%s", real_line.c_str());
 	Console.WriteLn("%s", presented_line.c_str());
 	Console.WriteLn("%s", framegen_line.c_str());

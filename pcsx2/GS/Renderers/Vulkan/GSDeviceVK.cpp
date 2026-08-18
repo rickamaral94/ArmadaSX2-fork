@@ -1718,7 +1718,14 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 		// Fase 8.1: o bloco @@FORK@@ do log. Alimentado com a MESMA decisão que governa o backend —
 		// um diagnóstico que recalculasse por conta própria poderia explicar uma suspensão com um
 		// número que não a causou.
-		ForkDiagnostics::NotePresent(framegen);
+		ForkDiagnostics::Hygiene hygiene;
+		hygiene.dumping_textures = GSConfig.DumpReplaceableTextures;
+		hygiene.loading_texture_pack = GSConfig.LoadTextureReplacements;
+		hygiene.ee_cycle_rate_changed = (EmuConfig.Speedhacks.EECycleRate != 0);
+		hygiene.ee_cycle_skip_changed = (EmuConfig.Speedhacks.EECycleSkip != 0);
+		hygiene.upscale_multiplier = GSConfig.UpscaleMultiplier;
+		hygiene.blending_level = static_cast<int>(GSConfig.AccurateBlendingUnit);
+		ForkDiagnostics::NotePresent(framegen, hygiene);
 
 		const bool generation_allowed =
 			generation_backend_active && framegen.state == ForkFrameGen::State::Engaged;

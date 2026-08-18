@@ -66,13 +66,61 @@ namespace ForkDiagnostics
 	std::string FormatFrameGenLine(
 		const Accumulator& accumulator, const ForkFrameGen::Policy& policy, float generation_avg_ms);
 
+	/// Onde o tempo está indo. Responde a PRIMEIRA pergunta de qualquer relato de lentidão —
+	/// "é CPU ou GPU?" — que o bloco anterior não respondia de jeito nenhum. Sem isso, "está
+	/// lento" gera um palpite; com isso, gera um alvo.
+	struct Load
+	{
+		float speed_percent = 0.0f;
+		float vps = 0.0f;
+		float internal_fps = 0.0f;
+		bool internal_fps_valid = false;
+		double cpu_thread_usage = 0.0;
+		float gs_thread_usage = 0.0f;
+		float gs_back_thread_usage = 0.0f;
+		bool has_gs_back_thread = false;
+		float vu_thread_usage = 0.0f;
+		float gpu_usage = 0.0f;
+		/// Shaders compilados NESTE intervalo. Um pico de frametime explicado por compilação não é
+		/// o mesmo problema que um pico explicado por carga, e sem este número os dois são
+		/// indistinguíveis no log.
+		u32 shader_compiles = 0;
+	};
+
+	std::string FormatLoadLine(const Load& load);
+
+	/// Configurações que INVALIDAM uma medição, não que a deixam "insegura" — é uma lista mais
+	/// estreita e mais útil que o aviso de configuração insegura do PCSX2.
+	///
+	/// Existe porque custou uma rodada inteira: a primeira sessão medida no aparelho estava com o
+	/// despejo de texturas ligado, gravando 246 arquivos em disco no meio do caminho de render, e
+	/// isso só apareceu porque alguém foi procurar. Um número medido assim não vale nada, e o log
+	/// tem de dizer isso sozinho.
+	/// Lida do config pelo chamador e passada aqui, em vez de a função ler o estado global: é o
+	/// mesmo motivo das outras — uma função pura se exercita sem VM, sem GPU e sem config viva.
+	struct Hygiene
+	{
+		bool dumping_textures = false;
+		bool loading_texture_pack = false;
+		bool ee_cycle_rate_changed = false;
+		bool ee_cycle_skip_changed = false;
+		float upscale_multiplier = 1.0f;
+		int blending_level = 0;
+	};
+
+	std::string FormatHygieneLine(const Hygiene& hygiene);
+
 	/// Cabeçalho de identidade, uma vez por sessão: GPU, driver pedido, driver ATIVO e hash do
 	/// pacote. Sem isso duas medições não são comparáveis — e é a linha que revela um fallback
 	/// silencioso antes de qualquer número de desempenho ser levado a sério.
 	std::string FormatIdentityLine();
 
 	/// Chamado a cada quadro apresentado. Barato quando desligado e quando o intervalo não fechou.
-	void NotePresent(const ForkFrameGen::Decision& decision);
+	///
+	/// A higiene entra por parâmetro em vez de ser lida aqui: manter este módulo sem dependência
+	/// do config global é o que permite exercitá-lo inteiro sem VM. Custa meia dúzia de leituras
+	/// de campo no chamador, que já vive nesse mundo de qualquer forma.
+	void NotePresent(const ForkFrameGen::Decision& decision, const Hygiene& hygiene);
 
 	/// Zera o acumulado (troca de jogo, recriação de swapchain).
 	void Reset();

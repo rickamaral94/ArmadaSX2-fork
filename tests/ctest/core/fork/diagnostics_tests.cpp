@@ -133,3 +133,88 @@ TEST(ForkDiagnostics, ResetKeepsTheLastStateSoBoundaryTransitionsSurvive)
 	accumulator.Note(Make(State::Waiting, Reason::Unstable), 0.0f);
 	EXPECT_EQ(accumulator.transitions, 1u) << "a mudança atravessou a fronteira do bloco";
 }
+
+// A pergunta que o bloco anterior não respondia: CPU ou GPU? Sem ela, "está lento" vira palpite.
+TEST(ForkDiagnostics, LoadLineNamesWhereTheTimeGoes)
+{
+	ForkDiagnostics::Load load;
+	load.speed_percent = 87.5f;
+	load.vps = 52.4f;
+	load.cpu_thread_usage = 96.0;
+	load.gs_thread_usage = 41.0f;
+	load.gpu_usage = 38.0f;
+	load.shader_compiles = 7;
+
+	const std::string line = ForkDiagnostics::FormatLoadLine(load);
+	EXPECT_TRUE(Contains(line, "@@FORK@@"));
+	EXPECT_TRUE(Contains(line, "speed=87.5%"));
+	EXPECT_TRUE(Contains(line, "cpu=96%"));
+	EXPECT_TRUE(Contains(line, "gs=41%"));
+	EXPECT_TRUE(Contains(line, "gpu=38%"));
+	EXPECT_TRUE(Contains(line, "shader_compiles=7"));
+}
+
+// Um "0.00" indistinguível de "não sei" é pior que a ausência do campo: o leitor conclui que o
+// jogo renderiza a zero.
+TEST(ForkDiagnostics, InternalFpsIsOmittedWhenTheMethodCannotMeasureIt)
+{
+	ForkDiagnostics::Load load;
+	load.internal_fps = 0.0f;
+	load.internal_fps_valid = false;
+	EXPECT_FALSE(Contains(ForkDiagnostics::FormatLoadLine(load), "internal_fps"));
+
+	load.internal_fps = 29.97f;
+	load.internal_fps_valid = true;
+	EXPECT_TRUE(Contains(ForkDiagnostics::FormatLoadLine(load), "internal_fps=29.97"));
+}
+
+// A linha de carga fala de CUSTO. Repetir aqui o número que o usuário vê na tela seria começar a
+// confundir os dois de novo, que é o erro que este projeto inteiro evita.
+TEST(ForkDiagnostics, LoadLineDoesNotRepeatThePresentedNumber)
+{
+	ForkDiagnostics::Load load;
+	load.speed_percent = 100.0f;
+	load.vps = 59.94f;
+	const std::string line = ForkDiagnostics::FormatLoadLine(load);
+	EXPECT_FALSE(Contains(line, "presented"));
+	EXPECT_FALSE(Contains(line, "generated"));
+}
+
+// Custou uma rodada inteira de teste: a primeira sessão medida no aparelho estava despejando
+// texturas em disco — 246 arquivos durante a partida — e isso só apareceu porque alguém foi
+// procurar. O log tem de gritar sozinho, senão a próxima medição contaminada passa igual.
+TEST(ForkDiagnostics, ContaminatedMeasurementsAnnounceThemselves)
+{
+	ForkDiagnostics::Hygiene clean;
+	clean.upscale_multiplier = 2.75f;
+	clean.blending_level = 1;
+	const std::string ok = ForkDiagnostics::FormatHygieneLine(clean);
+	EXPECT_TRUE(Contains(ok, "limpo"));
+	EXPECT_FALSE(Contains(ok, "CONTAMINADA"));
+	// O contexto sai nos dois casos: um número sem saber o upscale é ininterpretável.
+	EXPECT_TRUE(Contains(ok, "upscale=2.75x"));
+
+	ForkDiagnostics::Hygiene dirty = clean;
+	dirty.dumping_textures = true;
+	const std::string bad = ForkDiagnostics::FormatHygieneLine(dirty);
+	EXPECT_TRUE(Contains(bad, "CONTAMINADA"));
+	EXPECT_TRUE(Contains(bad, "despejo-de-texturas"));
+	EXPECT_TRUE(Contains(bad, "upscale=2.75x"));
+}
+
+// Vários problemas ao mesmo tempo saem todos, não só o primeiro: quem for limpar o ambiente
+// precisa da lista inteira de uma vez.
+TEST(ForkDiagnostics, EveryContaminantIsListed)
+{
+	ForkDiagnostics::Hygiene dirty;
+	dirty.dumping_textures = true;
+	dirty.loading_texture_pack = true;
+	dirty.ee_cycle_rate_changed = true;
+	dirty.ee_cycle_skip_changed = true;
+
+	const std::string line = ForkDiagnostics::FormatHygieneLine(dirty);
+	EXPECT_TRUE(Contains(line, "despejo-de-texturas"));
+	EXPECT_TRUE(Contains(line, "pacote-de-texturas"));
+	EXPECT_TRUE(Contains(line, "EECycleRate"));
+	EXPECT_TRUE(Contains(line, "EECycleSkip"));
+}
