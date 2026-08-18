@@ -1690,29 +1690,49 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 
 	if (present_swap_chain)
 	{
-		// Fase 7 do fork: a política de frame generation é avaliada aqui, no único ponto por onde
-		// todo quadro apresentado passa. Ela NÃO apresenta nada a mais nesta fase — calcula,
-		// registra e a UI mostra. Ver pcsx2/Fork/ForkFrameGen.h.
+		// Fase 7/8 do fork: a política de frame generation é avaliada aqui, no único ponto por onde
+		// todo quadro apresentado passa, e a partir da Fase 8 ela MANDA — o backend só roda quando
+		// a régua engata. Ver pcsx2/Fork/ForkFrameGen.h e docs/fase8-regua-no-comando.md.
 		// Consumed here rather than only reset in BeginPresent: RenderBlankFrame() presents
 		// without going through BeginPresent at all, so a flag left set by the last real frame
 		// would tell frame generation that a cleared image was fresh game output.
 		const bool has_new_frame = std::exchange(m_present_has_new_frame, false);
 
+		// `supported` é o backend estar de pé, não um `true` fixo. Sem backend nenhuma política
+		// muda o resultado, e a régua usa isso para não pagar a leitura das métricas por quadro em
+		// aparelho que nunca vai gerar nada.
+		const bool generation_backend_active = GSLsfg::IsActive();
+		const ForkFrameGen::Decision framegen =
+			ForkFrameGen::EvaluateAtPresent(generation_backend_active, has_new_frame);
+
 		// Frame generation replaces this present entirely: it consumes the rendering-finished
 		// semaphore for its own copy, then presents the interpolated frames and the real one in
 		// order. It returns false without consuming anything if it cannot run this frame, which
 		// is the ordinary path on every build and device without it.
-		ForkFrameGen::EvaluateAtPresent(/*supported=*/true, has_new_frame);
+		//
+		// O `Engaged` na frente é a Fase 8 inteira em uma condição. Antes dela a régua calculava e
+		// o backend apresentava assim mesmo — ou seja, o degrau que existe para impedir "22 FPS
+		// reais mostrando 44" não impedia nada. Recusar aqui devolve o quadro ao caminho normal,
+		// que o conta como Real ou Duplicate logo abaixo.
+		const bool generation_allowed =
+			generation_backend_active && framegen.state == ForkFrameGen::State::Engaged;
 
-		if (GSLsfg::IsActive() &&
+		// Recusa da RÉGUA, não do backend: o quadro sai pelo caminho normal e o backend precisa
+		// saber que houve um buraco no histórico dele — senão, ao retomar, costura o quadro de
+		// antes da recusa com o de depois e apresenta um intermediário inventado. Só neste ramo:
+		// quando a régua autoriza e o backend é quem declina, ele já cuidou do próprio histórico
+		// lá dentro, e avisar de novo contaria o mesmo quadro duas vezes no contador dele.
+		if (generation_backend_active && !generation_allowed)
+			GSLsfg::NoteGenerationDeclined();
+
+		if (generation_allowed &&
 			GSLsfg::PresentWithGeneration(m_present_queue, present_swap_chain,
 				present_swap_chain->GetRenderingFinishedSemaphore(), has_new_frame))
 		{
-			// O quadro REAL é contado aqui; os interpolados que o LSFG apresenta por dentro não,
-			// porque ele não os reporta. Ou seja: com LSFG ligado o FPS real continua correto e o
-			// apresentado fica SUBESTIMADO. Preferimos um número faltando a um número inventado —
-			// o backend de frame generation nosso (fases 7-8) reportará os próprios quadros por
-			// NotePresented(Generated).
+			// O quadro REAL é contado aqui; os gerados o próprio GSLsfg reporta, um a um, à medida
+			// que confirma que chegaram à tela — ele já os contava para o overlay dele e agora
+			// alimenta a mesma métrica. É o que faz o FPS apresentado deixar de ser SUBESTIMADO
+			// com FG ligado, sem em momento algum mexer no FPS real.
 			GSPresentationMetrics::NotePresented(
 				has_new_frame ? GSPresentationMetrics::FrameKind::Real
 							  : GSPresentationMetrics::FrameKind::Duplicate);

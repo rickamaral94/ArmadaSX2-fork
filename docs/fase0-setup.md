@@ -65,6 +65,8 @@ justificativa, o fork está saindo do trilho.
 | `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
 | `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI | implementação da porta única |
 | `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar; grava a seleção na configuração | Fase 4 item 5, Fase 5 |
+| `pcsx2/GS/Renderers/Vulkan/GSLsfg.cpp` | +reporte dos quadros gerados à métrica, +medição do custo de geração, +`NoteGenerationDeclined` | o FPS apresentado deixa de ser subestimado; o orçamento da régua deixa de ser decorativo; a recusa da régua não pode costurar dois quadros através do buraco. Ver docs/fase8-regua-no-comando.md |
+| `pcsx2/GS/Renderers/Vulkan/GSLsfg.h` | +1 declaração | `NoteGenerationDeclined` |
 | `pcsx2/GS/Renderers/Vulkan/GSLsfg.cpp` | tabela nome→id extraída para um header | o inspetor de pacote confere os mesmos ids no import; duas cópias divergiriam na primeira versão que renumerasse um recurso. Ver docs/fase7.1-validacao-pacote-fg.md |
 | `pcsx2/GS/Renderers/Vulkan/GSLsfgShaderTable.h` (novo) | a tabela, agora com dois leitores | fonte única dos ids de recurso |
 | `.gitignore` | +1 regra `**/Lossless.dll` | o arquivo de FG é comprado e fornecido pelo usuário; nada dele entra no repositório |

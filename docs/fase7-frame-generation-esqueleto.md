@@ -129,6 +129,7 @@ num aparelho incompatível.
 
 ## 8. Próximo
 
-Fase 8: o backend de verdade — optical flow em compute shader (FG-A), apresentando de fato o quadro
-sintetizado. A régua desta fase é o que vai impedir esse backend de "ter sucesso" às custas da
-emulação.
+Fase 8 (`docs/fase8-regua-no-comando.md`): a régua passa a MANDAR no backend que apresenta. Até ali
+ela calculava e era ignorada — o degrau contra "22 FPS reais mostrando 44" não impedia nada, os
+quadros gerados não entravam na conta do FPS apresentado e o orçamento de tempo não podia disparar
+porque ninguém media o custo.

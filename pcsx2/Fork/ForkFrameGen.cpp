@@ -172,12 +172,17 @@ ForkFrameGen::Decision ForkFrameGen::EvaluateAtPresent(bool supported, bool has_
 	const Policy policy = PolicyFromConfig();
 
 	Decision decision;
-	if (policy.mode == Mode::Off)
+	if (policy.mode == Mode::Off || !supported)
 	{
 		// Caminho rápido: desligado não paga nem a leitura das métricas. FG desligado é o padrão,
 		// e o custo dele tem que ser indistinguível de não existir.
+		//
+		// `!supported` entra no mesmo caminho porque, sem backend capaz de apresentar, nenhuma
+		// política muda o resultado — e ler as métricas a cada quadro para concluir isso seria
+		// cobrar de todo mundo por um recurso que ninguém ligou. O motivo continua distinguindo os
+		// dois casos: "desligado" é escolha do usuário, "incompatível" é do aparelho.
 		decision.state = State::Disabled;
-		decision.reason = Reason::Off;
+		decision.reason = (policy.mode == Mode::Off) ? Reason::Off : Reason::Unsupported;
 	}
 	else
 	{

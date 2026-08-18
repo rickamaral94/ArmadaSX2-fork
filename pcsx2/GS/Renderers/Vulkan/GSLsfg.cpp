@@ -5,6 +5,7 @@
 
 #include "Config.h"
 #include "GS/GS.h"
+#include "GS/Renderers/Common/GSPresentationMetrics.h"
 
 #include "common/Console.h"
 #include "common/FileSystem.h"
@@ -219,6 +220,7 @@ namespace GSLsfg
 	bool IsActive() { return false; }
 	u32 GetMultiplier() { return 1; }
 	bool PresentWithGeneration(VkQueue, VKSwapChain*, VkSemaphore, bool) { return false; }
+	void NoteGenerationDeclined() {}
 } // namespace GSLsfg
 
 #else
@@ -649,6 +651,14 @@ namespace GSLsfg
 			s_fps_real += real;
 			s_fps_generated += generated;
 
+			// Fase 8 do fork: os quadros GERADOS entram na métrica de apresentação, um a um, e só
+			// os que confirmadamente chegaram à tela — `generated` é contado, não deduzido do
+			// multiplicador. Os reais NÃO são reportados daqui: quem os conta é o chamador, em
+			// GSDeviceVK, nos dois caminhos (com e sem geração). Contá-los aqui também dobraria o
+			// FPS real, que é justamente o número que não pode ser tocado.
+			for (u32 i = 0; i < generated; i++)
+				GSPresentationMetrics::NotePresented(GSPresentationMetrics::FrameKind::Generated);
+
 			const u64 now = Common::Timer::GetCurrentValue();
 			if (s_fps_window_start == 0)
 			{
@@ -1063,6 +1073,18 @@ namespace GSLsfg
 		return true;
 	}
 
+	void NoteGenerationDeclined()
+	{
+		// Mesma consequência de um quadro sem conteúdo novo: o histórico cai. A régua pode recusar
+		// por segundos seguidos — emulação abaixo do piso, ritmo instável — e retomar costurando o
+		// quadro de antes da recusa com o de depois produziria exatamente um quadro intermediário
+		// inventado, no instante em que o usuário voltou a ter fluidez para julgar.
+		s_frame_index = 0;
+		// O contador próprio do LSFG continua andando: o quadro foi apresentado pelo chamador, e um
+		// número que congela quando a régua recusa parece "quebrou" em vez de "não engatou".
+		NoteFramesDisplayed(1, 0);
+	}
+
 	bool PresentWithGeneration(
 		VkQueue present_queue, VKSwapChain* swap_chain, VkSemaphore render_finished, bool frame_has_new_content)
 	{
@@ -1135,6 +1157,16 @@ namespace GSLsfg
 		//    rejects OPAQUE_FD export on AHB-imported memory — so a device idle is the only
 		//    barrier that exists. This is why frame generation costs latency here rather than
 		//    being free.
+		//
+		// Medido de ponta a ponta, e por um motivo concreto: o orçamento de tempo da régua
+		// (`FrameGen.BudgetMs`) lia `generation_avg_ms`, que ninguém alimentava — então o degrau
+		// que suspende FG por custo excessivo nunca podia disparar. É este relógio que fecha o
+		// laço: custo medido -> média na janela -> Decide -> Suspended.
+		//
+		// O intervalo inclui as duas esperas de idle porque elas SÃO o custo: sem semáforo
+		// entre dispositivos no Android, o bloqueio é o mecanismo, e cobrar só o `present` do
+		// backend contaria a parte barata e esconderia a cara.
+		const Common::Timer::Value t_generation_start = Common::Timer::GetCurrentValue();
 		vkQueueWaitIdle(s_queue); // our pre-copy must land before framegen reads that image
 		const bool generated = (s_backend.present(s_context_id) == 0);
 		if (!generated)
@@ -1143,6 +1175,8 @@ namespace GSLsfg
 		}
 		else
 			s_backend.wait_idle();
+		GSPresentationMetrics::NoteGenerationCost(
+			Common::Timer::ConvertValueToMilliseconds(Common::Timer::GetCurrentValue() - t_generation_start));
 
 		// 3. Present each interpolated frame, then the real one last — the generated frames sit
 		//    between the previous real frame and this one, so they display first. Presents issued

@@ -115,4 +115,13 @@ namespace GSLsfg
 	/// or consumed and the caller must fall through to its ordinary present path.
 	bool PresentWithGeneration(VkQueue present_queue, VKSwapChain* swap_chain, VkSemaphore render_finished,
 		bool frame_has_new_content);
+
+	/// The caller presented this frame itself instead of handing it over — the fork's frame-generation
+	/// ruler declined (real FPS under its floor, unstable pacing, over budget, or simply off).
+	///
+	/// It has to be told. The decline path is a GAP in this module's frame history exactly like a
+	/// pause-menu repaint is, and without dropping the history the pair either side of the gap gets
+	/// stitched into one bogus in-between frame the moment generation resumes. PresentWithGeneration
+	/// did that itself for the gaps it saw; it cannot see the ones it is never called for.
+	void NoteGenerationDeclined();
 } // namespace GSLsfg

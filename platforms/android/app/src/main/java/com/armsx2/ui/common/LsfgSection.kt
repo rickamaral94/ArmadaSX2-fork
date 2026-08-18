@@ -122,12 +122,19 @@ fun LsfgSection(
     performance: Boolean,
     flowScale: Int,
     forkFrameGenMode: String,
-    onForkFrameGenModeChange: (String) -> Unit,
-    onChange: (enabled: Boolean, multiplier: Int, dllPath: String, performance: Boolean, flowScale: Int) -> Unit,
+    onChange: (
+        enabled: Boolean, multiplier: Int, dllPath: String, performance: Boolean, flowScale: Int,
+        forkFrameGenMode: String,
+    ) -> Unit,
 ) {
     if (!BuildConfig.LSFG) return
 
-    ForkFrameGenPolicyRows(forkFrameGenMode, onForkFrameGenModeChange)
+    // Um callback só, carregando também o modo. Dois callbacks separados seriam duas chamadas de
+    // apply(s.copy(...)) a partir do MESMO s, e a segunda desfaria a primeira — a política e o
+    // backend mudam juntos quando o usuário liga a chave, então têm de sair na mesma escrita.
+    ForkFrameGenPolicyRows(forkFrameGenMode) { mode ->
+        onChange(enabled, multiplier, dllPath, performance, flowScale, mode)
+    }
     SettingsDivider()
 
     val context = LocalContext.current
@@ -174,14 +181,14 @@ fun LsfgSection(
             // whatever the runtime finds when it does come up.
             importError = null
             path = target.absolutePath
-            onChange(enabled, multiplier, path, performance, flowScale)
+            onChange(enabled, multiplier, path, performance, flowScale, forkFrameGenMode)
         } else if (!inspection.usable) {
             target.delete()
             importError = if (inspection.verdict == "NoShaderFamily") noShaderFamilyMsg else notADllMsg
         } else {
             importError = null
             path = target.absolutePath
-            onChange(enabled, multiplier, path, performance, flowScale)
+            onChange(enabled, multiplier, path, performance, flowScale, forkFrameGenMode)
         }
     }
 
@@ -193,7 +200,17 @@ fun LsfgSection(
         // The requirements dialog fires on the way ON only, and BEFORE the toggle commits.
         // Turning something on and then being told it cannot work is the shape of this that
         // wastes the user's time; being told what it needs first is the shape that does not.
-        if (on) showRequirements = true else onChange(false, multiplier, path, performance, flowScale)
+        if (on)
+        {
+            showRequirements = true
+        }
+        else
+        {
+            // Desligar o backend desliga a política junto. Deixar `auto` gravado com o backend
+            // fora significaria a régua avaliando, e a UI relatando estado, para um recurso que o
+            // usuário acabou de desligar.
+            onChange(false, multiplier, path, performance, flowScale, ForkSettings.FrameGenMode.OFF)
+        }
     }
 
     if (enabled) {
@@ -203,14 +220,14 @@ fun LsfgSection(
             options = listOf("x2", "x3", "x4"),
             selectedIndex = (multiplier - 2).coerceIn(0, 2),
             description = str("perf.lsfg.multiplier.description"),
-        ) { index -> onChange(enabled, index + 2, path, performance, flowScale) }
+        ) { index -> onChange(enabled, index + 2, path, performance, flowScale, forkFrameGenMode) }
 
         SettingsDivider()
         ToggleRow(
             label = str("perf.lsfg.performance.label"),
             value = performance,
             description = str("perf.lsfg.performance.description"),
-        ) { on -> onChange(enabled, multiplier, path, on, flowScale) }
+        ) { on -> onChange(enabled, multiplier, path, on, flowScale, forkFrameGenMode) }
 
         SettingsDivider()
         // A percentage, not the divisor the library takes — the native side inverts it. Presented
@@ -223,7 +240,7 @@ fun LsfgSection(
             max = 100,
             description = str("perf.lsfg.flowScale.description"),
             valueFormatter = { "$it%" },
-        ) { value -> onChange(enabled, multiplier, path, performance, value) }
+        ) { value -> onChange(enabled, multiplier, path, performance, value, forkFrameGenMode) }
 
         SettingsDivider()
         LsfgDllRow(path, importError) { picker.launch(arrayOf("*/*")) }
@@ -247,7 +264,13 @@ fun LsfgSection(
             onDismiss = { showRequirements = false },
             onAccept = {
                 showRequirements = false
-                onChange(true, multiplier, path, performance, flowScale)
+                // Ligar o backend liga a política, quando ela ainda não estiver escolhida. Sem
+                // isso o usuário liga Frame Generation, o backend sobe, a régua continua em `off`
+                // e nada é gerado — a chave estaria mentindo. `auto` é a escolha segura: gera
+                // quando o ritmo permite e desengata sozinha quando não permite.
+                val mode = if (forkFrameGenMode == ForkSettings.FrameGenMode.OFF)
+                    ForkSettings.FrameGenMode.AUTO else forkFrameGenMode
+                onChange(true, multiplier, path, performance, flowScale, mode)
                 // Straight into the picker when there is nothing to run against — the first
                 // thing the dialog just asked for is the file, so asking for it is the next
                 // step rather than a second row to go and find.

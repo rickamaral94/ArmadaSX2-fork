@@ -103,6 +103,49 @@ TEST_F(PresentationMetricsTest, RealAndPresentedNeverConflated)
 	EXPECT_NEAR(snap.presented_fps, 60.0f, 0.001f);
 }
 
+// O invariante da Fase 8, medido dos dois lados: intercalar quadros GERADOS não pode mexer em
+// nenhum número do lado real. Mesma linha do tempo real, uma vez sozinha e uma vez com um quadro
+// gerado entre cada par — FPS real, média, mínimo e máximo de frametime têm de sair idênticos.
+//
+// É o que separa "apresentar mais quadros" de "emular mais rápido". Se essa igualdade quebrar, o
+// número que o projeto usa para julgar desempenho passou a ser contaminado pelo recurso que ele
+// deveria julgar.
+TEST_F(PresentationMetricsTest, GeneratedFramesDoNotMoveASingleRealNumber)
+{
+	const auto RunRealTimeline = [](bool interleave_generated) {
+		GSPresentationMetrics::Reset();
+		s_now = Common::Timer::ConvertSecondsToValue(1000.0);
+		for (int i = 0; i < 20; i++)
+		{
+			if (i > 0)
+				AdvanceMs(20.0);
+			GSPresentationMetrics::NotePresented(FrameKind::Real);
+			// O quadro gerado entra no MESMO instante, de propósito: assim a linha do tempo dos
+			// quadros reais é bit a bit a mesma nas duas execuções, e qualquer diferença nos
+			// números reais só pode ter vindo do quadro gerado. (Andar com o relógio para trás
+			// seria mais parecido com a realidade e menos com um teste: Timer::Value é sem sinal.)
+			if (interleave_generated)
+				GSPresentationMetrics::NotePresented(FrameKind::Generated);
+		}
+		return GSPresentationMetrics::GetSnapshot();
+	};
+
+	const Snapshot without = RunRealTimeline(false);
+	const Snapshot with = RunRealTimeline(true);
+
+	EXPECT_EQ(with.real_frames, without.real_frames);
+	EXPECT_FLOAT_EQ(with.real_fps, without.real_fps);
+	EXPECT_FLOAT_EQ(with.real_frametime_avg_ms, without.real_frametime_avg_ms);
+	EXPECT_FLOAT_EQ(with.real_frametime_min_ms, without.real_frametime_min_ms);
+	EXPECT_FLOAT_EQ(with.real_frametime_max_ms, without.real_frametime_max_ms);
+	EXPECT_FLOAT_EQ(with.real_frametime_low1_ms, without.real_frametime_low1_ms);
+
+	// E o lado apresentado, esse sim, tem de ter subido — senão o teste acima passaria com um
+	// backend que não gera nada.
+	EXPECT_EQ(with.generated_frames, 20u);
+	EXPECT_GT(with.presented_fps, without.presented_fps);
+}
+
 // Quadro repetido é apresentação sem conteúdo novo: conta como apresentado, nunca como real.
 TEST_F(PresentationMetricsTest, DuplicatesCountAsPresentedNotReal)
 {

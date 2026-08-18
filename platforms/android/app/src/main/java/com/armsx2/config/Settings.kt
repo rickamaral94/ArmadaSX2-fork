@@ -2120,7 +2120,17 @@ data class Settings(
                 lsfgDllPath = json.optString("lsfgDllPath", def.lsfgDllPath),
                 lsfgPerformance = json.optBoolean("lsfgPerformance", def.lsfgPerformance),
                 lsfgFlowScale = json.optInt("lsfgFlowScale", def.lsfgFlowScale),
-                forkFrameGenMode = json.optString("forkFrameGenMode", def.forkFrameGenMode),
+                // Migração de uma só vez: uma config gravada ANTES desta chave existir, com o
+                // backend de LSFG já ligado, resolve para "auto" em vez do padrão "off".
+                //
+                // A partir da Fase 8 a régua manda no backend, e um `off` herdado faria o recurso
+                // simplesmente parar de gerar para quem já o usava — sem mensagem, sem pista. E
+                // "auto" é o que essa pessoa já tinha na prática, menos os casos que o projeto
+                // chama de fracasso (suavizar uma emulação lenta). Quem escolher `off` de fato
+                // grava a chave, e daí em diante ela é respeitada.
+                forkFrameGenMode = if (!json.has("forkFrameGenMode") &&
+                    json.optBoolean("lsfgEnabled", def.lsfgEnabled)
+                ) "auto" else json.optString("forkFrameGenMode", def.forkFrameGenMode),
                 casMode = json.optInt("casMode", def.casMode),
                 casSharpness = json.optInt("casSharpness", def.casSharpness),
                 upscaler = json.optInt("upscaler", def.upscaler),

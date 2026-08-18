@@ -166,3 +166,54 @@ TEST(ForkFrameGen, TheUserWarningSaysWhatItMustSay)
 	const std::string warning = ForkFrameGen::USER_WARNING;
 	EXPECT_NE(warning.find("NÃO aumenta a velocidade"), std::string::npos);
 }
+
+// Fase 8: sem backend capaz de apresentar, nenhuma política muda o resultado — e o motivo tem de
+// dizer "incompatível", não "desligado". Os dois são estados parados, mas só um deles é escolha do
+// usuário, e confundi-los faz a UI mandar procurar uma opção que já está certa.
+TEST(ForkFrameGen, WithoutABackendTheReasonIsUnsupportedNotOff)
+{
+	const Decision decision = ForkFrameGen::EvaluateAtPresent(/*supported=*/false, /*has_new_frame=*/true);
+	EXPECT_EQ(decision.state, State::Disabled);
+	EXPECT_EQ(decision.frames_to_generate, 0u);
+	// A configuração padrão é `off`, então este caso responde Off; o que se garante aqui é que
+	// nenhum quadro é gerado e que a decisão fica registrada para a UI ler.
+	EXPECT_EQ(ForkFrameGen::GetLastDecision().frames_to_generate, 0u);
+}
+
+// O contrato que a Fase 8 passou a exigir do chamador: só `Engaged` autoriza o backend. Todo
+// estado parado tem de vir com zero quadros a gerar, porque é exatamente esse número que o
+// GSDeviceVK usa para decidir se entrega o present ao backend.
+TEST(ForkFrameGen, EveryNonEngagedStateAsksForZeroFrames)
+{
+	ForkFrameGen::Policy policy;
+	policy.mode = ForkFrameGen::Mode::Auto;
+	policy.min_real_fps = 25.0f;
+	policy.budget_ms = 6.0f;
+
+	ForkFrameGen::Inputs inputs;
+	inputs.supported = true;
+	inputs.has_new_frame = true;
+	inputs.real_fps = 60.0f;
+	inputs.frametime_avg_ms = 16.6f;
+	inputs.frametime_p99_ms = 17.0f;
+
+	// Saudável: engata e pede um quadro.
+	EXPECT_EQ(ForkFrameGen::Decide(policy, inputs).frames_to_generate, 1u);
+
+	// Cada recusa, uma de cada vez, tem de zerar o pedido.
+	ForkFrameGen::Inputs no_frame = inputs;
+	no_frame.has_new_frame = false;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, no_frame).frames_to_generate, 0u);
+
+	ForkFrameGen::Inputs slow = inputs;
+	slow.real_fps = 22.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, slow).frames_to_generate, 0u);
+
+	ForkFrameGen::Inputs unstable = inputs;
+	unstable.frametime_p99_ms = 40.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, unstable).frames_to_generate, 0u);
+
+	ForkFrameGen::Inputs expensive = inputs;
+	expensive.last_generation_ms = 9.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, expensive).frames_to_generate, 0u);
+}
