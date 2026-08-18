@@ -88,7 +88,9 @@ namespace ForkConfig
 		FrameGenMode,
 		/// Teto de tempo, em ms, para produzir o quadro gerado.
 		FrameGenBudgetMs,
-		/// FPS real abaixo disto não engata: suavizar emulação lenta é mascarar.
+		/// Velocidade mínima da emulação, em %. É o degrau principal contra mascarar lentidão.
+		FrameGenMinSpeedPercent,
+		/// Piso absoluto de FPS, contra o custo de latência da interpolação.
 		FrameGenMinRealFps,
 
 		// --- diagnóstico de sessão (Fase 8.1) ---

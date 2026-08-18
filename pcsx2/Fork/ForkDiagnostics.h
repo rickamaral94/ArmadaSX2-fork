@@ -43,7 +43,7 @@ namespace ForkDiagnostics
 	struct Accumulator
 	{
 		/// Quadros observados em cada motivo, na ordem do enum `ForkFrameGen::Reason`.
-		std::array<u32, 7> frames_by_reason{};
+		std::array<u32, 8> frames_by_reason{};
 		/// Quantas vezes o ESTADO mudou. É o número que responde "está piscando?".
 		u32 transitions = 0;
 		u32 frames = 0;

@@ -142,3 +142,33 @@ Quatro decisões de formato, cada uma por um motivo:
 
 Alimentado com a **mesma** decisão que governa o backend, não com uma recalculada: um diagnóstico
 que refizesse a conta poderia explicar uma suspensão com um número que não a causou.
+
+
+## 9. Adendo (8.2) — o piso era o número errado
+
+O primeiro log de aparelho (Odin 2 Portal, Adreno 740, Turnip Mesa 26.3.0-devel) fechou a Fase 0
+— BIOS booto, jogo booto, `CustomDriverActive` sem fallback — e de quebra expôs um erro de projeto
+na régua.
+
+O degrau contra mascarar lentidão comparava **FPS real absoluto** contra um piso de 25. Só que:
+
+| situação | FPS real | velocidade | o piso em FPS dizia | o certo |
+|---|---|---|---|---|
+| jogo nativo de 30, rodando perfeito | 30 | 100% | passa (por pouco) | **passa** — é onde FG mais ajuda |
+| jogo de 60, rodando pela metade | 30 | 50% | **passa** | recusar — é a regra do projeto |
+| jogo nativo de 20, rodando perfeito | 20 | 100% | recusa | passar |
+
+Um número não distingue "o jogo é assim" de "o aparelho não dá conta" — os três casos acima
+produzem FPS reais parecidos. O que distingue é a **velocidade**: `fps / taxa alvo da máquina`,
+que é exatamente o que `PerformanceMetrics::GetSpeed()` já calculava contra 59,94 / 50.
+
+Agora são dois degraus, com papéis distintos:
+
+- **`FrameGen.MinSpeedPercent`** (90%) — o degrau principal, e o que a regra do projeto realmente
+  quer dizer. `BelowFullSpeed`.
+- **`FrameGen.MinRealFps`** (15) — sobrevive com outro papel: **latência**. Interpolar segura o
+  quadro novo até produzir o do meio, então o atraso em milissegundos cresce quando a taxa cai —
+  ~17 ms a 60 FPS, ~67 ms a 15. Abaixo daqui a fluidez não paga o input lag. `BelowMinimumRealFps`.
+
+O valor de 90% é um ponto de partida declarado, não uma medição: será ajustado com os dados da
+alpha 2. O que não é chute é a mudança de GRANDEZA — essa o aparelho provou.

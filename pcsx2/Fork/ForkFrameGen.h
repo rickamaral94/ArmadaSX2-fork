@@ -61,7 +61,17 @@ namespace ForkFrameGen
 		/// Ritmo instável: gerar em cima de frametime irregular piora a percepção em vez de
 		/// melhorar.
 		Unstable,
-		/// FPS real abaixo do mínimo. A regra do projeto: 22 FPS reais mostrando 44 não é sucesso.
+		/// A emulação não está rodando na velocidade correta. **Este é o degrau principal**, e o
+		/// que a regra do projeto realmente quer dizer: 22 FPS reais mostrando 44 não é sucesso.
+		///
+		/// Medido como VELOCIDADE (`fps / taxa alvo da máquina`), não como FPS absoluto. A
+		/// diferença não é acadêmica: um jogo de PS2 que renderiza a 30 rodando perfeitamente dá
+		/// 30 FPS reais, e um piso em FPS o confundiria com um jogo de 60 rodando pela metade —
+		/// exatamente ao contrário. Velocidade separa "o jogo é assim" de "o aparelho não dá conta".
+		BelowFullSpeed,
+		/// FPS real absoluto baixo demais. Guarda secundária, e por outro motivo: interpolar
+		/// segura o quadro novo até gerar o do meio, então quanto menor a taxa, maior o atraso em
+		/// MILISSEGUNDOS que isso custa. A 20 FPS um quadro é 50 ms de input lag.
 		BelowMinimumRealFps,
 		/// A geração não coube no orçamento de tempo.
 		OverBudget,
@@ -74,9 +84,12 @@ namespace ForkFrameGen
 		/// Teto de tempo para produzir o quadro gerado. Estourar significa roubar tempo da
 		/// emulação, que é exatamente o que FG não pode fazer.
 		float budget_ms = 6.0f;
-		/// Abaixo disto FG não engata. O projeto define que suavizar uma emulação lenta é
-		/// mascarar, não melhorar.
-		float min_real_fps = 25.0f;
+		/// Velocidade mínima da emulação, em porcentagem da taxa alvo da máquina. Abaixo disto FG
+		/// não engata: o projeto define que suavizar uma emulação lenta é mascarar, não melhorar.
+		float min_speed_percent = 90.0f;
+		/// Piso absoluto de FPS real, contra o custo de LATÊNCIA da interpolação — não contra
+		/// lentidão, que é papel de [min_speed_percent].
+		float min_real_fps = 15.0f;
 		/// Quão irregular o frametime pode ser e ainda contar como estável, medido como razão
 		/// entre p99 e a média.
 		float max_p99_ratio = 1.5f;
@@ -88,6 +101,8 @@ namespace ForkFrameGen
 		/// O quadro que acabou de ser submetido carrega conteúdo novo do jogo?
 		bool has_new_frame = false;
 		float real_fps = 0.0f;
+		/// Velocidade da emulação em %, como o PCSX2 a calcula (`fps / taxa alvo`). 100 = correta.
+		float speed_percent = 100.0f;
 		float frametime_avg_ms = 0.0f;
 		float frametime_p99_ms = 0.0f;
 		/// Custo da última geração, 0 quando ainda não houve.

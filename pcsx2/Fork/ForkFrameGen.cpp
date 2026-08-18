@@ -5,6 +5,7 @@
 
 #include "Fork/ForkConfig.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
+#include "PerformanceMetrics.h"
 
 #include "fmt/format.h"
 
@@ -41,9 +42,25 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 		return decision;
 	}
 
-	// 2. FPS real abaixo do mínimo: 22 reais mostrando 44 não é sucesso, é maquiagem. Vem antes da
-	// checagem de estabilidade porque uma emulação lenta pode ser perfeitamente REGULAR — e aí
-	// passaria no teste de ritmo enquanto viola a regra que mais importa.
+	// 2. Emulação abaixo da velocidade correta: 22 reais mostrando 44 não é sucesso, é maquiagem.
+	// Vem antes da checagem de estabilidade porque uma emulação lenta pode ser perfeitamente
+	// REGULAR — e aí passaria no teste de ritmo enquanto viola a regra que mais importa.
+	//
+	// Medido em VELOCIDADE, não em FPS absoluto. O piso em FPS era um erro de projeto que só um
+	// aparelho de verdade revelou: um jogo de PS2 que renderiza a 30 e roda perfeitamente entrega
+	// 30 FPS reais, enquanto um jogo de 60 rodando pela METADE entrega os mesmos 30. O primeiro
+	// merece FG mais do que qualquer outro caso; o segundo é exatamente o que a regra proíbe. Um
+	// número não distingue os dois; a razão contra a taxa alvo da máquina distingue.
+	if (inputs.speed_percent > 0.0f && inputs.speed_percent < policy.min_speed_percent)
+	{
+		decision.state = State::Waiting;
+		decision.reason = Reason::BelowFullSpeed;
+		return decision;
+	}
+
+	// 3. Piso absoluto de FPS, contra LATÊNCIA e não contra lentidão. Interpolar segura o quadro
+	// novo até produzir o do meio, então o atraso em milissegundos cresce à medida que a taxa cai:
+	// a 60 FPS é ~17 ms, a 15 FPS é ~67 ms. Abaixo daqui o ganho de fluidez não paga o input lag.
 	if (inputs.real_fps > 0.0f && inputs.real_fps < policy.min_real_fps)
 	{
 		decision.state = State::Waiting;
@@ -51,7 +68,7 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 		return decision;
 	}
 
-	// 3. Ritmo irregular: interpolar sobre frametime que oscila piora a percepção em vez de
+	// 4. Ritmo irregular: interpolar sobre frametime que oscila piora a percepção em vez de
 	// melhorar, porque o quadro sintético entra em um instante que não corresponde a nada.
 	if (inputs.frametime_avg_ms > 0.0f &&
 		inputs.frametime_p99_ms > (inputs.frametime_avg_ms * policy.max_p99_ratio))
@@ -61,7 +78,7 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 		return decision;
 	}
 
-	// 4. Orçamento estourado: a geração passou a roubar tempo da emulação. Suspende — estado
+	// 5. Orçamento estourado: a geração passou a roubar tempo da emulação. Suspende — estado
 	// distinto de Waiting, porque aqui houve uma tentativa que custou caro, e a UI precisa poder
 	// dizer isso em vez de sugerir que as condições nunca foram atendidas.
 	if (inputs.last_generation_ms > policy.budget_ms)
@@ -131,8 +148,10 @@ const char* ForkFrameGen::ReasonText(Reason reason)
 			return "Aguardando quadros novos do jogo.";
 		case Reason::Unstable:
 			return "Ritmo instável — gerar agora pioraria a fluidez.";
+		case Reason::BelowFullSpeed:
+			return "Emulação abaixo da velocidade correta; suavizar aqui esconderia a lentidão.";
 		case Reason::BelowMinimumRealFps:
-			return "FPS real abaixo do mínimo; suavizar aqui esconderia a lentidão.";
+			return "Taxa muito baixa; o atraso da interpolação não compensaria.";
 		case Reason::OverBudget:
 			return "A geração não coube no orçamento de tempo e foi suspensa.";
 		case Reason::Engaged:
@@ -146,6 +165,7 @@ ForkFrameGen::Policy ForkFrameGen::PolicyFromConfig()
 	Policy policy;
 	policy.mode = ParseMode(ForkConfig::GetString(ForkConfig::Option::FrameGenMode));
 	policy.budget_ms = ForkConfig::GetFloat(ForkConfig::Option::FrameGenBudgetMs);
+	policy.min_speed_percent = ForkConfig::GetFloat(ForkConfig::Option::FrameGenMinSpeedPercent);
 	policy.min_real_fps = ForkConfig::GetFloat(ForkConfig::Option::FrameGenMinRealFps);
 	return policy;
 }
@@ -192,6 +212,10 @@ ForkFrameGen::Decision ForkFrameGen::EvaluateAtPresent(bool supported, bool has_
 		inputs.supported = supported;
 		inputs.has_new_frame = has_new_frame;
 		inputs.real_fps = snapshot.real_fps;
+		// Velocidade vem do PCSX2, não das nossas métricas: ele a calcula contra a taxa alvo da
+		// MÁQUINA (59,94 / 50), que é o único denominador que separa "o jogo renderiza a 30" de
+		// "o aparelho só dá conta de metade".
+		inputs.speed_percent = PerformanceMetrics::GetSpeed();
 		inputs.frametime_avg_ms = snapshot.real_frametime_avg_ms;
 		inputs.frametime_p99_ms = snapshot.real_frametime_low1_ms;
 		inputs.last_generation_ms = snapshot.generation_avg_ms;

@@ -19,7 +19,8 @@ namespace
 		Policy policy;
 		policy.mode = mode;
 		policy.budget_ms = 6.0f;
-		policy.min_real_fps = 25.0f;
+		policy.min_speed_percent = 90.0f;
+		policy.min_real_fps = 15.0f;
 		policy.max_p99_ratio = 1.5f;
 		return policy;
 	}
@@ -31,6 +32,7 @@ namespace
 		inputs.supported = true;
 		inputs.has_new_frame = true;
 		inputs.real_fps = 60.0f;
+		inputs.speed_percent = 100.0f;
 		inputs.frametime_avg_ms = 16.6f;
 		inputs.frametime_p99_ms = 18.0f;
 		inputs.last_generation_ms = 2.0f;
@@ -78,12 +80,48 @@ TEST(ForkFrameGen, RefusesToSmoothSlowEmulation)
 {
 	Inputs slow = HealthyFrame();
 	slow.real_fps = 22.0f;
+	slow.speed_percent = 37.0f;
 	slow.frametime_avg_ms = 45.5f;
 	slow.frametime_p99_ms = 46.0f; // perfeitamente REGULAR — só que lento
 
 	const Decision decision = ForkFrameGen::Decide(MakePolicy(), slow);
-	EXPECT_EQ(decision.reason, Reason::BelowMinimumRealFps);
+	EXPECT_EQ(decision.reason, Reason::BelowFullSpeed);
 	EXPECT_EQ(decision.frames_to_generate, 0u);
+}
+
+// O erro de projeto que só um aparelho de verdade revelou: o piso era FPS ABSOLUTO, e um jogo de
+// PS2 que renderiza a 30 rodando PERFEITAMENTE entrega os mesmos 30 FPS reais que um jogo de 60
+// rodando pela metade. O primeiro é o caso em que FG mais ajuda; o segundo é o que a regra proíbe.
+// Só a velocidade contra a taxa alvo da máquina separa os dois.
+TEST(ForkFrameGen, ThirtyFpsAtFullSpeedIsNotSlowEmulation)
+{
+	Inputs native_30 = HealthyFrame();
+	native_30.real_fps = 30.0f;
+	native_30.speed_percent = 100.0f; // o jogo é assim; a emulação está correta
+	native_30.frametime_avg_ms = 33.3f;
+	native_30.frametime_p99_ms = 34.0f;
+
+	const Decision engaged = ForkFrameGen::Decide(MakePolicy(), native_30);
+	EXPECT_EQ(engaged.reason, Reason::Engaged) << "30 FPS nativos a 100% merecem FG";
+	EXPECT_EQ(engaged.frames_to_generate, 1u);
+
+	// Mesmíssimo FPS real, metade da velocidade: recusado.
+	Inputs half_speed = native_30;
+	half_speed.speed_percent = 50.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(MakePolicy(), half_speed).reason, Reason::BelowFullSpeed);
+}
+
+// O piso absoluto sobrevive, com outro papel: contra LATÊNCIA. Interpolar segura o quadro novo,
+// e a 10 FPS isso custa ~100 ms de input lag mesmo com a emulação em velocidade correta.
+TEST(ForkFrameGen, VeryLowRateIsRefusedForLatencyNotForSlowness)
+{
+	Inputs crawling = HealthyFrame();
+	crawling.real_fps = 10.0f;
+	crawling.speed_percent = 100.0f;
+	crawling.frametime_avg_ms = 100.0f;
+	crawling.frametime_p99_ms = 101.0f;
+
+	EXPECT_EQ(ForkFrameGen::Decide(MakePolicy(), crawling).reason, Reason::BelowMinimumRealFps);
 }
 
 // O motivo do degrau de FPS vir antes do de estabilidade: emulação lenta pode ser regular, e aí
@@ -92,10 +130,11 @@ TEST(ForkFrameGen, SlowButSteadyIsStillRefusedForBeingSlow)
 {
 	Inputs slow_and_steady = HealthyFrame();
 	slow_and_steady.real_fps = 20.0f;
+	slow_and_steady.speed_percent = 33.0f;
 	slow_and_steady.frametime_avg_ms = 50.0f;
 	slow_and_steady.frametime_p99_ms = 50.1f;
 
-	EXPECT_EQ(ForkFrameGen::Decide(MakePolicy(), slow_and_steady).reason, Reason::BelowMinimumRealFps);
+	EXPECT_EQ(ForkFrameGen::Decide(MakePolicy(), slow_and_steady).reason, Reason::BelowFullSpeed);
 }
 
 TEST(ForkFrameGen, RefusesUnstablePacing)
@@ -154,7 +193,7 @@ TEST(ForkFrameGen, StatusLineSpeaksWheneverEnabled)
 TEST(ForkFrameGen, EveryReasonHasText)
 {
 	const Reason all[] = {Reason::Off, Reason::Unsupported, Reason::NoNewFrame, Reason::Unstable,
-		Reason::BelowMinimumRealFps, Reason::OverBudget, Reason::Engaged};
+		Reason::BelowFullSpeed, Reason::BelowMinimumRealFps, Reason::OverBudget, Reason::Engaged};
 	for (const Reason reason : all)
 		EXPECT_STRNE(ForkFrameGen::ReasonText(reason), "");
 }
@@ -187,13 +226,15 @@ TEST(ForkFrameGen, EveryNonEngagedStateAsksForZeroFrames)
 {
 	ForkFrameGen::Policy policy;
 	policy.mode = ForkFrameGen::Mode::Auto;
-	policy.min_real_fps = 25.0f;
+	policy.min_speed_percent = 90.0f;
+	policy.min_real_fps = 15.0f;
 	policy.budget_ms = 6.0f;
 
 	ForkFrameGen::Inputs inputs;
 	inputs.supported = true;
 	inputs.has_new_frame = true;
 	inputs.real_fps = 60.0f;
+	inputs.speed_percent = 100.0f;
 	inputs.frametime_avg_ms = 16.6f;
 	inputs.frametime_p99_ms = 17.0f;
 
@@ -207,6 +248,7 @@ TEST(ForkFrameGen, EveryNonEngagedStateAsksForZeroFrames)
 
 	ForkFrameGen::Inputs slow = inputs;
 	slow.real_fps = 22.0f;
+	slow.speed_percent = 37.0f;
 	EXPECT_EQ(ForkFrameGen::Decide(policy, slow).frames_to_generate, 0u);
 
 	ForkFrameGen::Inputs unstable = inputs;
