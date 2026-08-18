@@ -53,6 +53,10 @@ justificativa, o fork está saindo do trilho.
 | Arquivo | Mudança | Motivo |
 |---|---|---|
 | `.github/workflows/nightly.yml` | `schedule` removido (só `workflow_dispatch`) | O nightly do upstream constrói macOS/Windows/Linux arm64 + iOS (~2 h) e **publica releases**. No nosso repositório ele rodaria diariamente no branch padrão, gastando CI e criando releases que não são nossas. |
+| `pcsx2/CMakeLists.txt` | +2 linhas | registra os fontes de `GSPresentationMetrics` (Fase 2) |
+| `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp` | 6 ganchos pequenos | pontos de medição da apresentação — o único lugar por onde todo quadro apresentado passa. Ver docs/fase2-presentation-metrics.md |
+| `pcsx2/ImGui/ImGuiOverlays.cpp` | +1 linha de overlay | exibe FPS real x apresentado |
+| `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
 | `.github/dependabot.yml` | removido | O Dependabot do upstream mantém as versões das *actions* de um pipeline que não é nosso. Cada PR semanal dele dispararia `build-all.yml` (~2 h de CI arm64) no nosso repositório, para atualizar workflows que só o upstream usa. As atualizações chegam pelo merge do upstream. |
 | `.github/workflows/upload-moonstore.yml` | gatilho `workflow_run` removido (só `workflow_dispatch`) | Publica builds em uma loja de terceiros do upstream. Nossos builds não devem ir para lá. |
 

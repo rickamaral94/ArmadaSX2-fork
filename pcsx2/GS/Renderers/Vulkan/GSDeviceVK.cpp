@@ -6,6 +6,7 @@
 #include "GS/GSPerfMon.h"
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
+#include "GS/Renderers/Common/GSPresentationMetrics.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h"
 #include "GS/Renderers/Vulkan/VKBuilders.h"
 #include "GS/Renderers/Vulkan/VKShaderCache.h"
@@ -1457,6 +1458,10 @@ bool GSDeviceVK::SetGPUPipelineStatisticsEnabled(bool enabled)
 void GSDeviceVK::EnableExtendedStats(bool enabled)
 {
 	VKSwapChain::SetPresentStatsEnabled(enabled);
+	// Enquanto o fork não tem superfície própria de configuração (ver docs/fase2-presentation-
+	// metrics.md), as métricas de apresentação seguem o mesmo interruptor das estatísticas
+	// estendidas: nenhum plumbing novo em Config.h, e o custo continua opt-in.
+	GSPresentationMetrics::SetEnabled(enabled);
 }
 
 std::vector<std::string> GSDeviceVK::GetExtendedStats() const
@@ -1500,6 +1505,11 @@ std::vector<std::string> GSDeviceVK::GetExtendedStats() const
 		"vkQueuePresent:     avg {:.3f} ms, max {:.3f} ms, n={}", present_avg_ms, ps.present_max_ms, ps.present_count));
 	lines.push_back(fmt::format(
 		"Suboptimal: {}, OutOfDate: {}", ps.suboptimal_count, ps.out_of_date_count));
+
+	// Cadência da apresentação (FPS real x apresentado, frametime, 1% low, engasgos). As linhas
+	// acima medem o CUSTO das chamadas ao WSI; estas medem O QUE CHEGOU À TELA — perguntas
+	// diferentes, e a segunda é a que o relatório de compatibilidade precisa.
+	GSPresentationMetrics::AppendStatLines(lines);
 	return lines;
 }
 
@@ -1694,6 +1704,14 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 			GSLsfg::PresentWithGeneration(m_present_queue, present_swap_chain,
 				present_swap_chain->GetRenderingFinishedSemaphore(), has_new_frame))
 		{
+			// O quadro REAL é contado aqui; os interpolados que o LSFG apresenta por dentro não,
+			// porque ele não os reporta. Ou seja: com LSFG ligado o FPS real continua correto e o
+			// apresentado fica SUBESTIMADO. Preferimos um número faltando a um número inventado —
+			// o backend de frame generation nosso (fases 7-8) reportará os próprios quadros por
+			// NotePresented(Generated).
+			GSPresentationMetrics::NotePresented(
+				has_new_frame ? GSPresentationMetrics::FrameKind::Real
+							  : GSPresentationMetrics::FrameKind::Duplicate);
 			present_swap_chain->AcquireNextImage();
 			return;
 		}
@@ -1705,13 +1723,19 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 		present_swap_chain->ResetImageAcquireResult();
 
 		const bool stats = VKSwapChain::IsPresentStatsEnabled();
-		const Common::Timer::Value t_present_start = stats ? Common::Timer::GetCurrentValue() : 0;
+		const bool metrics = GSPresentationMetrics::IsEnabled();
+		const bool timed = stats || metrics;
+		const Common::Timer::Value t_present_start = timed ? Common::Timer::GetCurrentValue() : 0;
 		res = vkQueuePresentKHR(m_present_queue, &present_info);
-		if (stats)
+		if (timed)
 		{
 			const double present_elapsed_ms =
 				Common::Timer::ConvertValueToMilliseconds(Common::Timer::GetCurrentValue() - t_present_start);
-			VKSwapChain::NotePresent(present_elapsed_ms, res);
+			if (stats)
+				VKSwapChain::NotePresent(present_elapsed_ms, res);
+			if (metrics)
+				GSPresentationMetrics::NotePresentCall(
+					present_elapsed_ms, res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 		}
 		if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
 		{
@@ -1724,6 +1748,11 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 
 			return;
 		}
+
+		// Contado só depois do tratamento de erro acima: um present recusado não chegou à tela, e
+		// contá-lo inflaria o FPS apresentado exatamente quando o dispositivo está em apuros.
+		GSPresentationMetrics::NotePresented(has_new_frame ? GSPresentationMetrics::FrameKind::Real
+														  : GSPresentationMetrics::FrameKind::Duplicate);
 
 		// Grab the next image as soon as possible, that way we spend less time blocked on the next
 		// submission. Don't care if it fails, we'll deal with that at the presentation call site.
@@ -2871,7 +2900,12 @@ GSDevice::PresentResult GSDeviceVK::DoBeginPresent(bool frame_skip)
 		return PresentResult::DeviceLost;
 
 	if (frame_skip)
+	{
+		// Só o pulo DELIBERADO é contado aqui. Os outros retornos FrameSkipped deste arquivo são
+		// falha de swapchain/acquire, que é outra coisa e aparece como erro de present.
+		GSPresentationMetrics::NoteSkippedPresent();
 		return PresentResult::FrameSkipped;
+	}
 
 	// If we're running surfaceless, kick the command buffer so we don't run out of descriptors.
 	if (!m_swap_chain)

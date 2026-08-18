@@ -79,6 +79,9 @@ std::vector<SmallString> s_software_thread_lines;
 SmallString s_capture_line;
 SmallString s_gpu_usage_line;
 SmallString s_gpu_debug_info_line;
+// Fase 2 do fork: cadência da apresentação (FPS real x apresentado). std::string porque
+// GSPresentationMetrics devolve uma; montada uma vez por frame de OSD, como as vizinhas.
+std::string s_presentation_metrics_line;
 SmallString s_gpu_stats_line;
 SmallString s_lsfg_line;
 SmallString s_speed_icon;
@@ -122,6 +125,10 @@ namespace GSLsfg
 	std::string GetStatusText();
 }
 #endif
+
+// Fase 2 do fork: cadência da apresentação. Cabeçalho próprio (não passa por VKLoader.h), então
+// pode ser incluído aqui sem arrastar os headers do Vulkan para esta TU multiplataforma.
+#include "GS/Renderers/Common/GSPresentationMetrics.h"
 
 /// Frame generation's own status line, or empty when the user has not switched it on. Behind a
 /// function so the draw code below carries no #ifdef: LSFG lives in the Vulkan backend and there
@@ -724,6 +731,13 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				DRAW_LINE(osd_font, font_size, s_gpu_usage_line.c_str(), OsdTextColor());
 			}
 
+			// Hospedada no interruptor de depuração de GPU por ora: fora do Windows ele não desenha
+			// nada hoje, e usá-lo evita acrescentar um campo em Config.h e propagá-lo por sete
+			// frontends. O interruptor dedicado vem com a superfície de configuração do fork
+			// (ver docs/fase2-presentation-metrics.md).
+			if (GSConfig.OsdShowGPUDebug)
+				s_presentation_metrics_line = GSPresentationMetrics::GetOverlayLine();
+
 			if (GSConfig.OsdShowGPUDebug)
 			{
 #ifdef _WIN32
@@ -822,6 +836,8 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				if (g_gs_device->GetRenderAPI() == RenderAPI::D3D12)
 					DRAW_LINE(osd_font, font_size, s_gpu_debug_info_line.c_str(), OsdTextColor());
 #endif
+				if (!s_presentation_metrics_line.empty())
+					DRAW_LINE(osd_font, font_size, s_presentation_metrics_line.c_str(), OsdTextColor());
 			}
 
 			if (GSConfig.OsdShowGPUStats)

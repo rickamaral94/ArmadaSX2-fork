@@ -35,7 +35,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 | `android_driver_manager` | `platforms/android/.../com/armsx2/driver/` | Fase 4-5 |
 | `adrenotools_backend` | `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` (existente) | Fase 4 |
 | `gpu_capabilities` | `pcsx2/GS/Renderers/Common/GSGPUProfile*` + `GpuInfo.kt` | Fase 3 |
-| `presentation_metrics` | `pcsx2/GS/Renderers/Vulkan/PresentationMetrics.*` | Fase 2 |
+| `presentation_metrics` | `pcsx2/GS/Renderers/Common/GSPresentationMetrics.*` | **feito** (Fase 2) |
 | `frame_generation` | `pcsx2/GS/Renderers/Vulkan/FrameGen/` | Fase 7-8 |
 | `frame_interpolation` | `pcsx2/GS/Renderers/Vulkan/FrameGen/backends/` | Fase 8 |
 
@@ -44,6 +44,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 1 — avaliação técnica e escolha da base](docs/fase1-avaliacao-tecnica-base.md)
 - [Fase 0 — setup do fork, CI e política de sincronização](docs/fase0-setup.md)
 - [Fase 0.5 — gate de correctness do recompilador ARM64](docs/fase0.5-correctness-arm64.md)
+- [Fase 2 — métricas da camada de apresentação](docs/fase2-presentation-metrics.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 
 ## Licença

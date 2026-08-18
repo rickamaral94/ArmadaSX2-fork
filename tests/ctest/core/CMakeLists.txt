@@ -20,6 +20,9 @@ if(ARCH_ARM64)
 	add_subdirectory(recompilers)
 endif()
 
+# Fase 2 do fork: métricas da camada de apresentação (arch-neutral, sem GPU).
+add_subdirectory(presentation)
+
 # GS vertex front-end kernel oracle (arch-neutral).
 add_subdirectory(gs)
 
