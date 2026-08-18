@@ -543,6 +543,7 @@ set(pcsx2GSSources
 	GS/Renderers/Common/GSPassScheduler.cpp
 	GS/Renderers/Common/GSPresentationMetrics.cpp
 	Fork/ForkConfig.cpp
+	Fork/ForkDriverPackage.cpp
 	Fork/ForkGpuCapabilities.cpp
 	Fork/ForkRuntime.cpp
 	GS/Renderers/Common/GSRenderer.cpp
@@ -597,6 +598,7 @@ set(pcsx2GSHeaders
 	GS/Renderers/Common/GSPassScheduler.h
 	GS/Renderers/Common/GSPresentationMetrics.h
 	Fork/ForkConfig.h
+	Fork/ForkDriverPackage.h
 	Fork/ForkGpuCapabilities.h
 	Fork/ForkRuntime.h
 	GS/Renderers/Common/GSPresentationPolicy.h

@@ -17,9 +17,18 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 
 ## Regras do fork (não negociáveis)
 
-1. **O núcleo de emulação é território do upstream.** Nada nosso entra em `pcsx2/x86`,
-   `pcsx2/arm64`, EE/IOP/VU, `Counters.cpp`, SPU2 ou input. Bug de JIT é reportado ao ARMSX2,
-   nunca contornado aqui.
+1. **O núcleo de emulação não se toca sem evidência — mas nada é intocável.** O objetivo do
+   projeto é a maior compatibilidade e o melhor desempenho possíveis; se os dados de um teste em
+   console real mostrarem que isso exige mexer em `pcsx2/arm64`, EE/IOP/VU ou em qualquer coisa
+   herdada do upstream, mexemos.
+
+   O que a regra exige é a ORDEM: **medir primeiro, mudar depois.** Uma mudança no núcleo só entra
+   com (a) evidência concreta — log, GS dump, medição A/B, teste que reproduz; (b) um teste de
+   regressão que falhe antes da correção; (c) registro na tabela de superfície de contato. Enquanto
+   a evidência não existir, bug de JIT é reportado ao ARMSX2, não contornado aqui.
+
+   O motivo não é reverência ao upstream: é que uma mudança de núcleo sem evidência custa merges
+   mais caros para sempre e não se sabe se ajudou. Com evidência, o custo é justificado e mensurável.
 2. **Diff mínimo.** Nossas mudanças vivem em arquivos novos. Alterações em arquivos existentes
    são limitadas aos ganchos listados em `docs/fase0-setup.md` e precisam de justificativa no
    commit.
@@ -48,6 +57,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Superfície de configuração do fork](docs/superficie-configuracao-fork.md)
 - [Fase 2 — métricas da camada de apresentação](docs/fase2-presentation-metrics.md)
 - [Fase 3 — capacidades da GPU e gating do Turnip](docs/fase3-gpu-capabilities.md)
+- [Fase 4 — endurecer o gerenciador de driver Vulkan](docs/fase4-driver-manager.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 
 ## Licença
