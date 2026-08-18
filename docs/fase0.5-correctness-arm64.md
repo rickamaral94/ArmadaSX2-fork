@@ -92,7 +92,8 @@ comparação continua válida, e o cache resolve o custo depois do primeiro run.
 |---|---|---|---|---|
 | 18/08/2026 08:49 | [32118350621](https://github.com/rickamaral94/Ps2-fork/actions/runs/32118350621) | `1032f021` | `85a9238` | **inválido** — as duas pernas construíram os 845 alvos com sucesso (deps 39 min, build 10 min) e morreram com exit 127 ao invocar o binário no caminho errado. Nenhum teste chegou a executar. Corrigido em seguida. |
 | 18/08/2026 10:28-10:45 | 32126935351, 32127080351, 32128354911 | `2a98726` | vários | **cancelados** pelo grupo de concorrência — cada push superava o run anterior. Nenhum veredito. |
-| 18/08/2026 10:57 | [32129287911](https://github.com/rickamaral94/Ps2-fork/actions/runs/32129287911) | `2a98726` | `19117a2a` | **APROVADO** — 1940 testes, 0 falhas, 38 desabilitados, 0 erros nas duas pernas. 0 regressões, 0 sumidos, 0 preexistentes. Suítes do fork na perna candidate: `presentation_metrics_tests` e `fork_config_tests` (9/9) verdes. |
+| 18/08/2026 10:57 | [32129287911](https://github.com/rickamaral94/Ps2-fork/actions/runs/32129287911) | `2a98726` | `19117a2a` | **APROVADO** — 1940 testes, 0 falhas, 38 desabilitados, 0 erros nas duas pernas. 0 regressões, 0 sumidos, 0 preexistentes. Suítes do fork na perna candidate: `presentation_metrics_tests` e `fork_config_tests` (9/9) verdes. Cache frio: ~53 min por perna. |
+| 18/08/2026 12:05 | [32134979013](https://github.com/rickamaral94/Ps2-fork/actions/runs/32134979013) | `2a98726` | `87584f13` | **APROVADO** — 1940 testes (1902 executados), 0 falhas nas duas pernas. 0 regressões, 0 sumidos, **0 desativados** (primeira execução com a regra nova). Suítes do fork: `fork_config_tests` 20/20 (9 `ForkConfigTest` + 11 `ForkGpuCapabilities`, ou seja **Fase 3 validada em CI**) e `presentation_metrics_tests` verde. Cache quente: **8 min 27 s** o run inteiro. |
 
 ### Leitura do primeiro veredito válido (18/08, run 32129287911)
 
@@ -107,7 +108,22 @@ ainda não passam. Elas não entram no nosso número e o gate agora impede que e
 silêncio.
 
 Duração: ~53 min por perna a frio (deps 37 min, build 11 min, testes 2 s). O cache de dependências
-e o ccache foram salvos ao final, então as próximas execuções devem ficar na casa dos 15 min.
+e o ccache foram salvos ao final.
+
+### Efeito do cache (run 32134979013, 18/08 12:05)
+
+A previsão era ~15 min; o resultado foi melhor:
+
+| | frio (10:57) | quente (12:05) |
+|---|---|---|
+| Run completo | ~53 min | **8 min 27 s** |
+| Build de dependências | 37 min | **pulado** (cache hit) |
+| Build do `recompiler_tests` | ~11 min | 2 min 36 s (ccache) |
+| Perna baseline | ~48 min | 4 min 2 s |
+| Perna candidate | ~53 min | 7 min 45 s (inclui as suítes do fork) |
+
+Isso muda o que o gate pode ser: a 8 minutos ele cabe em cada merge do upstream e em cada PR sem
+que ninguém pense em desligá-lo — que é a única forma de um gate sobreviver a um projeto de anos.
 
 Nota sobre o primeiro run (inválido): mesmo que tivesse funcionado, ele não validaria mudança nenhuma —
 o único commit do branch era o próprio workflow, então as duas pernas testariam código idêntico.
