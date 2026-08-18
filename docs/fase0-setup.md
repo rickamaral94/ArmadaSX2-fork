@@ -57,6 +57,7 @@ justificativa, o fork está saindo do trilho.
 | `pcsx2/VMManager.cpp` | +1 include, +1 chamada | `ForkRuntime::LoadSettings` no mesmo ponto em que o upstream reconstrói a configuração — é o que dá override por jogo de graça. Ver docs/superficie-configuracao-fork.md |
 | `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp` | 6 ganchos pequenos | pontos de medição da apresentação — o único lugar por onde todo quadro apresentado passa. Ver docs/fase2-presentation-metrics.md |
 | `pcsx2/ImGui/ImGuiOverlays.cpp` | +1 linha de overlay | exibe FPS real x apresentado |
+| `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` | registra o resultado do carregamento do driver | o fallback para o driver do sistema é silencioso; sem esse registro não há como saber que driver está rodando (Fase 4, item 2) |
 | `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional | esconde a seção de driver em GPU incompatível (Fase 3) |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
 | `.github/dependabot.yml` | removido | O Dependabot do upstream mantém as versões das *actions* de um pipeline que não é nosso. Cada PR semanal dele dispararia `build-all.yml` (~2 h de CI arm64) no nosso repositório, para atualizar workflows que só o upstream usa. As atualizações chegam pelo merge do upstream. |

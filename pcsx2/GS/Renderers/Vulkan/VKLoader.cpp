@@ -52,7 +52,17 @@ namespace
 	std::string s_custom_driver_name;
 	std::string s_custom_redirect_dir;
 	std::string s_custom_hook_lib_dir;
+
+	/// Resultado da última tentativa. Escrito por TryOpenAdrenotoolsDriver, lido pelo módulo de
+	/// identidade do fork depois que o dispositivo sobe.
+	Vulkan::CustomDriverLoadOutcome s_last_outcome;
 } // namespace
+
+Vulkan::CustomDriverLoadOutcome Vulkan::GetCustomDriverLoadOutcome()
+{
+	std::lock_guard lock(s_custom_driver_mutex);
+	return s_last_outcome;
+}
 
 void Vulkan::SetCustomDriverPath(const char* driver_dir, const char* driver_name,
 	const char* redirect_dir, const char* hook_lib_dir)
@@ -69,8 +79,11 @@ static bool TryOpenAdrenotoolsDriver(DynamicLibrary& library, Error* error)
 	std::string driver_dir, driver_name, redirect_dir, hook_lib_dir;
 	{
 		std::lock_guard lock(s_custom_driver_mutex);
+		s_last_outcome = {};
 		if (s_custom_driver_dir.empty() || s_custom_driver_name.empty() || s_custom_hook_lib_dir.empty())
-			return false;
+			return false; // nenhum driver customizado selecionado: outcome fica em "não pedido"
+		s_last_outcome.requested = true;
+		s_last_outcome.driver_name = s_custom_driver_name;
 		driver_dir   = s_custom_driver_dir;
 		driver_name  = s_custom_driver_name;
 		redirect_dir = s_custom_redirect_dir;
@@ -107,11 +120,19 @@ static bool TryOpenAdrenotoolsDriver(DynamicLibrary& library, Error* error)
 			"adrenotools_open_libvulkan failed for {} ({}): {}",
 			driver_name, driver_dir, err ? err : "<no dlerror>");
 		Console.Warning("VKLoader: %s — falling back to system loader.", error ? error->GetDescription().c_str() : "custom driver load failed");
+		{
+			std::lock_guard lock(s_custom_driver_mutex);
+			s_last_outcome.error = error ? error->GetDescription() : "custom driver load failed";
+		}
 		return false;
 	}
 
 	library.Adopt(handle);
 	Console.WriteLn("VKLoader: adrenotools driver handle acquired.");
+	{
+		std::lock_guard lock(s_custom_driver_mutex);
+		s_last_outcome.opened = true;
+	}
 	return true;
 }
 #endif

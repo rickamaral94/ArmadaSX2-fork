@@ -32,6 +32,8 @@ class Error;
 
 #include "vulkan/vulkan.h"
 
+#include <string>
+
 #if defined(X11_API)
 
 // This breaks a bunch of our code. They shouldn't be #defines in the first place.
@@ -108,5 +110,18 @@ namespace Vulkan
 	/// Pass empty strings to revert to the system loader on next load.
 	void SetCustomDriverPath(const char* driver_dir, const char* driver_name,
 		const char* redirect_dir, const char* hook_lib_dir);
+
+	/// O que de fato aconteceu no último LoadVulkanLibrary. Existe porque o fallback para o
+	/// loader do sistema é SILENCIOSO por desenho — falhar o boot porque um driver importado não
+	/// abriu seria pior — e sem este registro ninguém consegue distinguir "estou rodando Turnip"
+	/// de "pedi Turnip, não abriu, estou no driver da Qualcomm". Ver pcsx2/Fork/ForkDriverIdentity.h.
+	struct CustomDriverLoadOutcome
+	{
+		bool requested = false; ///< havia um driver customizado selecionado
+		bool opened = false; ///< adrenotools_open_libvulkan devolveu um handle
+		std::string driver_name; ///< soname pedido (ex.: libvulkan_freedreno.so)
+		std::string error; ///< motivo da falha, vazio quando não houve
+	};
+	CustomDriverLoadOutcome GetCustomDriverLoadOutcome();
 #endif
 } // namespace Vulkan

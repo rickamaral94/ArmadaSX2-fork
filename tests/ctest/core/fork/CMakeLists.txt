@@ -4,6 +4,7 @@ add_pcsx2_test(fork_config_tests
 	fork_config_tests.cpp
 	gpu_capabilities_tests.cpp
 	driver_package_tests.cpp
+	driver_identity_tests.cpp
 )
 
 target_include_directories(fork_config_tests PRIVATE

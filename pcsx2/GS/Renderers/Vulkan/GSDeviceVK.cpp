@@ -6,6 +6,7 @@
 #include "GS/GSPerfMon.h"
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
+#include "Fork/ForkDriverIdentity.h"
 #include "Fork/ForkGpuCapabilities.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h"
@@ -3454,6 +3455,31 @@ bool GSDeviceVK::CheckFeatures()
 	// porque é o ponto em que o perfil acabou de ser resolvido; fora do bloco Android de propósito,
 	// para que as outras plataformas recebam "NotAndroid" em vez de ficarem em "não sondado".
 	ForkGpuCapabilities::Publish(mobile_profile, m_device_properties.apiVersion);
+
+	// Fase 4, item 2: cruza o que foi PEDIDO com o que o dispositivo DIZ ser. O fallback do
+	// VKLoader para o driver do sistema é silencioso por desenho, então sem este cruzamento um
+	// A/B de drivers pode estar comparando o driver do sistema com ele mesmo.
+	{
+		ForkDriverIdentity::PublishInput identity;
+#if defined(__ANDROID__)
+		const Vulkan::CustomDriverLoadOutcome load_outcome = Vulkan::GetCustomDriverLoadOutcome();
+		identity.requested = load_outcome.requested;
+		identity.opened = load_outcome.opened;
+		identity.requested_driver = load_outcome.driver_name;
+		identity.load_error = load_outcome.error;
+#endif
+		identity.active_driver = mobile_profile.driver.driver;
+		identity.gpu_name = m_device_properties.deviceName;
+		identity.vulkan_api_version = m_device_properties.apiVersion;
+		identity.driver_version_raw = m_device_properties.driverVersion;
+		identity.driver_properties_available = m_optional_extensions.vk_khr_driver_properties;
+		if (m_optional_extensions.vk_khr_driver_properties)
+		{
+			identity.driver_name = m_device_driver_properties.driverName;
+			identity.driver_info = m_device_driver_properties.driverInfo;
+		}
+		ForkDriverIdentity::Publish(identity);
+	}
 #if defined(__ANDROID__)
 	// MediaTek (Dimensity/Helio) Mali Vulkan stacks return zero/stale destination color
 	// through ROAA (black / missing textures) across GPU generations, so detect the SoC

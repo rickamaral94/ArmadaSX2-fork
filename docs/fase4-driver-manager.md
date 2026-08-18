@@ -3,7 +3,7 @@
 **Objetivo:** que o emulador só entregue ao `adrenotools_open_libvulkan` um arquivo que ele já
 verificou, e que saiba dizer exatamente **qual** binário está rodando.
 
-Estado: **item 1 concluído**. Os demais estão listados na seção 4.
+Estado: **itens 1 e 2 concluídos**. Os demais estão listados na seção 5.
 
 ---
 
@@ -64,16 +64,73 @@ de bytes antes de arquitetura; executável não passa por biblioteca; página HT
 truncada; truncamento só para ELF de verdade; SHA-256 contra os vetores do FIPS 180-2; hash sensível
 a um caractere; arquivo ausente distinto de ilegível; todo veredito com nome e frase.
 
-## 3. O que isto ainda não faz
+Validar **não é** carregar: o módulo decide se vale a pena tentar, não abre o driver. Quem
+responde "o que subiu de fato" é o item 2.
 
-Validar **não é** carregar. O módulo não abre o driver nem consulta o dispositivo Vulkan; ele
-decide se vale a pena tentar. A identidade real do ICD (Mesa, versão do Vulkan, GPU) é o item 2.
+## 3. Item 2 — identidade real do ICD (feito)
 
-## 4. Itens restantes
+`pcsx2/Fork/ForkDriverIdentity.{h,cpp}` responde **qual driver está realmente rodando**,
+perguntando ao dispositivo em vez de ao `meta.json`.
+
+### O problema que ninguém estava vendo
+
+O carregamento de driver customizado tem um **fallback silencioso por desenho**: se
+`adrenotools_open_libvulkan` falha, o `VKLoader` cai no loader do sistema e o boot continua. Essa é
+a decisão certa — derrubar o emulador porque um driver importado não abriu seria pior. O efeito
+colateral é que o usuário que selecionou Turnip e está rodando o blob da Qualcomm **não tinha como
+saber**: a única pista era um `Console.Warning` no meio do log.
+
+Isso contamina tudo o que vem depois. Um A/B da Fase 6 comparando "System vs Turnip A" pode estar
+comparando o driver do sistema **com ele mesmo** e concluindo que "Turnip não muda nada". Um
+relatório de compatibilidade da Fase 7 registraria um driver que nunca rodou.
+
+### Como o veredito é formado
+
+Três fontes cruzadas:
+
+1. **o que foi pedido** — `Vulkan::GetCustomDriverLoadOutcome()`, novo em `VKLoader`: havia
+   seleção? o handle abriu? qual foi o erro?
+2. **o que o dispositivo diz ser** — `VkPhysicalDeviceDriverProperties` (`driverName`,
+   `driverInfo`), já capturado pelo `GSDeviceVK`, classificado pelo `GpuProfileDetector` que a base
+   já tinha;
+3. **a versão do Mesa** — extraída do `driverInfo`, que é onde o freedreno a publica
+   (`"Mesa 25.2.0-devel (git-1a2b3c4)"`).
+
+| Veredito | Significado |
+|---|---|
+| `SystemDriverByChoice` | nenhum driver customizado selecionado — o do sistema é o esperado |
+| `CustomDriverActive` | pedido, aberto, e o dispositivo se identifica como Turnip |
+| **`FellBackToSystem`** | **pedido, não abriu, o sistema assumiu** — o caso silencioso |
+| **`CustomOpenedButNotTurnip`** | abriu, mas o ICD ativo não é Turnip — pacote repackado ou renomeado |
+
+Os dois últimos sobem como **Warning** no log e respondem `IsUnexpected() == true`, que é o que a
+UI vai usar para avisar em vez de mentir por omissão.
+
+### Uma decisão explícita: não gritar lobo
+
+Sem `VK_KHR_driver_properties` não há como saber *quem* abriu. Nesse caso o módulo **não acusa
+divergência** — um aviso falso em aparelhos cujo driver simplesmente não reporta identidade ensina
+o usuário a ignorar os avisos verdadeiros. Mas a falha de **abrir** continua sendo detectada, porque
+essa é fato do carregador e não depende de extensão nenhuma.
+
+### Verificação
+
+`tests/ctest/core/fork/driver_identity_tests.cpp` — 10 casos, **10/10** localmente: a matriz
+completa de vereditos, o caso sem `driverProperties`, o parsing da versão do Mesa (com prefixo,
+sem patch, caixa alta, `"Mesa"` solto sem número, string da Qualcomm) e a publicação preservando o
+SHA-256 do pacote informado antes do renderer subir.
+
+A linha que isso produz para o log e para o relatório da Fase 7:
+
+```
+CustomDriverActive | driver MesaTurnip (turnip) | Mesa 25.2.0 | info "Mesa 25.2.0-devel (git-1a2b3c4)"
+ | Vulkan 1.3.281 | GPU Adreno (TM) 750 | pedido libvulkan_freedreno.so | sha256 a1b2c3...
+```
+
+## 5. Itens restantes
 
 | # | Item | Onde |
 |---|---|---|
-| 2 | Identidade real do ICD carregado (`VkPhysicalDeviceDriverProperties`) em vez do `meta.json` auto-declarado | novo `Vulkan::QueryLoadedDriverIdentity` + `GSDeviceVK::Create` |
 | 3 | Chave do shader cache incluindo o driver — um cache compilado pelo Qualcomm não pode ser servido ao Turnip | `VKShaderCache` |
 | 4 | Erro de carga visível na UI (hoje o `Error` morre no log) e "System Driver" fixo no topo | `TryOpenAdrenotoolsDriver` → JNI → UI |
 | 5 | Ligar o validador ao fluxo de import do Kotlin | `CustomDriver.installFromStream` + JNI |
