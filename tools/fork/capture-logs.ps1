@@ -1,27 +1,27 @@
-<#
+﻿<#
 .SYNOPSIS
-    Captura de log de sessão para análise do fork, no Windows.
+    Captura de log de sessao para analise do fork, no Windows.
 
 .DESCRIPTION
-    Roda na SUA máquina, com o Odin ligado por USB. Produz dois arquivos: o log cru e um resumo
+    Roda na SUA maquina, com o Odin ligado por USB. Produz dois arquivos: o log cru e um resumo
     filtrado, pronto para colar.
 
-    Por que um script e não "roda adb logcat":
+    Por que um script e nao "roda adb logcat":
 
     O Console do PCSX2 escreve em stdout, e o native-lib redireciona stdout/stderr para o logcat
-    sob a tag `STDOUT` (ver redirect_stdout_to_logcat). Ou seja, "ForkDriverIdentity:" é o TEXTO
-    da mensagem, não a tag — um `adb logcat -s ForkDriverIdentity` volta VAZIO e dá a impressão
-    de que o recurso não existe. E não há emulog.txt no Android: o app nunca chama
-    SetFileOutputLevel, então o logcat é o único canal.
+    sob a tag `STDOUT` (ver redirect_stdout_to_logcat). Ou seja, "ForkDriverIdentity:" e o TEXTO
+    da mensagem, nao a tag - um `adb logcat -s ForkDriverIdentity` volta VAZIO e da a impressao
+    de que o recurso nao existe. E nao ha emulog.txt no Android: o app nunca chama
+    SetFileOutputLevel, entao o logcat e o unico canal.
 
     Captura por TEMPO em vez de esperar Ctrl-C: no PowerShell o Ctrl-C interrompe o pipeline e o
     bloco de limpeza nem sempre roda, o que deixaria o resumo sem ser gerado justo no fim.
 
 .PARAMETER Seconds
-    Duração da captura. Padrão 120.
+    Duracao da captura. Padrao 120.
 
 .PARAMETER Output
-    Prefixo dos arquivos. Padrão: armsx2-log-<data>.
+    Prefixo dos arquivos. Padrao: armsx2-log-<data>.
 
 .EXAMPLE
     .\tools\fork\capture-logs.ps1
@@ -79,8 +79,8 @@ $header | Set-Content -Path $digest -Encoding utf8
 $header | Set-Content -Path $raw    -Encoding utf8
 $header | Write-Host
 
-# Buffer grande e limpo: o padrao e pequeno demais para uma sessao de jogo, e o comeco — que e
-# onde o driver e escolhido — seria o primeiro a ser descartado.
+# Buffer grande e limpo: o padrao e pequeno demais para uma sessao de jogo, e o comeco - que e
+# onde o driver e escolhido - seria o primeiro a ser descartado.
 adb logcat -G 16M *> $null
 adb logcat -c
 
@@ -114,7 +114,7 @@ try {
     Write-Host "  resumo  : $digest   ($($hits.Count) linhas de interesse)"
     Write-Host ""
     if ($hits.Count -eq 0) {
-        Write-Host "Nenhuma linha de interesse. Mande o log CRU — que o diagnostico nao apareca" -ForegroundColor Yellow
+        Write-Host "Nenhuma linha de interesse. Mande o log CRU - que o diagnostico nao apareca" -ForegroundColor Yellow
         Write-Host "ja e, por si so, o achado." -ForegroundColor Yellow
     } else {
         Write-Host "Mande o RESUMO."

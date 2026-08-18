@@ -63,7 +63,8 @@ justificativa, o fork está saindo do trilho.
 | `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` | registra o resultado do carregamento do driver | o fallback para o driver do sistema é silencioso; sem esse registro não há como saber que driver está rodando (Fase 4, item 2) |
 | `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional, +1 card de status | esconde a seção em GPU incompatível (Fase 3); mostra o driver ativo e avisa quando não é o pedido (Fase 4, item 4) |
 | `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
-| `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI | implementação da porta única |
+| `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI; +espelho do stdout nativo em `logs/native.log` | porta única; e o log que o testador CONSEGUE pegar não continha nada de nativo — `session.log` só captura `println` do Java, e `emulog.txt` é truncado a cada início de VM |
+| `platforms/android/.../com/armsx2/Pasx2Application.kt` | comentário corrigido | afirmava que o `session.log` carregava saída do Console nativo; não carrega, e a afirmação mandou um testador procurar diagnóstico de driver num arquivo que não pode contê-lo |
 | `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar; grava a seleção na configuração | Fase 4 item 5, Fase 5 |
 | `pcsx2/GS/Renderers/Vulkan/GSLsfg.cpp` | +reporte dos quadros gerados à métrica, +medição do custo de geração, +`NoteGenerationDeclined` | o FPS apresentado deixa de ser subestimado; o orçamento da régua deixa de ser decorativo; a recusa da régua não pode costurar dois quadros através do buraco. Ver docs/fase8-regua-no-comando.md |
 | `pcsx2/GS/Renderers/Vulkan/GSLsfg.h` | +1 declaração | `NoteGenerationDeclined` |

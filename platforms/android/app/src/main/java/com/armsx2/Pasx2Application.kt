@@ -43,9 +43,16 @@ class Pasx2Application : Application(), ImageLoaderFactory {
 	 * Diagnostics for the no-ADB case: some games (e.g. GoW2, LEGO Batman) drop
 	 * back to the library on boot on some setups. We can't read logcat on the
 	 * user's device, so:
-	 *   1. Tee stdout/stderr — which carry the `@@ANDROID_LAUNCH_GAME@@` markers
-	 *      and native Console output — into `<externalFilesDir>/logs/session.log`,
-	 *      so even a native crash leaves a breadcrumb of the last thing attempted.
+	 *   1. Tee stdout/stderr — which carry the `@@ANDROID_LAUNCH_GAME@@` markers —
+	 *      into `<externalFilesDir>/logs/session.log`, so even a native crash leaves
+	 *      a breadcrumb of the last thing attempted.
+	 *
+	 *      This captures Kotlin/Java `println` ONLY. It does NOT carry native Console
+	 *      output, and the claim that it did sent a tester chasing driver diagnostics
+	 *      through a file that structurally cannot contain them: `System.setOut`
+	 *      replaces the Java stream OBJECT, while the native side writes to file
+	 *      descriptor 1 directly. The native mirror is `logs/native.log`, written from
+	 *      the fd reader in native-lib.cpp (see enable_native_log_file).
 	 *   2. Install an uncaught-exception handler that dumps Kotlin/Java crashes to
 	 *      `<externalFilesDir>/logs/crash-<time>.txt` with game + build context.
 	 * Both are reachable via the in-app "Open data folder" action. Every step is

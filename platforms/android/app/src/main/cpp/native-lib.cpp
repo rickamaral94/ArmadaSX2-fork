@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <cstdio>
 #include <mutex>
 #include "PrecompiledHeader.h"
 #include "common/StringUtil.h"
@@ -73,6 +74,12 @@
 #include <vector>
 
 
+// Espelho em arquivo do stdout NATIVO. Ver enable_native_log_file() para o porquê.
+static std::mutex s_native_log_mutex;
+static std::FILE* s_native_log = nullptr;
+static long s_native_log_written = 0;
+static constexpr long kNativeLogMaxBytes = 8L * 1024 * 1024;
+
 // Redirect stdout/stderr to Android logcat so Vixl/libc abort messages are visible.
 static void* stdout_redirect_thread(void* fd_ptr)
 {
@@ -83,9 +90,57 @@ static void* stdout_redirect_thread(void* fd_ptr)
     {
         buf[n] = '\0';
         __android_log_print(ANDROID_LOG_WARN, "STDOUT", "%s", buf);
+
+        // E também para o arquivo, quando houver. É aqui que tem de ser: este thread lê o
+        // DESCRITOR 1, que é onde o Console do PCSX2 escreve de fato.
+        std::lock_guard<std::mutex> lock(s_native_log_mutex);
+        if (s_native_log)
+        {
+            std::fwrite(buf, 1, (size_t)n, s_native_log);
+            std::fflush(s_native_log);
+            s_native_log_written += (long)n;
+            if (s_native_log_written > kNativeLogMaxBytes)
+            {
+                // Rotação simples: recomeça o arquivo. Uma sessão de teste longa não pode encher
+                // o armazenamento do aparelho, e o começo já foi lido quando importava.
+                std::freopen(nullptr, "wb", s_native_log);
+                s_native_log_written = 0;
+            }
+        }
     }
     close(fd);
     return nullptr;
+}
+
+/// Espelha o stdout nativo em `<DataRoot>/logs/native.log`.
+///
+/// Existe porque o log que o usuário CONSEGUE pegar não continha nada de nativo:
+///
+///   * `session.log` é escrito pelo lado Java, trocando `System.out` por um tee. Isso captura
+///     `println` do Kotlin e mais nada — o Console do PCSX2 escreve no descritor 1 direto, e
+///     substituir o objeto Java `System.out` não intercepta escrita em fd. O comentário em
+///     Pasx2Application.kt afirmava que carregava "native Console output"; não carregava.
+///   * `emulog.txt` é o log nativo de verdade, mas é aberto com "wb" a cada início de VM — ou
+///     seja, TRUNCADO — e fechado no shutdown. Trocar de jogo apaga a evidência do anterior, e
+///     é justamente na criação do dispositivo Vulkan que o fork registra qual driver subiu.
+///
+/// Este arquivo é append, sobrevive a trocas de jogo e é alcançável pelo "Abrir pasta de dados".
+/// Para um testador de portátil, sem PC e sem adb, é a diferença entre poder e não poder relatar.
+static void enable_native_log_file(const std::string& data_root)
+{
+    const std::string dir = Path::Combine(data_root, "logs");
+    FileSystem::CreateDirectoryPath(dir.c_str(), true);
+    const std::string path = Path::Combine(dir, "native.log");
+
+    std::FILE* fp = std::fopen(path.c_str(), "ab");
+    if (!fp)
+        return;
+
+    std::lock_guard<std::mutex> lock(s_native_log_mutex);
+    if (s_native_log)
+        std::fclose(s_native_log);
+    s_native_log = fp;
+    s_native_log_written = std::ftell(fp);
 }
 static void redirect_stdout_to_logcat()
 {
@@ -280,6 +335,9 @@ Java_kr_co_iefriends_pcsx2_NativeApp_initialize(JNIEnv *env, jclass clazz,
     std::string _szBiosFolder = GetJavaString(env, p_szbiosfolder);
     EmuFolders::AppRoot = _szPath;
     EmuFolders::DataRoot = _szPath;
+    // Só agora o caminho é conhecido; o redirecionamento para o logcat acima já está de pé desde
+    // a primeira linha, para que uma falha antes daqui ainda apareça em algum lugar.
+    enable_native_log_file(EmuFolders::DataRoot);
     EmuFolders::SetResourcesDirectory();
 
 #ifdef ARMSX2_PGO_GENERATE
