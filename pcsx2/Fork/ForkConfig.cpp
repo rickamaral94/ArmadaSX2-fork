@@ -50,6 +50,10 @@ namespace
 			"Teto de tempo para gerar um quadro, em ms."},
 		{Option::FrameGenMinRealFps, "FrameGen.MinRealFps", Type::Float, false, 0, 25.0f, "",
 			"FPS real mínimo para Frame Generation engatar."},
+		{Option::DiagnosticsLog, "Diagnostics.Log", Type::Bool, true, 0, 0.0f, "",
+			"Escreve o bloco @@FORK@@ no log: cadência, estado de FG e custo de geração."},
+		{Option::DiagnosticsIntervalSeconds, "Diagnostics.IntervalSeconds", Type::Float, false, 0, 10.0f, "",
+			"Segundos entre blocos de diagnóstico."},
 	}};
 
 	// Um desalinhamento entre o enum e a tabela faria uma opção ler o valor da vizinha — sem erro,

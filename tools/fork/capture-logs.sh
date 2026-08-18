@@ -69,14 +69,14 @@ finish() {
 	echo
 	echo "Resumindo..."
 	# Grep no TEXTO da mensagem, não na tag. Veja o comentário no topo.
-	grep -aE 'ForkDriverIdentity|ForkGpuCapabilities|ForkRuntime:|ForkConfig:|@@ANDROID_LSFG@@|adrenotools|libvulkan|turnip|Turnip|VK_ERROR|FATAL EXCEPTION|beginning of crash' \
+	grep -aE '@@FORK@@|ForkDriverIdentity|ForkGpuCapabilities|ForkRuntime:|ForkConfig:|@@ANDROID_LSFG@@|adrenotools|libvulkan|turnip|Turnip|VK_ERROR|FATAL EXCEPTION|beginning of crash' \
 		"${RAW}" >> "${DIGEST}" || true
 	echo
 	echo "  log cru : ${RAW}"
 	echo "  resumo  : ${DIGEST}"
 	echo
-	echo "Mande o RESUMO. Se ele não tiver nenhuma linha 'ForkDriverIdentity', mande o cru:"
-	echo "significa que o driver nunca foi sondado, e isso por si só já é o achado."
+	echo "Mande o RESUMO. Se ele não tiver nenhuma linha '@@FORK@@', mande o cru:"
+	echo "significa que o bloco de diagnóstico nunca foi escrito, e isso já é o achado."
 }
 trap finish EXIT
 

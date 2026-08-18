@@ -91,6 +91,13 @@ namespace ForkConfig
 		/// FPS real abaixo disto não engata: suavizar emulação lenta é mascarar.
 		FrameGenMinRealFps,
 
+		// --- diagnóstico de sessão (Fase 8.1) ---
+
+		/// Escreve o bloco `@@FORK@@` no log em intervalos regulares.
+		DiagnosticsLog,
+		/// Intervalo, em segundos, entre blocos.
+		DiagnosticsIntervalSeconds,
+
 		Count,
 	};
 

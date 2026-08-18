@@ -7,6 +7,7 @@
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #include "Fork/ForkDriverIdentity.h"
+#include "Fork/ForkDiagnostics.h"
 #include "Fork/ForkFrameGen.h"
 #include "Fork/ForkGpuCapabilities.h"
 #include "GS/Renderers/Common/GSPresentationMetrics.h"
@@ -1714,6 +1715,11 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 		// o backend apresentava assim mesmo — ou seja, o degrau que existe para impedir "22 FPS
 		// reais mostrando 44" não impedia nada. Recusar aqui devolve o quadro ao caminho normal,
 		// que o conta como Real ou Duplicate logo abaixo.
+		// Fase 8.1: o bloco @@FORK@@ do log. Alimentado com a MESMA decisão que governa o backend —
+		// um diagnóstico que recalculasse por conta própria poderia explicar uma suspensão com um
+		// número que não a causou.
+		ForkDiagnostics::NotePresent(framegen);
+
 		const bool generation_allowed =
 			generation_backend_active && framegen.state == ForkFrameGen::State::Engaged;
 

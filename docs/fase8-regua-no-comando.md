@@ -108,3 +108,37 @@ aparelho — e agora os números para julgar existem e estão separados.
 Fase 9: backend próprio de optical flow (FG-A), sem depender de arquivo de terceiro. A régua desta
 fase é o que vai impedir esse backend de "ter sucesso" às custas da emulação — e, agora, é o que
 governa qualquer backend que entre depois dele.
+
+## 8. Adendo (8.1) — o log não tinha o que se pedia
+
+Ao pedir os primeiros logs de aparelho, o defeito apareceu do lado errado da câmera: **o binário
+nunca escreveu no log os números que a pergunta exigia**. As métricas da Fase 2 e a decisão da
+Fase 7 só existiam no *overlay*, o benchmark da Fase 6 não tem UI que o acione, e o Android nem
+arquivo de log tem — `SetFileOutputLevel` nunca é chamado, então o `logcat` é o único canal.
+Pedir "mande o log" para responder "a geração cabe no orçamento?" era pedir um dado que não
+existia.
+
+`ForkDiagnostics` escreve um bloco a cada `Diagnostics.IntervalSeconds` (10 s por padrão):
+
+```
+@@FORK@@ identity  gpu='Adreno 740' turnip=Supported requested='turnip' active=Turnip unexpected=no mesa=25.2.0 sha256=…
+@@FORK@@ real      fps=48.30 frametime_avg=20.70ms 1%low=31.40ms min=19.90ms max=33.10ms
+@@FORK@@ presented fps=92.70 real_frames=48 generated=44 duplicated=1
+@@FORK@@ framegen  mode=auto engaged=91.7% transitions=1 dominant=Ativo. gen_avg=3.80ms gen_worst=7.90ms budget=6.00ms floor=25.0fps
+```
+
+Quatro decisões de formato, cada uma por um motivo:
+
+- **Prefixo `@@FORK@@` fixo.** O `Console` sai por stdout e o Android o redireciona para o
+  `logcat` sob a tag `STDOUT` — filtrar por tag não acha nada, filtrar por texto acha.
+- **Real e apresentado em linhas separadas.** A mesma regra do overlay, e ela vale mais aqui: um
+  log é lido fora de contexto, meses depois, por quem não participou da conversa.
+- **Transições contadas, não despejadas.** "O Auto fica piscando?" é a pergunta; registrar cada
+  mudança produziria centenas de linhas por segundo exatamente no caso patológico. `transitions=1`
+  é estável, `transitions=39` é piscando.
+- **`gen_worst` ao lado de `gen_avg`.** A média esconde o pico, e é o pico que estoura o orçamento
+  e suspende a geração — no exemplo acima, média 3,80 ms dentro do teto de 6,00 e ainda assim
+  suspensões, porque o pior caso foi 7,90.
+
+Alimentado com a **mesma** decisão que governa o backend, não com uma recalculada: um diagnóstico
+que refizesse a conta poderia explicar uma suspensão com um número que não a causou.
