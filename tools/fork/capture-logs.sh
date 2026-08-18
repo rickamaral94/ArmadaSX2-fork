@@ -6,6 +6,8 @@
 #   ./tools/fork/capture-logs.sh                 # captura até Ctrl-C
 #   ./tools/fork/capture-logs.sh -o minha-sessao # prefixo dos arquivos
 #
+# NO WINDOWS use tools/fork/capture-logs.ps1 — este arquivo é bash e o PowerShell não o executa.
+#
 # Por que um script e não "roda adb logcat":
 #
 #   O Console do PCSX2 escreve em stdout, e o native-lib redireciona stdout/stderr para o
