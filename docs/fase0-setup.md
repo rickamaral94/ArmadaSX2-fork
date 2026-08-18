@@ -110,3 +110,21 @@ O CI garante que compila. O que ele **não** garante, e precisa ser feito à mã
 4. Conferir no log: GPU detectada, driver Vulkan em uso, versão do Vulkan.
 
 Registrar o resultado em `docs/jogos-canario.md` (tabela de execuções).
+
+---
+
+## 5. Registro — primeira execução verde
+
+| Item | Valor |
+|---|---|
+| Run | [32114881154](https://github.com/rickamaral94/Ps2-fork/actions/runs/32114881154) |
+| Commit | `1032f021` |
+| Data | 18/08/2026 08:08 UTC |
+| Job `Android arm64 · debug APK` | sucesso — passo de build 29 min 35 s |
+| Job `Superfície de contato` | sucesso — 3 arquivos do upstream modificados, 8 novos, 0 no núcleo |
+| Artefato | `ps2fork-android-arm64-debug`, 76,8 MB |
+| SHA-256 do artefato | `ae2ca503c4577c060530c2b01a09f6f47462dea271a4453a40c1c559522933ba` |
+
+O que isso prova: a árvore deste fork compila o núcleo C++ para `arm64-v8a` e empacota um APK.
+O que **não** prova: que o APK inicializa a BIOS em um dispositivo real — isso é a verificação
+manual da seção 4 e depende de hardware.
