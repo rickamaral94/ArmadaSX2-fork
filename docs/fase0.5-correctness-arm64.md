@@ -27,14 +27,21 @@ Duas pernas produzem relatórios JUnit; um terceiro job compara os **conjuntos**
 |---|---|
 | Falha no candidate que não falha no baseline (**regressão**) | **reprova** |
 | Teste presente no baseline e ausente no candidate (**sumiço**) | **reprova** |
+| Teste que **executava** no baseline e não executa no candidate (**desativado**) | **reprova** |
 | Falha nos dois (**preexistente**) | reporta, não reprova |
 | Falha no baseline que passa no candidate (**correção**) | reporta, não reprova |
 | Teste novo no candidate | reporta, não reprova |
 
-Por que não "zero falhas": a suíte tem falhas herdadas que não são nossas. Um gate cronicamente
-vermelho é um gate ignorado — e um gate ignorado é pior que nenhum, porque dá a sensação de
-cobertura. A regra de **sumiço** existe porque apagar ou desabilitar o teste que incomoda é a
-maneira mais fácil de fingir verde, e é exatamente o que a política do fork não aceita.
+Por que não "zero falhas": a suíte pode ter falhas herdadas que não são nossas. Um gate
+cronicamente vermelho é um gate ignorado — e um gate ignorado é pior que nenhum, porque dá a
+sensação de cobertura.
+
+As regras de **sumiço** e **desativado** existem porque apagar ou desabilitar o teste que incomoda
+é a maneira mais fácil de fingir verde. A segunda foi acrescentada depois do primeiro run completo,
+que revelou **38 testes já desabilitados** na suíte herdada: um `DISABLED_` continua aparecendo no
+XML como `testcase`, então uma comparação que só olhasse presença de nomes não veria diferença
+nenhuma — a suíte encolheria em silêncio e o total continuaria idêntico. O comparador agora
+distingue *presente* de *executado*.
 
 Implementação: `tools/fork/compare-gtest-xml.py`. Roda offline, sem CI:
 
@@ -84,8 +91,25 @@ comparação continua válida, e o cache resolve o custo depois do primeiro run.
 | Data | Run | Baseline | Candidate | Resultado |
 |---|---|---|---|---|
 | 18/08/2026 08:49 | [32118350621](https://github.com/rickamaral94/Ps2-fork/actions/runs/32118350621) | `1032f021` | `85a9238` | **inválido** — as duas pernas construíram os 845 alvos com sucesso (deps 39 min, build 10 min) e morreram com exit 127 ao invocar o binário no caminho errado. Nenhum teste chegou a executar. Corrigido em seguida. |
+| 18/08/2026 10:28-10:45 | 32126935351, 32127080351, 32128354911 | `2a98726` | vários | **cancelados** pelo grupo de concorrência — cada push superava o run anterior. Nenhum veredito. |
+| 18/08/2026 10:57 | [32129287911](https://github.com/rickamaral94/Ps2-fork/actions/runs/32129287911) | `2a98726` | `19117a2a` | **APROVADO** — 1940 testes, 0 falhas, 38 desabilitados, 0 erros nas duas pernas. 0 regressões, 0 sumidos, 0 preexistentes. Suítes do fork na perna candidate: `presentation_metrics_tests` e `fork_config_tests` (9/9) verdes. |
 
-Nota sobre este primeiro run: mesmo que tivesse funcionado, ele não validaria mudança nenhuma —
+### Leitura do primeiro veredito válido (18/08, run 32129287911)
+
+**A base ARM64 do ARMSX2 passa em 1940 de 1940 testes de recompilador, com zero falhas herdadas.**
+Isso é a notícia relevante da fase: o risco nº 1 do relatório da Fase 1 — JIT traduzido com auxílio
+de LLM — não se manifesta em nenhum caso da suíte de conformance contra console (FPU do EE, cache
+do EE, VU, IOP). Não prova que o JIT está correto; prova que ele está correto **onde o upstream
+sabe verificar**, e nos dá uma linha-base sem ressalvas: qualquer falha futura é nossa.
+
+Ressalva honesta: **38 testes estão desabilitados** na suíte. São áreas que o upstream sabe que
+ainda não passam. Elas não entram no nosso número e o gate agora impede que esse conjunto cresça em
+silêncio.
+
+Duração: ~53 min por perna a frio (deps 37 min, build 11 min, testes 2 s). O cache de dependências
+e o ccache foram salvos ao final, então as próximas execuções devem ficar na casa dos 15 min.
+
+Nota sobre o primeiro run (inválido): mesmo que tivesse funcionado, ele não validaria mudança nenhuma —
 o único commit do branch era o próprio workflow, então as duas pernas testariam código idêntico.
 O valor dele era calibrar o harness, e foi exatamente isso que ele entregou: apontou um defeito
 real antes de qualquer promessa de cobertura.
