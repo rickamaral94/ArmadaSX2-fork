@@ -138,6 +138,7 @@ fun LsfgSection(
     // failure messages are resolved here and captured. Same pattern as UpdaterEntry.
     val importFailedMsg = str("perf.lsfg.dll.importFailed")
     val notADllMsg = str("perf.lsfg.dll.notADll")
+    val noShaderFamilyMsg = str("perf.lsfg.dll.noShaderFamily")
 
     // Asked on every recomposition of this section rather than cached: the answer moves with
     // the renderer the user just switched to and with the file they just picked, and it is a
@@ -153,15 +154,30 @@ fun LsfgSection(
             } ?: error("could not open the selected file")
         }.isSuccess
         // Validate before storing the path. A wrong pick — a .txt, a truncated download, some
-        // other DLL — otherwise sits in the config looking correct and fails much later,
-        // inside a frame, where the only symptom is that frame generation quietly never
-        // engages. NativeApp answers DLL_UNREADABLE for anything that is not a readable PE.
+        // other DLL — otherwise sits in the config looking correct and fails much later, inside a
+        // frame, where the only symptom is that frame generation quietly never engages.
+        //
+        // Asked of ForkLsfgPackage and NOT of lsfgAvailability. That query answers the HARDWARE
+        // gates first — not Vulkan, not an Adreno 7xx — and in those cases never opens the file at
+        // all, so on an unsupported device (after any game has booted, which is when the caps
+        // become known) it accepted anything at all. The inspector below only ever looks at the
+        // file, and it separates the two problems the user can actually act on: "this is not a
+        // Lossless.dll" and "this Lossless.dll carries no shader family".
+        val inspection = if (copied) ForkNative.inspectLsfgPackage(target.absolutePath) else null
         if (!copied) {
             target.delete()
             importError = importFailedMsg
-        } else if (LsfgReason.of(NativeApp.lsfgAvailability(target.absolutePath)) == LsfgReason.DLL_UNREADABLE) {
+        } else if (inspection == null) {
+            // The bridge could not be asked at all (native library not up yet). Keeping the pick is
+            // the right call: the file is very likely fine, and refusing it here would strand the
+            // user on a screen that cannot explain itself. The reason line below still reports
+            // whatever the runtime finds when it does come up.
+            importError = null
+            path = target.absolutePath
+            onChange(enabled, multiplier, path, performance, flowScale)
+        } else if (!inspection.usable) {
             target.delete()
-            importError = notADllMsg
+            importError = if (inspection.verdict == "NoShaderFamily") noShaderFamilyMsg else notADllMsg
         } else {
             importError = null
             path = target.absolutePath

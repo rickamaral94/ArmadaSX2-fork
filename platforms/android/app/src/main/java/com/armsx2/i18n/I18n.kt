@@ -1414,6 +1414,7 @@ val EN: Map<String, String> = mapOf(
     "perf.lsfg.dll.selected" to "Selected — tap to choose a different file",
     "perf.lsfg.dll.importFailed" to "Could not read the selected file.",
     "perf.lsfg.dll.notADll" to "That file is not a readable Lossless.dll.",
+    "perf.lsfg.dll.noShaderFamily" to "That DLL carries no frame-generation shaders. Check that it is Lossless Scaling\u2019s own Lossless.dll and that your copy is up to date.",
     "perf.lsfg.requirements.title" to "Frame Generation requirements",
     "perf.lsfg.requirements.body" to "Frame generation uses Lossless Scaling\u2019s own interpolation shaders. ARMSX2 does not include them \u2014 you must own Lossless Scaling and supply its Lossless.dll yourself.\n\nIt also requires the Vulkan renderer and an Adreno 7xx or newer GPU. On anything else it stays off.",
     "perf.lsfg.requirements.accept" to "I understand",

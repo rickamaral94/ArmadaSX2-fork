@@ -29,6 +29,8 @@ namespace ForkBridge
 	///   `gpu.capabilities`          suporte a Turnip neste aparelho e o porquê (Fase 3)
 	///   `config.options`            a tabela de opções do fork, para a UI se construir sozinha
 	///   `framegen.status`           política de FG, estado ao vivo e o aviso obrigatório (Fase 7)
+	///   `lsfg.inspect:<caminho>`    valida o Lossless.dll que o usuário escolheu, sem GPU nem
+	///                               renderer — a checagem que a tela de import precisa
 	///   `benchmark.begin:<rótulo>`  inicia uma execução medida (Fase 6)
 	///   `benchmark.end`             encerra e devolve o resultado
 	///   `benchmark.status`          estado atual

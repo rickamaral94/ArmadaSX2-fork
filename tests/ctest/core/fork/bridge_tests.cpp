@@ -5,6 +5,7 @@
 
 #include "Fork/ForkConfig.h"
 #include "Fork/ForkFrameGen.h"
+#include "Fork/ForkLsfgPackage.h"
 
 #include <gtest/gtest.h>
 
@@ -137,4 +138,17 @@ TEST(ForkBridge, FrameGenStatusAnswersBeforeAnyRenderer)
 	EXPECT_TRUE(Contains(response, "\"mode\":\"off\""));
 	EXPECT_TRUE(Contains(response, "\"state\":\"Disabled\""));
 	EXPECT_TRUE(Contains(response, "\"framesToGenerate\":0"));
+}
+
+// A validação do import passa por aqui, e ela não pode depender de GPU, renderer ou de o backend
+// de LSFG estar compilado: é uma pergunta sobre o ARQUIVO.
+TEST(ForkBridge, LsfgInspectAnswersAboutTheFileAlone)
+{
+	const std::string missing = ForkBridge::Query("lsfg.inspect:/nao/existe/Lossless.dll");
+	EXPECT_TRUE(Contains(missing, "\"ok\":false"));
+	EXPECT_TRUE(Contains(missing, "\"verdict\":\"Missing\""));
+	EXPECT_TRUE(Contains(missing, "\"standardFamily\":false"));
+	EXPECT_TRUE(Contains(missing, "\"performanceFamily\":false"));
+
+	EXPECT_TRUE(Contains(ForkBridge::Query("lsfg.inspect:"), "\"ok\":false"));
 }

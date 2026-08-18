@@ -106,6 +106,37 @@ object ForkNative {
         val statusLine: String,
     )
 
+    /**
+     * Veredito sobre o `Lossless.dll` que o usuário escolheu — só sobre o ARQUIVO.
+     *
+     * `NativeApp.lsfgAvailability` não serve para validar um import: ela responde as travas de
+     * hardware primeiro (não é Vulkan, não é Adreno 7xx) e nesses casos nem chega a abrir o
+     * arquivo. Num aparelho incompatível, depois que um jogo já subiu, ela aprovaria qualquer
+     * coisa — um .txt, um download interrompido — e o caminho ficaria gravado parecendo correto.
+     */
+    data class LsfgPackage(
+        val usable: Boolean,
+        val verdict: String,
+        val reason: String,
+        val sizeBytes: Long,
+        val rcdataCount: Int,
+        val hasStandardFamily: Boolean,
+        val hasPerformanceFamily: Boolean,
+    )
+
+    fun inspectLsfgPackage(path: String): LsfgPackage? {
+        val json = query("lsfg.inspect:$path") ?: return null
+        return LsfgPackage(
+            usable = json.optBoolean("ok", false),
+            verdict = json.optString("verdict"),
+            reason = json.optString("reason"),
+            sizeBytes = json.optLong("size", 0L),
+            rcdataCount = json.optInt("rcdata", 0),
+            hasStandardFamily = json.optBoolean("standardFamily", false),
+            hasPerformanceFamily = json.optBoolean("performanceFamily", false),
+        )
+    }
+
     fun frameGenStatus(): FrameGenStatus? {
         val json = query("framegen.status") ?: return null
         if (!json.optBoolean("ok", false)) return null

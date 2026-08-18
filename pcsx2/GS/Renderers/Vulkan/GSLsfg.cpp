@@ -24,6 +24,8 @@
 #include "armsx2_lsfg_shim.h"
 #include "extract/trans.hpp"
 
+#include "GS/Renderers/Vulkan/GSLsfgShaderTable.h"
+
 #include <pe-parse/parse.h>
 
 #include <android/hardware_buffer.h>
@@ -341,43 +343,11 @@ namespace GSLsfg
 			return 0;
 		}
 
-		/// True for the LSFG 3.1p (performance) family. The p_ prefix is upstream's own naming.
-		bool IsPerformanceShader(const std::string& name) { return name.compare(0, 2, "p_") == 0; }
-
-		// Resource IDs, from upstream's extract.cpp — they track Lossless Scaling's own resource
-		// layout. Only the names framegen asks for are listed; anything else fails the load
-		// cleanly rather than feeding it a wrong shader.
-		//
-		// Two families: the plain names are LSFG 3.1 and the p_ prefixed ones are 3.1p, the
-		// lighter pipeline. p_mipmaps and p_generate deliberately share 255/256 with 3.1 — those
-		// two resources are common to both, so they are extracted twice under the two names
-		// framegen asks for rather than special-cased.
-		const std::map<std::string, u32>& ShaderNameTable()
-		{
-			static const std::map<std::string, u32> table = {
-				{"mipmaps", 255},
-				{"alpha[0]", 267}, {"alpha[1]", 268}, {"alpha[2]", 269}, {"alpha[3]", 270},
-				{"beta[0]", 275}, {"beta[1]", 276}, {"beta[2]", 277}, {"beta[3]", 278},
-				{"beta[4]", 279},
-				{"gamma[0]", 257}, {"gamma[1]", 259}, {"gamma[2]", 260}, {"gamma[3]", 261},
-				{"gamma[4]", 262},
-				{"delta[0]", 257}, {"delta[1]", 263}, {"delta[2]", 264}, {"delta[3]", 265},
-				{"delta[4]", 266}, {"delta[5]", 258}, {"delta[6]", 271}, {"delta[7]", 272},
-				{"delta[8]", 273}, {"delta[9]", 274},
-				{"generate", 256},
-				{"p_mipmaps", 255},
-				{"p_alpha[0]", 290}, {"p_alpha[1]", 291}, {"p_alpha[2]", 292}, {"p_alpha[3]", 293},
-				{"p_beta[0]", 298}, {"p_beta[1]", 299}, {"p_beta[2]", 300}, {"p_beta[3]", 301},
-				{"p_beta[4]", 302},
-				{"p_gamma[0]", 280}, {"p_gamma[1]", 282}, {"p_gamma[2]", 283}, {"p_gamma[3]", 284},
-				{"p_gamma[4]", 285},
-				{"p_delta[0]", 280}, {"p_delta[1]", 286}, {"p_delta[2]", 287}, {"p_delta[3]", 288},
-				{"p_delta[4]", 289}, {"p_delta[5]", 281}, {"p_delta[6]", 294}, {"p_delta[7]", 295},
-				{"p_delta[8]", 296}, {"p_delta[9]", 297},
-				{"p_generate", 256},
-			};
-			return table;
-		}
+		// The name -> resource-id table moved to GSLsfgShaderTable.h: ForkLsfgPackage checks the
+		// user's pick against the same ids at import time, and two hand-kept copies would diverge
+		// on the first release that renumbers a resource.
+		using GSLsfgShaderTable::IsPerformanceShader;
+		const std::map<std::string, u32>& ShaderNameTable() { return GSLsfgShaderTable::Get(); }
 
 		// --- the SPIR-V cache ------------------------------------------------------------------
 		//

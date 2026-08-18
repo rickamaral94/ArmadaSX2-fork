@@ -8,6 +8,7 @@ add_pcsx2_test(fork_config_tests
 	bridge_tests.cpp
 	benchmark_tests.cpp
 	framegen_tests.cpp
+	lsfg_package_tests.cpp
 )
 
 target_include_directories(fork_config_tests PRIVATE

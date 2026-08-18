@@ -168,3 +168,11 @@ platforms/android/.kotlin/
 **/discord_partner_sdk.aar
 **/discord_partner_sdk.jar
 platforms/android/app/src/main/cpp/3rdparty/discord/include/
+
+# Nada de Lossless Scaling entra neste repositório. O Lossless.dll é software
+# proprietário comprado pelo usuário: o emulador lê os shaders do arquivo QUE O
+# USUÁRIO FORNECE, em tempo de execução, e não redistribui nem um byte dele.
+# Um teste local pode apontar para uma cópia; ela fica de fora do controle de versão.
+# Só pelo nome: o upstream versiona .dll legítimos (WinPixEventRuntime), e um `*.dll`
+# genérico esconderia um arquivo novo deles em vez de proteger contra este aqui.
+**/Lossless.dll

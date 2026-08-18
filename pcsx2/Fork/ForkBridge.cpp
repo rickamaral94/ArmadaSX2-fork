@@ -9,6 +9,7 @@
 #include "Fork/ForkDriverPackage.h"
 #include "Fork/ForkFrameGen.h"
 #include "Fork/ForkGpuCapabilities.h"
+#include "Fork/ForkLsfgPackage.h"
 
 #include "fmt/format.h"
 
@@ -83,6 +84,22 @@ namespace
 			ForkBridge::EscapeJson(caps.gpu_name), GpuProfileDetector::RuntimeProfileToString(caps.vendor),
 			GpuProfileDetector::ArchitectureToString(caps.architecture),
 			ForkGpuCapabilities::FormatVulkanVersion(caps.vulkan_api_version), caps.android_sdk);
+	}
+
+	std::string InspectLsfgPackage(std::string_view path)
+	{
+		if (path.empty())
+			return Error("caminho vazio");
+
+		const ForkLsfgPackage::Inspection inspection = ForkLsfgPackage::Inspect(std::string(path));
+		return fmt::format(
+			R"({{"ok":{},"verdict":"{}","reason":"{}","size":{},"pe32plus":{},"machine":{},)"
+			R"("rcdata":{},"standardFamily":{},"performanceFamily":{}}})",
+			Boolean(inspection.IsUsable()), ForkLsfgPackage::VerdictToString(inspection.verdict),
+			ForkBridge::EscapeJson(ForkLsfgPackage::VerdictReason(inspection.verdict)),
+			inspection.size_bytes, Boolean(inspection.is_pe32plus), inspection.machine,
+			inspection.rcdata_count, Boolean(inspection.has_standard_family),
+			Boolean(inspection.has_performance_family));
 	}
 
 	std::string FrameGenStatus()
@@ -195,6 +212,8 @@ std::string ForkBridge::Query(std::string_view request)
 		return ConfigOptions();
 	if (command == "framegen.status")
 		return FrameGenStatus();
+	if (command == "lsfg.inspect")
+		return InspectLsfgPackage(argument);
 	if (command == "benchmark.begin")
 	{
 		if (argument.empty())

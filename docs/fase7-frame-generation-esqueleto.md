@@ -120,7 +120,14 @@ levando o aviso obrigatório verbatim (se ele parar de vir por ali, a tela fica 
 consulta respondendo "desligado" — não erro — antes de qualquer renderer, porque a tela de
 configuração abre antes de qualquer jogo rodar e é ali que o modo é escolhido.
 
-## 7. Próximo
+## 7. Adjacente
+
+A Fase 7.1 (`docs/fase7.1-validacao-pacote-fg.md`) cuida do arquivo que o usuário fornece: o
+`Lossless.dll` passa a ser validado na hora do import por um inspetor que só olha o ARQUIVO — a
+validação anterior podia ser curto-circuitada pelas travas de hardware e aceitava qualquer coisa
+num aparelho incompatível.
+
+## 8. Próximo
 
 Fase 8: o backend de verdade — optical flow em compute shader (FG-A), apresentando de fato o quadro
 sintetizado. A régua desta fase é o que vai impedir esse backend de "ter sucesso" às custas da

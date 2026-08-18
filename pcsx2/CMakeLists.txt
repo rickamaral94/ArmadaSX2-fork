@@ -548,6 +548,7 @@ set(pcsx2GSSources
 	Fork/ForkDriverPackage.cpp
 	Fork/ForkDriverIdentity.cpp
 	Fork/ForkFrameGen.cpp
+	Fork/ForkLsfgPackage.cpp
 	Fork/ForkGpuCapabilities.cpp
 	Fork/ForkRuntime.cpp
 	GS/Renderers/Common/GSRenderer.cpp
@@ -607,6 +608,7 @@ set(pcsx2GSHeaders
 	Fork/ForkDriverPackage.h
 	Fork/ForkDriverIdentity.h
 	Fork/ForkFrameGen.h
+	Fork/ForkLsfgPackage.h
 	Fork/ForkGpuCapabilities.h
 	Fork/ForkRuntime.h
 	GS/Renderers/Common/GSPresentationPolicy.h
@@ -732,6 +734,7 @@ if(USE_VULKAN)
 	list(APPEND pcsx2GSHeaders
 		GS/Renderers/Vulkan/GSDeviceVK.h
 		GS/Renderers/Vulkan/GSLsfg.h
+		GS/Renderers/Vulkan/GSLsfgShaderTable.h
 		GS/Renderers/Vulkan/GSTextureVK.h
 		GS/Renderers/Vulkan/VKLibretro.h
 		GS/Renderers/Vulkan/VKBuilders.h
