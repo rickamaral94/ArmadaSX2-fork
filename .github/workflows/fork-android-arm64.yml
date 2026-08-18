@@ -1,0 +1,92 @@
+# Fork CI — o único build que este fork precisa manter verde por conta própria.
+#
+# O upstream (build-all.yml) cobre macOS/Linux/Windows arm64 e iOS e continua sendo a guarda de
+# que o core compartilhado não foi alterado. Aqui o alvo é outro: garantir que o APK Android
+# arm64 compila A PARTIR DO FONTE C++ a cada push nosso, porque é nele que as mudanças de driver
+# Vulkan e de frame generation vão viver.
+#
+# Por que `assembleGithubDebug` e não `assembleRelease`:
+#   * o build type `debug` compila o núcleo nativo com -O3 e SEM LTO -> ciclo de CI muito mais
+#     curto, sem esconder erro de compilação nosso;
+#   * o sabor `github` é o que habilita o gerenciador de driver customizado e o acesso a
+#     armazenamento que precisamos exercitar (o sabor `play` desliga ambos).
+#
+# NDK e CMake são pinados de propósito. Um A/B de driver ou de frame generation não significa
+# nada se o toolchain mudar entre as duas medições.
+name: Fork · Android arm64 (debug APK)
+
+on:
+  push:
+    branches:
+      - 'claude/**'
+      - 'fork/**'
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: fork-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-arm64-debug:
+    name: Android arm64 · debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: platforms/android
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Versões espelhadas de build-all.yml: o NDK é o que o AGP resolve por padrão e o cmake
+      # 3.31.6 é o piso real das dependências do shaderc (3.22.1 falha ao configurar spirv-tools).
+      - name: Install NDK + CMake
+        run: yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
+
+      # As dependências do shaderc (SPIRV-Tools, glslang) são buscadas sob demanda, não são
+      # submódulos — `submodules: recursive` acima não as traz.
+      - name: Fetch shaderc third-party deps
+        run: python3 app/src/main/cpp/3rdparty/shaderc/utils/git-sync-deps
+
+      # librashader é compilado por cargo para o alvo Android; o rustup do runner só traz a std
+      # do host.
+      - name: Install Rust Android target
+        run: rustup target add aarch64-linux-android
+
+      - name: Build debug APK (github flavor, arm64-v8a)
+        run: ./gradlew :app:assembleGithubDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: ps2fork-android-arm64-debug
+          path: platforms/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  # Não bloqueante por desenho: existe para tornar visível, a cada push, o quanto o fork está
+  # encostando em arquivos do upstream. Crescimento silencioso dessa superfície é o que torna
+  # merges futuros impossíveis.
+  fork-hygiene:
+    name: Superfície de contato com o upstream
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Report fork diff surface
+        run: ./tools/fork/fork-diff.sh --ci

@@ -1,9 +1,10 @@
 name: Upload to MoonStore
 
+# FORK: o gatilho `workflow_run` do upstream foi REMOVIDO. Este workflow publica builds em uma
+# loja de terceiros vinculada ao projeto upstream; builds deste fork não devem ir para lá.
+# Mantido apenas sob demanda, para não divergir mais do que o necessário do arquivo original.
+# Ver docs/fase0-setup.md, secao 2.
 on:
-  workflow_run:
-    workflows: ["Build All Platforms"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       run_id:

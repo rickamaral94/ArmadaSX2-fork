@@ -13,9 +13,12 @@
 #   * iOS               -> unsigned .ipa, sideloadable       (non-blocking, attach-if-present)
 name: Nightly
 
+# FORK: o `schedule` do upstream foi REMOVIDO de propósito. Este workflow constrói
+# macOS/Linux/Windows arm64 + iOS (~2 h) e PUBLICA releases. No nosso repositório ele rodaria
+# diariamente no branch padrão, gastando CI e criando releases que não são nossas. Continua
+# disponível sob demanda para quem quiser reproduzir o pipeline do upstream.
+# Ver docs/fase0-setup.md, secao 2.
 on:
-  schedule:
-    - cron: '0 8 * * *'      # 08:00 UTC daily
   workflow_dispatch:
 
 permissions:
