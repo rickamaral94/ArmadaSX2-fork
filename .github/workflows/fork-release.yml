@@ -1,0 +1,133 @@
+# Publicação de APK do fork.
+#
+# Ordem deliberada: CONSTRÓI e só então publica. Um commit que não compila não vira release —
+# o job falha antes de existir tag publicada, em vez de deixar uma release vazia ou com um
+# artefato velho anexado.
+#
+# Diferente do CI de push (fork-android-arm64.yml), aqui o alvo é `assembleGithubRelease`:
+#
+#   * é o build que se mede — o de debug compila o núcleo com -O3 mas SEM LTO, escolha feita
+#     para encurtar o ciclo de CI. Comparar driver ou frame generation em um binário que não é
+#     o que o usuário roda seria medir outra coisa;
+#   * é assinado com a keystore de debug quando não há keystore de Play configurada, e por isso
+#     instala no aparelho por sideload. NÃO serve para a Play Store, e não é para lá que vai.
+#
+# O sabor `github` é o único que habilita o gerenciador de driver customizado e o frame
+# generation — que são os dois recursos que este fork existe para exercitar.
+name: Fork · Release (APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da release (ex.: v0.1.0-alpha.1)'
+        required: true
+        type: string
+      title:
+        description: 'Título da release (vazio = usa a tag)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Marcar como pré-lançamento'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: fork-release-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: APK arm64 · github/release
+    runs-on: ubuntu-24.04
+    # LTO + R8 em cima do build nativo inteiro. O CI de debug leva ~33 min; este teto é folgado
+    # de propósito, para o job morrer só quando algo estiver de fato errado.
+    timeout-minutes: 180
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Versões pinadas iguais às do CI de push. Um A/B de driver ou de frame generation não
+      # significa nada se o toolchain mudar entre as duas medições.
+      - name: Install NDK + CMake
+        run: yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
+
+      - name: Fetch shaderc third-party deps
+        working-directory: platforms/android
+        run: python3 app/src/main/cpp/3rdparty/shaderc/utils/git-sync-deps
+
+      - name: Install Rust Android target
+        run: rustup target add aarch64-linux-android
+
+      # A tag entra como versionName para que o número que aparece no OSD e nos logs seja o
+      # mesmo da release. Sem isso, todo relato de teste chegaria dizendo "2.6.1", que é a
+      # versão do upstream, e não daria para saber qual build produziu qual medição.
+      - name: Build release APK (github flavor, arm64-v8a)
+        working-directory: platforms/android
+        run: |
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
+          ./gradlew :app:assembleGithubRelease --stacktrace "-Parmsx2.versionName=${VERSION}"
+
+      - name: Locate and name the APK
+        id: apk
+        run: |
+          set -euo pipefail
+          APK="$(find platforms/android/app/build/outputs/apk -name '*.apk' -type f -print -quit)"
+          if [ -z "${APK}" ]; then
+            echo "nenhum APK produzido pelo build" >&2
+            find platforms/android/app/build/outputs -type f >&2 || true
+            exit 1
+          fi
+          OUT="ps2fork-${{ inputs.tag }}-android-arm64.apk"
+          cp "${APK}" "${OUT}"
+          # SHA-256 pelo mesmo motivo que o registramos para pacotes de driver: é IDENTIDADE.
+          # Um relato de compatibilidade que diz "alpha 1" não distingue dois builds com o mesmo
+          # nome; o hash distingue.
+          SHA="$(sha256sum "${OUT}" | cut -d' ' -f1)"
+          echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "${OUT}" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="${{ inputs.title }}"
+          [ -n "${TITLE}" ] || TITLE="${{ inputs.tag }}"
+
+          {
+            echo "APK arm64, sabor \`github\`, build de release (LTO + R8), assinado com a keystore"
+            echo "de debug — instala por sideload, **não** serve para a Play Store."
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo "| SHA-256 do APK | \`${{ steps.apk.outputs.sha256 }}\` |"
+            echo "| tamanho | ${{ steps.apk.outputs.size }} |"
+            echo
+            echo "O SHA-256 está aqui porque um relato de teste que diz apenas o nome da versão não"
+            echo "distingue dois builds. Ao reportar uma medição, cite-o."
+          } > release-notes.md
+
+          gh release create "${{ inputs.tag }}" "${{ steps.apk.outputs.path }}" \
+            --title "${TITLE}" \
+            --notes-file release-notes.md \
+            --target "${{ github.sha }}" \
+            ${{ inputs.prerelease && '--prerelease' || '' }}
