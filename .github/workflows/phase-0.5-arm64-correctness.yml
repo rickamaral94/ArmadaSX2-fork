@@ -1,0 +1,127 @@
+name: Phase 0.5 ARM64 Correctness
+
+on:
+  push:
+    branches:
+      - phase-0.5-arm64-correctness-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recompiler-tests:
+    name: recompiler_tests (${{ matrix.label }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: baseline-1032f021
+            ref: 1032f021bf35c90b4db447b03206ff005bfc5616
+          - label: candidate
+            ref: ${{ github.sha }}
+
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.ref }}
+          fetch-depth: 0
+
+      - name: Record baseline metadata
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "label=${{ matrix.label }}"
+          echo "requested_ref=${{ matrix.ref }}"
+          echo "tested_sha=$(git rev-parse HEAD)"
+          uname -a
+          uname -m
+          clang --version || true
+          cmake --version
+          ninja --version
+
+      - name: Install packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tools/retry.sh wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          sudo tools/retry.sh apt-add-repository -n 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-17 main'
+          sudo tools/retry.sh apt-get -o Acquire::ForceIPv4=true update
+          sudo tools/retry.sh apt-get -y install \
+            build-essential ccache clang-17 cmake curl extra-cmake-modules git libasound2-dev libaio-dev \
+            libcurl4-openssl-dev libdbus-1-dev libdecor-0-dev libegl-dev libevdev-dev libfontconfig-dev libfreetype-dev libfuse2 libgtk-3-dev libgudev-1.0-dev \
+            libharfbuzz-dev libinput-dev libopengl-dev libopus-dev libpcap-dev libpipewire-0.3-dev libpulse-dev libssl-dev libudev-dev libva-dev \
+            libwayland-dev libx11-dev libx11-xcb-dev libx264-dev libxcb1-dev libxcb-composite0-dev libxcb-cursor-dev libxcb-damage0-dev libxcb-glx0-dev libxcb-icccm4-dev \
+            libxcb-image0-dev libxcb-keysyms1-dev libxcb-present-dev libxcb-randr0-dev libxcb-render0-dev libxcb-render-util0-dev libxcb-shape0-dev \
+            libxcb-shm0-dev libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev libxcb-xinput-dev libxcb-xkb-dev libxext-dev libxkbcommon-x11-dev libxrandr-dev \
+            lld-17 llvm-17 nasm ninja-build patchelf pkg-config zlib1g-dev
+
+      - name: Build dependencies
+        shell: bash
+        run: BUILD_FFMPEG=1 .github/workflows/scripts/linux/build-dependencies-qt.sh "$HOME/deps"
+
+      - name: Configure Release test build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+            -DCMAKE_PREFIX_PATH="$HOME/deps" \
+            -DCMAKE_C_COMPILER=clang-17 \
+            -DCMAKE_CXX_COMPILER=clang++-17 \
+            -DCMAKE_EXE_LINKER_FLAGS_INIT="-fuse-ld=lld" \
+            -DCMAKE_MODULE_LINKER_FLAGS_INIT="-fuse-ld=lld" \
+            -DENABLE_SETCAP=OFF \
+            -DDISABLE_ADVANCE_SIMD=TRUE \
+            -DUSE_LINKED_FFMPEG=ON \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+          grep -E 'CMAKE_BUILD_TYPE|CMAKE_(C|CXX)_COMPILER:' build/CMakeCache.txt || true
+
+      - name: Build recompiler_tests
+        shell: bash
+        run: cmake --build build --target recompiler_tests --parallel 2
+
+      - name: List recompiler tests
+        shell: bash
+        run: ./build/bin/tests/recompiler_tests --gtest_list_tests | tee recompiler-tests-list.txt
+
+      - name: Run recompiler tests
+        shell: bash
+        run: ./build/bin/tests/recompiler_tests --gtest_output=xml:recompiler-tests.xml
+
+      - name: Summarize test XML
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          p = pathlib.Path('recompiler-tests.xml')
+          if not p.exists():
+              print('recompiler-tests.xml was not produced')
+              raise SystemExit(0)
+          root = ET.parse(p).getroot()
+          suites = [root] if root.tag == 'testsuite' else list(root.findall('testsuite'))
+          tests = sum(int(s.get('tests', '0')) for s in suites)
+          failures = sum(int(s.get('failures', '0')) for s in suites)
+          disabled = sum(int(s.get('disabled', '0')) for s in suites)
+          errors = sum(int(s.get('errors', '0')) for s in suites)
+          print(f'RECOMPILER_TESTS tests={tests} failures={failures} disabled={disabled} errors={errors}')
+          for suite in suites:
+              for case in suite.findall('testcase'):
+                  if case.find('failure') is not None:
+                      print(f"FAIL {suite.get('name')}.{case.get('name')}")
+          PY
+
+      - name: Upload qualification logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phase-0.5-${{ matrix.label }}-${{ github.run_id }}
+          path: |
+            recompiler-tests-list.txt
+            recompiler-tests.xml
+          if-no-files-found: warn
