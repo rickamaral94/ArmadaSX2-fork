@@ -73,6 +73,7 @@ importa; commits de documentação e de UI Android não pagam ~90 min de CI arm6
 | Timeout | 90 min | 150 min | deps Qt/FFmpeg + Release LTO não cabiam no primeiro run |
 | Deps / ccache | sem cache | cache de `~/deps` + ccache (mesmo padrão do `linux_build_qt.yml` do upstream) | o caminho quente cai para minutos |
 | Paralelismo | `--parallel 2` | `--parallel $(nproc)` | o runner tem mais núcleos que isso |
+| Caminho do binário | `./build/bin/tests/recompiler_tests` fixo — **exit 127 nas duas pernas** | localizado com `find` após o build, com erro explícito se sumir | `add_pcsx2_test` não sobrescreve o diretório de saída: o binário cai em `build/bin/`. Procurar tira essa classe de quebra do caminho crítico |
 | Falha de teste | derrubava o job | `continue-on-error` no passo de teste | falha de teste é dado para o comparador; o veredito é dele. Falha de **build** continua derrubando, e o comparador reprova por relatório ausente |
 
 LTO foi **mantida** ligada, como na versão original: as duas pernas usam flags idênticas, então a
@@ -80,6 +81,11 @@ comparação continua válida, e o cache resolve o custo depois do primeiro run.
 
 ## 6. Registro de execuções
 
-| Data | Run | Baseline | Candidate | Regressões | Sumidos | Preexistentes |
-|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — |
+| Data | Run | Baseline | Candidate | Resultado |
+|---|---|---|---|---|
+| 18/08/2026 08:49 | [32118350621](https://github.com/rickamaral94/Ps2-fork/actions/runs/32118350621) | `1032f021` | `85a9238` | **inválido** — as duas pernas construíram os 845 alvos com sucesso (deps 39 min, build 10 min) e morreram com exit 127 ao invocar o binário no caminho errado. Nenhum teste chegou a executar. Corrigido em seguida. |
+
+Nota sobre este primeiro run: mesmo que tivesse funcionado, ele não validaria mudança nenhuma —
+o único commit do branch era o próprio workflow, então as duas pernas testariam código idêntico.
+O valor dele era calibrar o harness, e foi exatamente isso que ele entregou: apontou um defeito
+real antes de qualquer promessa de cobertura.
