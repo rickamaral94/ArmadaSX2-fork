@@ -7,6 +7,8 @@
 #include "GS/Renderers/Vulkan/VKBuilders.h"
 #include "GS/Renderers/Vulkan/VKShaderCache.h"
 
+#include "Fork/ForkDriverIdentity.h"
+
 #include "Config.h"
 #include "ShaderCacheVersion.h"
 
@@ -381,6 +383,7 @@ void VKShaderCache::Open()
 	if (!GSConfig.DisableShaderCache)
 	{
 		m_pipeline_cache_filename = GetPipelineCacheBaseFileName(GSConfig.UseDebugDevice);
+		PruneOldPipelineCaches(m_pipeline_cache_filename);
 
 		const std::string base_filename = GetShaderCacheBaseFileName(GSConfig.UseDebugDevice);
 		const std::string index_filename = base_filename + ".idx";
@@ -698,9 +701,53 @@ std::string VKShaderCache::GetPipelineCacheBaseFileName(bool debug)
 	if (debug)
 		base_filename += "_debug";
 
+	// Fase 4 do fork, item 3: um arquivo POR DRIVER, em vez de um slot único.
+	//
+	// A segurança já existia — o blob é validado contra vendorID/deviceID/pipelineCacheUUID, e o
+	// UUID muda entre drivers por exigência da spec, então um cache do blob da Qualcomm nunca é
+	// servido ao Turnip. O que faltava era não JOGAR FORA o cache do outro driver: com nome fixo,
+	// alternar drivers sobrescreve, e voltar recompila do zero. No A/B da Fase 6 cada troca
+	// pagaria compilação a frio — e "tempo de compilação de shader" é uma das métricas medidas,
+	// então o número descreveria o primeiro boot em vez do regime.
+	if (const GSDeviceVK* dev = GSDeviceVK::GetInstance())
+	{
+		const VkPhysicalDeviceProperties& props = dev->GetDeviceProperties();
+		const std::string key = ForkDriverIdentity::PipelineCacheKey(props.vendorID, props.deviceID,
+			static_cast<u32>(dev->GetDeviceDriverProperties().driverID), props.driverVersion,
+			std::span<const u8>(props.pipelineCacheUUID, VK_UUID_SIZE));
+		base_filename += "_" + key;
+	}
+
 	base_filename += ".bin";
 
 	return Path::Combine(EmuFolders::Cache, base_filename);
+}
+
+void VKShaderCache::PruneOldPipelineCaches(const std::string& active_filename)
+{
+	// Um por driver acumula: cada atualização do Turnip gera chave nova, e um blob de pipeline
+	// chega a dezenas de MB no armazenamento de um celular. Mantém os mais recentes; o ativo
+	// nunca é podado.
+	static constexpr size_t KEEP_PIPELINE_CACHES = 4;
+
+	FileSystem::FindResultsArray results;
+	if (!FileSystem::FindFiles(EmuFolders::Cache.c_str(), "vulkan_pipelines*.bin",
+			FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results))
+	{
+		return;
+	}
+
+	std::vector<ForkDriverIdentity::CacheFileEntry> entries;
+	entries.reserve(results.size());
+	for (const FILESYSTEM_FIND_DATA& result : results)
+		entries.push_back({result.FileName, static_cast<s64>(result.ModificationTime)});
+
+	for (const std::string& stale : ForkDriverIdentity::SelectStalePipelineCaches(
+			 std::move(entries), active_filename, KEEP_PIPELINE_CACHES))
+	{
+		Console.WriteLn("VKShaderCache: removing stale pipeline cache '%s'", stale.c_str());
+		FileSystem::DeleteFilePath(stale.c_str());
+	}
 }
 
 VKShaderCache::CacheIndexKey VKShaderCache::GetCacheKey(u32 type, const std::string_view shader_code)

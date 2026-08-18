@@ -74,6 +74,8 @@ private:
 
 	static std::string GetShaderCacheBaseFileName(bool debug);
 	static std::string GetPipelineCacheBaseFileName(bool debug);
+	/// Remove caches de pipeline de drivers que não se usa há mais tempo, preservando o ativo.
+	static void PruneOldPipelineCaches(const std::string& active_filename);
 	static CacheIndexKey GetCacheKey(u32 type, const std::string_view shader_code);
 	static std::optional<VKShaderCache::SPIRVCodeVector> CompileShaderToSPV(
 		u32 stage, std::string_view source, bool debug);

@@ -3,14 +3,17 @@
 
 #include "Fork/ForkDriverIdentity.h"
 
+#include "Fork/ForkDriverPackage.h"
 #include "Fork/ForkGpuCapabilities.h"
 
 #include "common/Console.h"
 
 #include "fmt/format.h"
 
+#include <algorithm>
 #include <cctype>
 #include <mutex>
+#include <vector>
 
 namespace
 {
@@ -231,4 +234,53 @@ std::string ForkDriverIdentity::DescribeForLog()
 		line += " | (driverProperties indisponível — identidade não confirmada)";
 
 	return line;
+}
+
+std::string ForkDriverIdentity::PipelineCacheKey(u32 vendor_id, u32 device_id, u32 driver_id,
+	u32 driver_version, std::span<const u8> pipeline_cache_uuid)
+{
+	// Serializa em little-endian explícito: a chave nomeia um arquivo em disco e não pode mudar
+	// porque alguém compilou para outra ordem de bytes.
+	std::vector<u8> material;
+	material.reserve(16 + pipeline_cache_uuid.size());
+	for (const u32 field : {vendor_id, device_id, driver_id, driver_version})
+	{
+		material.push_back(static_cast<u8>(field & 0xFF));
+		material.push_back(static_cast<u8>((field >> 8) & 0xFF));
+		material.push_back(static_cast<u8>((field >> 16) & 0xFF));
+		material.push_back(static_cast<u8>((field >> 24) & 0xFF));
+	}
+	material.insert(material.end(), pipeline_cache_uuid.begin(), pipeline_cache_uuid.end());
+
+	// 16 hex são 64 bits: colisão acidental entre os poucos drivers de um aparelho é
+	// inconcebível, e o nome de arquivo continua legível para quem for depurar.
+	return ForkDriverPackage::Sha256Bytes(material).substr(0, 16);
+}
+
+std::vector<std::string> ForkDriverIdentity::SelectStalePipelineCaches(
+	std::vector<CacheFileEntry> entries, const std::string& active_path, size_t keep)
+{
+	// O ativo sai da disputa antes de qualquer ordenação: podá-lo forçaria exatamente a
+	// recompilação que a chave por driver existe para evitar, mesmo que ele seja o mais antigo
+	// (o que acontece de verdade ao voltar para um driver que não se usa há semanas).
+	std::vector<CacheFileEntry> candidates;
+	candidates.reserve(entries.size());
+	for (CacheFileEntry& entry : entries)
+	{
+		if (entry.path != active_path)
+			candidates.push_back(std::move(entry));
+	}
+
+	// Mais recente primeiro; o excedente do fim é o que sai.
+	std::stable_sort(candidates.begin(), candidates.end(),
+		[](const CacheFileEntry& a, const CacheFileEntry& b) { return a.modified_time > b.modified_time; });
+
+	// `keep` conta o ativo, que já foi retirado da lista — então o que sobra para os demais é um
+	// a menos. Sem isso, manter 4 guardaria 5 arquivos.
+	const size_t room_for_others = (keep > 0) ? (keep - 1) : 0;
+
+	std::vector<std::string> stale;
+	for (size_t i = room_for_others; i < candidates.size(); i++)
+		stale.push_back(std::move(candidates[i].path));
+	return stale;
 }

@@ -3,7 +3,7 @@
 **Objetivo:** que o emulador só entregue ao `adrenotools_open_libvulkan` um arquivo que ele já
 verificou, e que saiba dizer exatamente **qual** binário está rodando.
 
-Estado: **itens 1 e 2 concluídos**. Os demais estão listados na seção 5.
+Estado: **itens 1, 2 e 3 concluídos**. Os demais estão listados na seção 6.
 
 ---
 
@@ -127,11 +127,62 @@ CustomDriverActive | driver MesaTurnip (turnip) | Mesa 25.2.0 | info "Mesa 25.2.
  | Vulkan 1.3.281 | GPU Adreno (TM) 750 | pedido libvulkan_freedreno.so | sha256 a1b2c3...
 ```
 
-## 5. Itens restantes
+## 5. Item 3 — cache de pipeline por driver (feito)
+
+### A premissa original estava errada
+
+O relatório da Fase 1 listava este item como *"incluir o driver na chave do shader cache, para que
+um cache compilado pelo Qualcomm não seja servido ao Turnip"*. Ao ler o código, **essa preocupação
+já estava resolvida** — e havia outra, diferente, no lugar dela.
+
+Há **dois** caches distintos:
+
+| Cache | Conteúdo | Depende do driver? |
+|---|---|---|
+| `vulkan_shaders.idx`/`.bin` | SPIR-V compilado pelo shaderc no host | **Não** — SPIR-V é portátil |
+| `vulkan_pipelines.bin` | blob do `VkPipelineCache` | **Sim** |
+
+O blob de pipeline já é validado contra `vendorID`, `deviceID` e `pipelineCacheUUID`
+(`ValidatePipelineCacheHeader`), e a spec do Vulkan exige que o `pipelineCacheUUID` mude quando o
+driver muda de forma a invalidar o cache. Trocar Qualcomm↔Turnip faz a validação falhar e o blob
+ser descartado. **Não havia risco de corrupção.**
+
+### O problema real
+
+O arquivo tinha **nome fixo** — um único slot. Então trocar de driver não só invalidava: **sobrescrevia**
+o cache do outro. Voltar ao driver anterior recompilava tudo do zero.
+
+Isso ataca diretamente o A/B da Fase 6 (System × Turnip A × Turnip B): cada troca pagaria
+compilação a frio, e **"tempo de compilação de shader" é uma das métricas que o benchmark mede**.
+O número descreveria o primeiro boot de cada driver, não o regime — e o driver medido por último
+pareceria melhor só por ordem de execução.
+
+### A correção
+
+`GetPipelineCacheBaseFileName` passa a incluir uma chave derivada de
+`vendorID + deviceID + driverID + driverVersion + pipelineCacheUUID` — exatamente o conjunto que a
+validação do upstream confere — em 16 hex (64 bits; colisão entre os poucos drivers de um aparelho
+é inconcebível e o nome continua legível para depuração).
+
+Cada driver passa a ter o seu arquivo, então alternar no A/B não custa recompilação.
+
+**Poda:** um arquivo por driver acumula (cada atualização do Turnip gera chave nova, e um blob
+chega a dezenas de MB no armazenamento de um celular). `PruneOldPipelineCaches` mantém os 4 mais
+recentes. O **ativo nunca é podado**, mesmo sendo o mais antigo — voltar a um driver que não se usa
+há semanas é o caso real, e podá-lo forçaria justamente a recompilação que a chave existe para
+evitar.
+
+### Verificação
+
+6 casos novos em `driver_identity_tests.cpp` (**16/16** no arquivo): mesma identidade dá a mesma
+chave; Turnip e Qualcomm na mesma GPU dão chaves diferentes; cada campo participa (inclusive
+`driverVersion`, para que uma atualização do Turnip gere cache novo); poda mantém os mais recentes;
+o ativo sobrevive mesmo sendo o mais antigo; nada é podado abaixo do limite.
+
+## 6. Itens restantes
 
 | # | Item | Onde |
 |---|---|---|
-| 3 | Chave do shader cache incluindo o driver — um cache compilado pelo Qualcomm não pode ser servido ao Turnip | `VKShaderCache` |
 | 4 | Erro de carga visível na UI (hoje o `Error` morre no log) e "System Driver" fixo no topo | `TryOpenAdrenotoolsDriver` → JNI → UI |
 | 5 | Ligar o validador ao fluxo de import do Kotlin | `CustomDriver.installFromStream` + JNI |
 

@@ -60,6 +60,12 @@ public:
 	__fi u32 GetGraphicsQueueFamilyIndex() const { return m_graphics_queue_family_index; }
 	__fi u32 GetPresentQueueFamilyIndex() const { return m_present_queue_family_index; }
 	__fi const VkPhysicalDeviceProperties& GetDeviceProperties() const { return m_device_properties; }
+	/// Zerado quando VK_KHR_driver_properties não existe — cheque m_optional_extensions antes de
+	/// tirar conclusões de identidade a partir daqui.
+	__fi const VkPhysicalDeviceDriverPropertiesKHR& GetDeviceDriverProperties() const
+	{
+		return m_device_driver_properties;
+	}
 	__fi const OptionalExtensions& GetOptionalExtensions() const { return m_optional_extensions; }
 
 	// The interaction between raster order attachment access and fbfetch is unclear.

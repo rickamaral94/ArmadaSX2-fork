@@ -5,6 +5,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <vector>
+
 using ForkDriverIdentity::LoadOutcome;
 using ForkDriverIdentity::MesaVersion;
 
@@ -154,4 +158,99 @@ TEST(ForkDriverIdentity, PublishRecordsTheVerdictAndTheEvidence)
 	EXPECT_NE(line.find("Mesa 25.2.0"), std::string::npos);
 	EXPECT_NE(line.find("1.3.281"), std::string::npos);
 	EXPECT_NE(line.find("deadbeef"), std::string::npos);
+}
+
+// --- chave de cache de pipeline (Fase 4, item 3) ---
+
+namespace
+{
+	std::array<u8, 16> MakeUuid(u8 seed)
+	{
+		std::array<u8, 16> uuid = {};
+		uuid.fill(seed);
+		return uuid;
+	}
+} // namespace
+
+TEST(ForkPipelineCacheKey, SameDriverGivesTheSameKey)
+{
+	const std::array<u8, 16> uuid = MakeUuid(0xAB);
+	const std::string a = ForkDriverIdentity::PipelineCacheKey(0x5143, 0x43050A01, 18, 0x19002000, uuid);
+	const std::string b = ForkDriverIdentity::PipelineCacheKey(0x5143, 0x43050A01, 18, 0x19002000, uuid);
+	EXPECT_EQ(a, b);
+	EXPECT_EQ(a.size(), 16u);
+}
+
+// O ponto do item: Turnip e o blob da Qualcomm no MESMO aparelho precisam de arquivos distintos,
+// senão alternar entre eles no A/B da Fase 6 recompila tudo a cada troca.
+TEST(ForkPipelineCacheKey, DifferentDriversOnTheSameGpuGiveDifferentKeys)
+{
+	const std::string qualcomm =
+		ForkDriverIdentity::PipelineCacheKey(0x5143, 0x43050A01, 8, 0x19002000, MakeUuid(0x11));
+	const std::string turnip =
+		ForkDriverIdentity::PipelineCacheKey(0x5143, 0x43050A01, 18, 0x19002000, MakeUuid(0x22));
+	EXPECT_NE(qualcomm, turnip);
+}
+
+TEST(ForkPipelineCacheKey, EveryFieldParticipates)
+{
+	const std::array<u8, 16> uuid = MakeUuid(0x01);
+	const std::string base = ForkDriverIdentity::PipelineCacheKey(1, 2, 3, 4, uuid);
+
+	EXPECT_NE(base, ForkDriverIdentity::PipelineCacheKey(9, 2, 3, 4, uuid));
+	EXPECT_NE(base, ForkDriverIdentity::PipelineCacheKey(1, 9, 3, 4, uuid));
+	EXPECT_NE(base, ForkDriverIdentity::PipelineCacheKey(1, 2, 9, 4, uuid));
+	// Uma atualização do Turnip muda driverVersion: cache novo, como deve ser.
+	EXPECT_NE(base, ForkDriverIdentity::PipelineCacheKey(1, 2, 3, 9, uuid));
+	EXPECT_NE(base, ForkDriverIdentity::PipelineCacheKey(1, 2, 3, 4, MakeUuid(0x02)));
+}
+
+TEST(ForkPipelineCacheStore, KeepsTheNewestAndPrunesTheRest)
+{
+	std::vector<ForkDriverIdentity::CacheFileEntry> entries = {
+		{"/cache/vulkan_pipelines_aaa.bin", 100},
+		{"/cache/vulkan_pipelines_bbb.bin", 500},
+		{"/cache/vulkan_pipelines_ccc.bin", 300},
+		{"/cache/vulkan_pipelines_ddd.bin", 200},
+		{"/cache/vulkan_pipelines_eee.bin", 400},
+	};
+
+	const std::vector<std::string> stale = ForkDriverIdentity::SelectStalePipelineCaches(
+		entries, "/cache/vulkan_pipelines_bbb.bin", /*keep=*/3);
+
+	// Mantém o ativo (bbb) mais os 2 mais recentes entre os demais (eee=400, ccc=300);
+	// saem ddd=200 e aaa=100.
+	ASSERT_EQ(stale.size(), 2u);
+	EXPECT_NE(std::find(stale.begin(), stale.end(), "/cache/vulkan_pipelines_ddd.bin"), stale.end());
+	EXPECT_NE(std::find(stale.begin(), stale.end(), "/cache/vulkan_pipelines_aaa.bin"), stale.end());
+}
+
+// Voltar a um driver que não se usa há semanas é o caso real: o cache dele é o mais antigo de
+// todos, e podá-lo forçaria exatamente a recompilação que a chave por driver existe para evitar.
+TEST(ForkPipelineCacheStore, TheActiveCacheIsNeverPrunedEvenIfOldest)
+{
+	std::vector<ForkDriverIdentity::CacheFileEntry> entries = {
+		{"/cache/vulkan_pipelines_old.bin", 1},
+		{"/cache/vulkan_pipelines_new1.bin", 900},
+		{"/cache/vulkan_pipelines_new2.bin", 800},
+		{"/cache/vulkan_pipelines_new3.bin", 700},
+	};
+
+	const std::vector<std::string> stale = ForkDriverIdentity::SelectStalePipelineCaches(
+		entries, "/cache/vulkan_pipelines_old.bin", /*keep=*/2);
+
+	EXPECT_EQ(std::find(stale.begin(), stale.end(), "/cache/vulkan_pipelines_old.bin"), stale.end());
+	// keep=2 conta o ativo, então sobra espaço para 1 dos outros: o mais recente.
+	ASSERT_EQ(stale.size(), 2u);
+	EXPECT_EQ(std::find(stale.begin(), stale.end(), "/cache/vulkan_pipelines_new1.bin"), stale.end());
+}
+
+TEST(ForkPipelineCacheStore, NothingToPruneWhenUnderTheLimit)
+{
+	std::vector<ForkDriverIdentity::CacheFileEntry> entries = {
+		{"/cache/vulkan_pipelines_a.bin", 10},
+		{"/cache/vulkan_pipelines_b.bin", 20},
+	};
+	EXPECT_TRUE(ForkDriverIdentity::SelectStalePipelineCaches(entries, "/cache/vulkan_pipelines_a.bin", 4).empty());
+	EXPECT_TRUE(ForkDriverIdentity::SelectStalePipelineCaches({}, "/cache/qualquer.bin", 4).empty());
 }

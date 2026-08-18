@@ -7,8 +7,10 @@
 
 #include "common/Pcsx2Defs.h"
 
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 /// Qual driver Vulkan está REALMENTE rodando — perguntado ao dispositivo que subiu, não ao
 /// `meta.json` do pacote.
@@ -122,4 +124,35 @@ namespace ForkDriverIdentity
 
 	/// Uma linha para o log e para o relatório de compatibilidade (Fase 7).
 	std::string DescribeForLog();
+
+	// --- chave de cache de pipeline ---
+
+	/// Identificador curto e estável do driver ativo, para dar a cada driver o SEU arquivo de
+	/// cache de pipeline.
+	///
+	/// O cache de pipeline já é seguro: o `pipelineCacheUUID` muda entre drivers (a spec exige) e
+	/// a validação existente rejeita um blob de outro driver. O problema é outro — o arquivo tem
+	/// nome fixo, ou seja, UM slot. Trocar de driver invalida e **sobrescreve** o do anterior, e
+	/// voltar recompila tudo. No A/B da Fase 6 (System x Turnip A x Turnip B) cada troca pagaria
+	/// compilação a frio, e "tempo de compilação de shader" é justamente uma das métricas medidas:
+	/// o número mediria o primeiro boot, não o regime.
+	///
+	/// Deriva de vendorID + deviceID + driverID + driverVersion + pipelineCacheUUID, que é
+	/// exatamente o conjunto que a validação do upstream confere.
+	std::string PipelineCacheKey(u32 vendor_id, u32 device_id, u32 driver_id, u32 driver_version,
+		std::span<const u8> pipeline_cache_uuid);
+
+	/// Quais arquivos de cache podar, dado o conjunto existente e quantos manter.
+	///
+	/// Um arquivo por driver acumula: cada atualização do Turnip gera uma chave nova, e um blob de
+	/// pipeline chega a dezenas de MB no armazenamento de um celular. Mantém os `keep` mais
+	/// recentes (por mtime) e devolve o resto — o ativo NUNCA é podado, mesmo que seja o mais
+	/// antigo, porque podá-lo forçaria a recompilação que a chave existe para evitar.
+	struct CacheFileEntry
+	{
+		std::string path;
+		s64 modified_time = 0;
+	};
+	std::vector<std::string> SelectStalePipelineCaches(
+		std::vector<CacheFileEntry> entries, const std::string& active_path, size_t keep);
 } // namespace ForkDriverIdentity

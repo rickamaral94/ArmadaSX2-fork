@@ -57,6 +57,8 @@ justificativa, o fork está saindo do trilho.
 | `pcsx2/VMManager.cpp` | +1 include, +1 chamada | `ForkRuntime::LoadSettings` no mesmo ponto em que o upstream reconstrói a configuração — é o que dá override por jogo de graça. Ver docs/superficie-configuracao-fork.md |
 | `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp` | 6 ganchos pequenos | pontos de medição da apresentação — o único lugar por onde todo quadro apresentado passa. Ver docs/fase2-presentation-metrics.md |
 | `pcsx2/ImGui/ImGuiOverlays.cpp` | +1 linha de overlay | exibe FPS real x apresentado |
+| `pcsx2/GS/Renderers/Vulkan/VKShaderCache.{h,cpp}` | nome do cache de pipeline por driver + poda | com nome fixo, alternar drivers sobrescreve o cache do outro e o A/B da Fase 6 mediria compilação a frio (Fase 4, item 3) |
+| `pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h` | +1 acessor `GetDeviceDriverProperties` | a chave do cache precisa do `driverID` |
 | `pcsx2/GS/Renderers/Vulkan/VKLoader.cpp` | registra o resultado do carregamento do driver | o fallback para o driver do sistema é silencioso; sem esse registro não há como saber que driver está rodando (Fase 4, item 2) |
 | `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional | esconde a seção de driver em GPU incompatível (Fase 3) |
 | `tests/ctest/core/CMakeLists.txt` | +2 linhas | `add_subdirectory(presentation)` |
