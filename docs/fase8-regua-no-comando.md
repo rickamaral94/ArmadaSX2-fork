@@ -320,3 +320,112 @@ A linha `load` provou o valor dela na primeira sessão: `1%low=205.30ms` numa ja
 esse campo, aquele 1% low seria lido como problema de desempenho e teria custado uma investigação
 inteira na direção errada. E `hygiene limpo` confirmou que a medição valia, o que na sessão
 anterior não era verdade.
+
+## 13. Adendo (8.6) — o contrato cumprido, e por que a corrida ainda não estava boa
+
+Alpha 5 no Odin 2 Portal (Adreno 740, Turnip Mesa 26.3.0-devel, NFS Underground 2, upscale 3.00x,
+higiene **limpa**). A sessão tem duas metades, e elas contam histórias opostas.
+
+### A metade que fecha a Fase 8
+
+Cinco janelas consecutivas, dez segundos cada:
+
+```
+@@FORK@@ real      fps=60.00 frametime_avg=16.73ms 1%low=19.14ms
+@@FORK@@ presented fps=120.00 real_frames=60 generated=60 duplicated=0
+@@FORK@@ framegen  engaged=100.0% transitions=0 dominant=Engaged gen_avg=6.90ms budget=8.00ms
+```
+
+`speed=99.7%` com `internal_fps=59.76`. Sessenta reais, cento e vinte apresentados, cinquenta
+segundos sem uma única troca de estado. É o contrato inteiro da fase, medido: **o número
+apresentado dobrou e o real não se mexeu**.
+
+### A metade que não estava boa — e o motivo não é frame generation
+
+Dentro da corrida, treze janelas seguidas com o mesmo desenho:
+
+```
+@@FORK@@ load      speed=95.3% ... internal_fps=27.56 shader_compiles=14
+@@FORK@@ real      fps=29.00 frametime_avg=33.36ms 1%low=90.67ms min=24.19ms
+@@FORK@@ framegen  engaged=6.0% transitions=18 dominant=Unstable gen_avg=20.70ms
+```
+
+Três fatos, e nenhum deles é "FG não funciona":
+
+1. **`1%low=90ms` com média de 33 ms.** O pior 1% dos quadros demora quase **três vezes** a média.
+   Isso é engasgo de verdade, e é o que o usuário sente. Nenhum frame generation conserta um
+   quadro que demorou 90 ms — e a régua está certíssima em recusar: interpolar por cima disso
+   piora.
+2. **`shader_compiles` diferente de zero em quase toda janela** (104, 29, 26, 21, 14, 13, 8...).
+   O engasgo tem nome, e a linha `load` o entrega de graça.
+3. **`gen_avg=20ms` contra um orçamento de 8.** A 3.00x de upscale, gerar um quadro na cena de
+   corrida custa 20 ms. Não cabe, não vai caber, e o degrau de orçamento está funcionando.
+
+### O defeito que era meu: a régua piscava enquanto recusava
+
+`transitions=18` a cada 10 s, janela após janela. Recusar era certo; **piscar dezoito vezes por
+dez segundos enquanto recusa** não era. Ligar e desligar quase duas vezes por segundo é pior para
+o usuário do que ficar desligado o tempo todo.
+
+A carência da 8.5 (`FrameGen.CooldownFrames=30`) não resolveu sozinha, e o teste disse isso antes
+do aparelho: **8 transições em 120 quadros**. Carência fixa não corta o pulso, ela só o espaça —
+uma cena que não cabe no orçamento produz um número CONSTANTE de tentativas condenadas por
+segundo.
+
+O que corta é a carência **dobrar** a cada engate fracassado (`FrameGen.MaxCooldownDoublings=5`,
+30 → 60 → 120 → … → 960 quadros). As tentativas caem pela metade a cada fracasso, então o total
+cresce com o logaritmo do tempo em vez de linearmente. Medido no simulador da própria cena:
+
+| | 10 s | 20 s | 30 s | 40 s | 50 s | 60 s |
+|---|---|---|---|---|---|---|
+| antes | 18 | 18 | 18 | 18 | 18 | 18 |
+| agora | 8 | 2 | 0 | 2 | 2 | 0 |
+
+E o contrapeso, sem o qual isso seria uma troca ruim: **calma sustentada solta a carência na
+hora**. Dentro da carência, a régua calcula o contrafactual — este quadro teria engatado? — e
+conta os SEGUIDOS. Uma carência base inteira de quadros que teriam engatado (meio segundo) zera
+tudo. A oscilação nunca consegue produzir isso, porque metade dos quadros dela é ruim; uma cena
+que acabou produz em 30 quadros. Sair da corrida não custa os 16 s acumulados.
+
+Um engate que **durou** mais que a carência também zera o contador: desengatar por um motivo
+legítimo não é fracasso e não pode endurecer a régua.
+
+### O outro engasgo: o cache de shaders morria na troca de driver
+
+```
+Pipeline cache failed validation: Incorrect UUID
+Mismatched pipeline cache header in '.../vulkan_shaders.idx' (GPU/driver changed?)
+Removing existing index file '.../vulkan_shaders.idx'
+```
+
+A Fase 4 deu nome por driver ao cache de **pipeline** e deixou o de **shader** com nome fixo. O
+índice dele carrega um `VK_PIPELINE_CACHE_HEADER`, cujo UUID muda entre drivers — então cada troca
+Qualcomm ↔ Turnip apagava o blob inteiro.
+
+O que estava sendo jogado fora é **SPIR-V**, saído do shaderc a partir do GLSL: não depende de
+driver nenhum. As variações de fonte que dependem do aparelho já entram na chave do cache, que é o
+hash da fonte. A invalidação custava segundos de recompilação e não protegia nada — e o A/B de
+drivers, que é o uso previsto deste fork, pagava esse pedágio a cada troca.
+
+Agora o cache de shader usa a mesma chave por driver, com a mesma poda (mantém 4, nunca poda o
+ativo). Consequência prática para o usuário: **a segunda volta na mesma pista deve engasgar bem
+menos que a primeira**, e trocar de driver para comparar não zera mais o trabalho.
+
+### O bloco de identidade mentia no primeiro quadro
+
+```
+@@FORK@@ identity  gpu='Adreno 740' turnip=Supported requested='system' active=Qualcomm proprietary
+```
+
+Impresso aos 391,2 s — e aos 402,8 s o mesmo bloco dizia `requested='libvulkan_freedreno.so'
+active=Mesa Turnip mesa=26.3.0`, que é a verdade. O quadro em branco apresentado durante a criação
+da swapchain chega ao diagnóstico antes de `ForkDriverIdentity::Publish`. O bloco agora espera a
+sondagem terminar: um diagnóstico que erra a identidade do driver é pior que um que fica calado,
+porque todo o resto do log é lido à luz dele.
+
+### O que fica para medir
+
+- `internal_fps` na corrida é ~28-32: o jogo renderiza a ~30 nativamente ali. Isso é o caso em que
+  FG mais ajudaria — mas a 3.00x de upscale ele custa 20 ms e não cabe. **A comparação a fazer é
+  2.00x com FG contra 3.00x sem**, e ela é do usuário, não minha: é preferência, não medição.
+- A régua nunca escondeu velocidade errada em nenhuma janela da sessão.

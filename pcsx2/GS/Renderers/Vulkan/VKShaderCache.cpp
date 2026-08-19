@@ -386,6 +386,7 @@ void VKShaderCache::Open()
 		PruneOldPipelineCaches(m_pipeline_cache_filename);
 
 		const std::string base_filename = GetShaderCacheBaseFileName(GSConfig.UseDebugDevice);
+		PruneOldShaderCaches(base_filename);
 		const std::string index_filename = base_filename + ".idx";
 		const std::string blob_filename = base_filename + ".bin";
 
@@ -691,7 +692,68 @@ std::string VKShaderCache::GetShaderCacheBaseFileName(bool debug)
 	if (debug)
 		base_filename += "_debug";
 
+	// Fase 8.6 do fork: a MESMA chave por driver que o cache de pipeline já usava.
+	//
+	// A Fase 4 separou só metade do problema. O índice deste cache carrega um
+	// VK_PIPELINE_CACHE_HEADER, e o `pipelineCacheUUID` dentro dele muda entre drivers — então
+	// trocar Qualcomm por Turnip (ou atualizar a build do Turnip) derrubava o índice, e com ele o
+	// blob inteiro. O log do aparelho mostra exatamente isso, três linhas seguidas:
+	//
+	//     Pipeline cache failed validation: Incorrect UUID
+	//     Mismatched pipeline cache header in '.../vulkan_shaders.idx' (GPU/driver changed?)
+	//     Removing existing index file '.../vulkan_shaders.idx'
+	//
+	// E o que estava sendo jogado fora é SPIR-V, produzido pelo shaderc a partir do GLSL: não
+	// depende de driver nenhum. As variações de fonte que dependem do aparelho (fbfetch, barrier)
+	// já entram na CHAVE do cache, que é o hash da fonte — fonte diferente, entrada diferente.
+	// A invalidação custava segundos de recompilação e não protegia nada.
+	//
+	// Com nome por driver, cada um guarda o seu e a troca deixa de cobrar pedágio. Isso importa
+	// mais aqui do que no cache de pipeline: o A/B de drivers da Fase 6 é o uso PREVISTO deste
+	// fork, e mediria compilação a frio em vez do regime — o mesmo erro, agora medido no Odin 2,
+	// que produziu `shader_compiles=104` e `1%low=94ms` numa corrida.
+	if (const GSDeviceVK* dev = GSDeviceVK::GetInstance())
+	{
+		const VkPhysicalDeviceProperties& props = dev->GetDeviceProperties();
+		base_filename += "_" + ForkDriverIdentity::PipelineCacheKey(props.vendorID, props.deviceID,
+								   static_cast<u32>(dev->GetDeviceDriverProperties().driverID),
+								   props.driverVersion,
+								   std::span<const u8>(props.pipelineCacheUUID, VK_UUID_SIZE));
+	}
+
 	return Path::Combine(EmuFolders::Cache, base_filename);
+}
+
+void VKShaderCache::PruneOldShaderCaches(const std::string& active_base_filename)
+{
+	// Mesmo raciocínio da poda dos pipelines: um por driver acumula, e cada atualização do Turnip
+	// gera chave nova. Poda pelo ÍNDICE e leva o blob junto — os dois só fazem sentido em par, e um
+	// blob órfão é dezenas de MB de nada no armazenamento de um celular.
+	static constexpr size_t KEEP_SHADER_CACHES = 4;
+
+	FileSystem::FindResultsArray results;
+	if (!FileSystem::FindFiles(EmuFolders::Cache.c_str(), "vulkan_shaders*.idx",
+			FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results))
+	{
+		return;
+	}
+
+	std::vector<ForkDriverIdentity::CacheFileEntry> entries;
+	entries.reserve(results.size());
+	for (const FILESYSTEM_FIND_DATA& result : results)
+		entries.push_back({result.FileName, static_cast<s64>(result.ModificationTime)});
+
+	const std::string active_index = active_base_filename + ".idx";
+	for (const std::string& stale : ForkDriverIdentity::SelectStalePipelineCaches(
+			 std::move(entries), active_index, KEEP_SHADER_CACHES))
+	{
+		Console.WriteLn("VKShaderCache: removing stale shader cache '%s'", stale.c_str());
+		FileSystem::DeleteFilePath(stale.c_str());
+
+		std::string stale_blob = stale;
+		stale_blob.replace(stale_blob.size() - 4, 4, ".bin");
+		FileSystem::DeleteFilePath(stale_blob.c_str());
+	}
 }
 
 std::string VKShaderCache::GetPipelineCacheBaseFileName(bool debug)

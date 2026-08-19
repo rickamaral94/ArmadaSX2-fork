@@ -3506,6 +3506,7 @@ bool GSDeviceVK::CheckFeatures()
 	// impresso no instante da criação da swapchain, antes de o jogo apresentar um único quadro).
 	ForkDiagnostics::Reset();
 	GSPresentationMetrics::Reset();
+	ForkFrameGen::ResetGovernor();
 
 	// Fase 4, item 2: cruza o que foi PEDIDO com o que o dispositivo DIZ ser. O fallback do
 	// VKLoader para o driver do sistema é silencioso por desenho, então sem este cruzamento um

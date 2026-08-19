@@ -94,6 +94,12 @@ namespace ForkConfig
 		FrameGenMinRealFps,
 		/// Histerese do degrau de velocidade, em pontos percentuais. Contra piscar.
 		FrameGenSpeedHysteresis,
+		/// Histerese do orçamento, como fração do teto.
+		FrameGenBudgetHysteresis,
+		/// Quadros de carência após desengatar, antes de poder engatar de novo.
+		FrameGenCooldownFrames,
+		/// Quantas vezes a carência pode dobrar quando o engate seguinte também fracassa.
+		FrameGenMaxCooldownDoublings,
 
 		// --- diagnóstico de sessão (Fase 8.1) ---
 

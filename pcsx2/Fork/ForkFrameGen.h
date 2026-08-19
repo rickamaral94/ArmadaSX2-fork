@@ -75,6 +75,9 @@ namespace ForkFrameGen
 		BelowMinimumRealFps,
 		/// A geração não coube no orçamento de tempo.
 		OverBudget,
+		/// Desengatou há pouco e está em carência. Existe porque ligar e desligar duas vezes por
+		/// segundo é PIOR que ficar desligado: o usuário vê a fluidez pulsar sem entender por quê.
+		Cooldown,
 		Engaged,
 	};
 
@@ -97,6 +100,29 @@ namespace ForkFrameGen
 		/// registra o custo alto de novo e suspende. Um oscilador com período de ~0,5 s — 20
 		/// transições a cada 10 s no log.
 		float budget_hysteresis = 0.25f;
+		/// Quadros de carência depois de desengatar, antes de poder engatar de novo.
+		///
+		/// Substitui o remendo por degrau. Histerese foi acrescentada três vezes — velocidade,
+		/// orçamento e faltava a estabilidade — sempre depois de o aparelho mostrar o mesmo
+		/// padrão: um degrau oscilando em torno do próprio limiar. A carência age DEPOIS de
+		/// qualquer degrau e resolve todos de uma vez, inclusive os que ainda não existem.
+		///
+		/// Só atrasa o ENGATE, nunca segura a geração ligada — então não há risco de roubar tempo
+		/// da emulação para cumprir uma carência.
+		u32 reengage_cooldown_frames = 30;
+		/// Quantas vezes a carência pode DOBRAR quando o engate seguinte também fracassa.
+		///
+		/// Carência fixa não resolve sozinha, e o teste com a corrida medida no aparelho mostrou
+		/// isso sem margem: com 30 quadros fixos, as 18 transições em 10 s viraram 8 — o pulso
+		/// ficou mais espaçado, não sumiu. A causa é que, numa cena que simplesmente não cabe no
+		/// orçamento, cada engate é uma tentativa condenada, e uma carência constante garante um
+		/// número constante de tentativas por segundo.
+		///
+		/// Dobrar a cada fracasso transforma isso: a régua tenta, tenta de novo mais tarde, e vai
+		/// desistindo sozinha até parar de piscar. Cinco dobras levam 30 quadros a 960 — cerca de
+		/// 16 s a 60 Hz — que é o suficiente para a cena pesada passar sem mais nenhuma piscada.
+		/// Um engate que DURA zera o contador, então sair da cena pesada devolve a resposta rápida.
+		u32 max_cooldown_doublings = 5;
 		/// Velocidade mínima da emulação, em porcentagem da taxa alvo da máquina. Abaixo disto FG
 		/// não engata: o projeto define que suavizar uma emulação lenta é mascarar, não melhorar.
 		float min_speed_percent = 90.0f;
@@ -131,6 +157,8 @@ namespace ForkFrameGen
 		/// O quadro anterior estava SUSPENSO por custo? Governa a histerese do orçamento, que é
 		/// separada da de velocidade porque os dois degraus oscilam por motivos diferentes.
 		bool previously_over_budget = false;
+		/// Quadros desde a última vez que a régua desengatou. Grande quando faz tempo.
+		u32 frames_since_disengage = 1000;
 		float frametime_avg_ms = 0.0f;
 		float frametime_p99_ms = 0.0f;
 		/// Custo da última geração, 0 quando ainda não houve.
@@ -148,6 +176,38 @@ namespace ForkFrameGen
 
 	/// A régua inteira, pura e sem estado, para poder ser exercitada exaustivamente sem GPU.
 	Decision Decide(const Policy& policy, const Inputs& inputs);
+
+	/// Teto do contador de quadros desde o desengate. Só existe para o número não crescer sem
+	/// limite numa sessão longa; fica CONFORTAVELMENTE acima da maior carência possível (30 << 5
+	/// = 960 no padrão, e a carência base é configurável), senão o contador saturaria abaixo do
+	/// limiar e a régua nunca mais engataria.
+	inline constexpr u32 DISENGAGE_COUNTER_CEILING = 1u << 20;
+
+	/// A memória entre quadros que a régua precisa e [Decide] não pode ter.
+	///
+	/// Ela mora aqui, exposta, e não escondida em variáveis estáticas do .cpp, por um motivo
+	/// prático: todo defeito desta fase — o oscilador de velocidade, o de orçamento, o pulso da
+	/// corrida — apareceu num teste sem GPU, e nenhum deles estava em [Decide]. Estavam na
+	/// memória. Uma memória que não dá para instanciar num teste é uma memória que só o aparelho
+	/// do usuário depura.
+	struct Governor
+	{
+		Decision last;
+		u32 frames_since_disengage = DISENGAGE_COUNTER_CEILING;
+		/// Há quantos quadros seguidos a régua está engatada. Serve para julgar se o engate VALEU:
+		/// um engate mais curto que a própria carência não virou fluidez, foi uma piscada.
+		u32 frames_engaged = 0;
+		/// Quantos engates seguidos fracassaram por esse critério. É o expoente da carência.
+		u32 failed_engagements = 0;
+		/// Há quantos quadros seguidos, DENTRO da carência, o quadro teria engatado se a carência
+		/// não existisse. É o contrapeso da carência crescente: sem ele, uma corrida pesada que
+		/// dobrou a espera cinco vezes deixaria o menu seguinte esperando 16 s sem motivo.
+		u32 frames_ready_in_cooldown = 0;
+	};
+
+	/// Decide o quadro e avança a memória: preenche as entradas que dependem do passado, aplica a
+	/// carência crescente e registra o resultado. É o ponto onde a política vira comportamento.
+	Decision Advance(const Policy& policy, Governor& governor, Inputs inputs);
 
 	Mode ParseMode(std::string_view value);
 	/// Nome curto e estável do motivo, para log e parsing. Diferente de [ReasonText], que é a
@@ -174,4 +234,9 @@ namespace ForkFrameGen
 	/// justamente a métrica que a Fase 2 construiu para não deixar ninguém se enganar.
 	Decision EvaluateAtPresent(bool supported, bool has_new_frame);
 	Decision GetLastDecision();
+
+	/// Esquece a memória entre quadros. Chamado quando um renderer sobe — ou seja, uma vez por
+	/// jogo. Sem isto, uma corrida pesada que terminou com a carência dobrada cinco vezes entrega
+	/// esse castigo ao PRÓXIMO título, que não fez nada para merecê-lo.
+	void ResetGovernor();
 } // namespace ForkFrameGen

@@ -43,7 +43,12 @@ namespace ForkDiagnostics
 	struct Accumulator
 	{
 		/// Quadros observados em cada motivo, na ordem do enum `ForkFrameGen::Reason`.
-		std::array<u32, 8> frames_by_reason{};
+		/// Dimensionado pelo ENUM, não por um literal. Já quebrou uma vez: `Reason` cresceu com
+		/// `Cooldown`, o array ficou com um lugar a menos, e `Engaged` — o último valor — caía fora
+		/// do limite e era descartado em silêncio pela guarda de índice. O bloco passou a reportar
+		/// `engaged=0.0%` num quadro perfeitamente engatado.
+		static constexpr size_t REASON_COUNT = static_cast<size_t>(ForkFrameGen::Reason::Engaged) + 1;
+		std::array<u32, REASON_COUNT> frames_by_reason{};
 		/// Quantas vezes o ESTADO mudou. É o número que responde "está piscando?".
 		u32 transitions = 0;
 		u32 frames = 0;

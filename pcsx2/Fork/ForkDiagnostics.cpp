@@ -218,7 +218,12 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 		if (Common::Timer::ConvertValueToSeconds(now - s_window_start) < interval)
 			return;
 
-		if (!s_identity_written)
+		// Só marca como escrita quando a identidade já foi SONDADA. O quadro em branco que o
+		// GSDeviceVK apresenta durante a criação da swapchain chega aqui ANTES de
+		// ForkDriverIdentity::Publish, e o bloco saía dizendo `active=Qualcomm proprietary` num
+		// aparelho rodando Turnip — a linha mais importante do log, errada. Se ainda não sondou,
+		// tenta de novo no próximo bloco.
+		if (!s_identity_written && ForkDriverIdentity::Get().probed)
 		{
 			identity_line = FormatIdentityLine();
 			hygiene_line = FormatHygieneLine(hygiene);

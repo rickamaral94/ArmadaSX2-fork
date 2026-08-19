@@ -394,3 +394,156 @@ TEST(ForkFrameGen, TheMeasuredCostNoLongerThrashes)
 	EXPECT_EQ(transitions, 1) << "engata uma vez e fica; antes eram ~20 por 10 s";
 	EXPECT_TRUE(engaged);
 }
+
+// A carência existe porque a histerese por degrau foi remendo três vezes — velocidade, orçamento,
+// e faltava a estabilidade. O aparelho mostrou o terceiro: numa corrida de NFS Underground 2, com
+// o jogo renderizando ~30 fps internos e o custo de geração em ~20 ms, a régua piscou 18 vezes a
+// cada 10 s. Ligar e desligar duas vezes por segundo é PIOR que ficar desligado.
+TEST(ForkFrameGen, CooldownStopsThrashOnAnyGateIncludingOnesNotYetWritten)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	// Desengata por instabilidade (o degrau que ainda não tinha histerese).
+	Inputs jittery = HealthyFrame();
+	jittery.frametime_avg_ms = 33.3f;
+	jittery.frametime_p99_ms = 92.0f;
+	jittery.frames_since_disengage = 1000;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, jittery).reason, Reason::Unstable);
+
+	// Logo depois, mesmo com o ritmo perfeito de novo, a carência segura.
+	Inputs recovered = HealthyFrame();
+	recovered.frames_since_disengage = 5;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, recovered).reason, Reason::Cooldown);
+
+	// Passada a carência, engata.
+	recovered.frames_since_disengage = 30;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, recovered).reason, Reason::Engaged);
+}
+
+// A carência NUNCA pode segurar a geração ligada — só atrasar o engate. Senão ela mesma viraria um
+// jeito de roubar tempo da emulação para cumprir um contador.
+TEST(ForkFrameGen, CooldownOnlyDelaysEngagementAndNeverForcesIt)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	// Sem quadro novo é o único degrau que jamais espera: vem ANTES da carência.
+	Inputs stalled = HealthyFrame();
+	stalled.has_new_frame = false;
+	stalled.frames_since_disengage = 5;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, stalled).reason, Reason::NoNewFrame);
+
+	// E em carência nunca se gera quadro.
+	Inputs waiting = HealthyFrame();
+	waiting.frames_since_disengage = 1;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, waiting).frames_to_generate, 0u);
+}
+
+// Reproduz a corrida medida: ritmo oscilando em torno do limiar de estabilidade, dez segundos a
+// 60 Hz. Roda pelo [Advance] de verdade — a memória entre quadros é onde os osciladores desta fase
+// nasceram, e um teste que a reimplementa verifica a própria cópia, não o produto.
+TEST(ForkFrameGen, TheMeasuredRaceNoLongerPulses)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	ForkFrameGen::Governor governor;
+	bool engaged = false;
+	int transitions = 0;
+	for (int i = 0; i < 600; i++)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.frametime_avg_ms = 33.3f;
+		inputs.frametime_p99_ms = (i % 2 == 0) ? 92.0f : 40.0f;
+
+		const bool now = (ForkFrameGen::Advance(policy, governor, inputs).state == State::Engaged);
+		if (now != engaged)
+			transitions++;
+		engaged = now;
+	}
+
+	// Eram 18 a cada 10 s, e uma carência FIXA de 30 quadros só as espaçava — 8 em 120 quadros, o
+	// mesmo pulso em ritmo mais lento. O que corta o pulso é a carência DOBRAR: as tentativas caem
+	// pela metade a cada fracasso, então o total cresce com o logaritmo do tempo em vez de
+	// linearmente. Dez segundos inteiros de cena impossível cabem agora em oito trocas, e os dez
+	// segundos seguintes cabem em duas.
+	EXPECT_LE(transitions, 8);
+	EXPECT_GT(governor.failed_engagements, 2u) << "a carência tem que ter crescido, não só contado";
+}
+
+// O outro lado da mesma moeda: o castigo acumulado numa cena impossível não pode ser cobrado da
+// cena seguinte. Sem isto, sair de uma corrida com a carência dobrada cinco vezes deixaria o menu
+// seguinte — perfeitamente estável — esperando 16 s por nada.
+TEST(ForkFrameGen, SustainedCalmReleasesTheAccumulatedCooldown)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	ForkFrameGen::Governor governor;
+	// Cena impossível: acumula fracassos até a carência estar bem dilatada.
+	for (int i = 0; i < 600; i++)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.frametime_avg_ms = 33.3f;
+		inputs.frametime_p99_ms = (i % 2 == 0) ? 92.0f : 40.0f;
+		ForkFrameGen::Advance(policy, governor, inputs);
+	}
+	ASSERT_GT(governor.failed_engagements, 2u);
+
+	// A cena acaba. Meio segundo de calma sustentada — e não um quadro bom solto, que a própria
+	// oscilação produzia a cada dois quadros — devolve a resposta rápida.
+	int frames_until_engaged = 0;
+	for (int i = 0; i < 240; i++)
+	{
+		frames_until_engaged++;
+		if (ForkFrameGen::Advance(policy, governor, HealthyFrame()).state == State::Engaged)
+			break;
+	}
+	EXPECT_LE(frames_until_engaged, 40) << "meia carência de folga; 16 s de espera seria o defeito";
+	EXPECT_EQ(governor.failed_engagements, 0u);
+}
+
+// E a calma tem que ser SUSTENTADA. Um único quadro bom no meio da oscilação não pode soltar a
+// carência: é exatamente o que a cena ruim produz metade do tempo.
+TEST(ForkFrameGen, OneGoodFrameDoesNotReleaseTheCooldown)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	ForkFrameGen::Governor governor;
+	governor.last.state = State::Engaged;
+	governor.frames_since_disengage = 0;
+	governor.failed_engagements = 3;
+
+	// Alterna um quadro bom e um ruim por bastante tempo: nunca acumula calma suficiente.
+	for (int i = 0; i < 200; i++)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.frametime_avg_ms = 33.3f;
+		inputs.frametime_p99_ms = (i % 2 == 0) ? 92.0f : 40.0f;
+		ForkFrameGen::Advance(policy, governor, inputs);
+		ASSERT_LT(governor.frames_ready_in_cooldown, policy.reengage_cooldown_frames);
+	}
+}
+
+// Um engate que DUROU não é um fracasso, e não pode dilatar a carência. Sem esta metade, a régua
+// iria endurecendo a cada desengate legítimo até parar de engatar em qualquer lugar.
+TEST(ForkFrameGen, AnEngagementThatLastsClearsTheBackoff)
+{
+	Policy policy = MakePolicy();
+	policy.reengage_cooldown_frames = 30;
+
+	ForkFrameGen::Governor governor;
+	governor.failed_engagements = 4;
+
+	// Cem quadros engatados: bem mais que a carência base.
+	for (int i = 0; i < 100; i++)
+		ASSERT_EQ(ForkFrameGen::Advance(policy, governor, HealthyFrame()).state, State::Engaged);
+
+	// Agora desengata por um motivo legítimo.
+	Inputs stalled = HealthyFrame();
+	stalled.has_new_frame = false;
+	ForkFrameGen::Advance(policy, governor, stalled);
+	EXPECT_EQ(governor.failed_engagements, 0u);
+}
