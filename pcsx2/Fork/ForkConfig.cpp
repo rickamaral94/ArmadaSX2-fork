@@ -28,7 +28,13 @@ namespace
 	/// Nenhum arquivo do upstream muda, nenhuma função de JNI nova é escrita, e a UI se constrói a
 	/// partir desta tabela.
 	constexpr std::array<OptionDesc, OPTION_COUNT> OPTIONS = {{
-		{Option::PresentationMetricsEnabled, "PresentationMetrics.Enabled", Type::Bool, false, 0, 0.0f, "",
+		// LIGADA por padrão desde a alpha 3, e não por preferência: com ela desligada o
+		// `GSPresentationMetrics::NotePresented` retorna na primeira linha, o snapshot inteiro sai
+		// zerado, e TUDO que se apoia nele degrada em silêncio — o log reporta fps=0.00 com o jogo
+		// a 59 fps, e a régua de FG perde os degraus de estabilidade e de orçamento, porque ambos
+		// só disparam com número > 0. Um fork cuja premissa é "performance measured" não pode ter
+		// a medição como opt-in.
+		{Option::PresentationMetricsEnabled, "PresentationMetrics.Enabled", Type::Bool, true, 0, 0.0f, "",
 			"Mede FPS real e FPS apresentado, frametime e 1% low na camada de apresentação."},
 		{Option::PresentationMetricsOverlay, "PresentationMetrics.Overlay", Type::Bool, false, 0, 0.0f, "",
 			"Mostra a linha de cadência da apresentação no OSD."},
@@ -52,6 +58,8 @@ namespace
 			"Velocidade mínima da emulação (%) para Frame Generation engatar."},
 		{Option::FrameGenMinRealFps, "FrameGen.MinRealFps", Type::Float, false, 0, 15.0f, "",
 			"FPS real mínimo: abaixo disto o atraso da interpolação não compensa."},
+		{Option::FrameGenSpeedHysteresis, "FrameGen.SpeedHysteresis", Type::Float, false, 0, 5.0f, "",
+			"Histerese do degrau de velocidade, em pontos percentuais. Contra engatar e desengatar sem parar."},
 		{Option::DiagnosticsLog, "Diagnostics.Log", Type::Bool, true, 0, 0.0f, "",
 			"Escreve o bloco @@FORK@@ no log: cadência, estado de FG e custo de geração."},
 		{Option::DiagnosticsIntervalSeconds, "Diagnostics.IntervalSeconds", Type::Float, false, 0, 10.0f, "",

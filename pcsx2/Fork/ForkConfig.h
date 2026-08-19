@@ -92,6 +92,8 @@ namespace ForkConfig
 		FrameGenMinSpeedPercent,
 		/// Piso absoluto de FPS, contra o custo de latência da interpolação.
 		FrameGenMinRealFps,
+		/// Histerese do degrau de velocidade, em pontos percentuais. Contra piscar.
+		FrameGenSpeedHysteresis,
 
 		// --- diagnóstico de sessão (Fase 8.1) ---
 

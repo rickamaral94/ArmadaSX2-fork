@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 using ForkFrameGen::Decision;
 using ForkFrameGen::Inputs;
 using ForkFrameGen::Mode;
@@ -20,6 +22,7 @@ namespace
 		policy.mode = mode;
 		policy.budget_ms = 6.0f;
 		policy.min_speed_percent = 90.0f;
+		policy.speed_hysteresis_percent = 5.0f;
 		policy.min_real_fps = 15.0f;
 		policy.max_p99_ratio = 1.5f;
 		return policy;
@@ -258,4 +261,69 @@ TEST(ForkFrameGen, EveryNonEngagedStateAsksForZeroFrames)
 	ForkFrameGen::Inputs expensive = inputs;
 	expensive.last_generation_ms = 9.0f;
 	EXPECT_EQ(ForkFrameGen::Decide(policy, expensive).frames_to_generate, 0u);
+}
+
+// Medido no aparelho: com limiar único de 90%, o modo auto trocou de estado 20 VEZES EM 10
+// SEGUNDOS numa cena pesada — a velocidade oscilava em torno do limiar e cada oscilação ligava e
+// desligava a geração. Piscar é pior que ficar desligado.
+TEST(ForkFrameGen, HysteresisStopsTheFlickerAroundTheSpeedFloor)
+{
+	const Policy policy = MakePolicy(); // piso 90, histerese 5
+
+	Inputs borderline = HealthyFrame();
+	borderline.speed_percent = 87.0f; // dentro da faixa de histerese
+
+	// Vindo de DESENGATADO: 87 < 90, não engata.
+	borderline.previously_engaged = false;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, borderline).reason, Reason::BelowFullSpeed);
+
+	// Vindo de ENGATADO: 87 ainda está acima de 90-5=85, então SEGUE engatado.
+	borderline.previously_engaged = true;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, borderline).reason, Reason::Engaged);
+}
+
+// A histerese não pode virar teimosia: abaixo do piso inferior larga, mesmo vindo de engatado.
+TEST(ForkFrameGen, HysteresisStillLetsGoWhenItGetsGenuinelySlow)
+{
+	Inputs slow = HealthyFrame();
+	slow.speed_percent = 80.0f;
+	slow.previously_engaged = true;
+	EXPECT_EQ(ForkFrameGen::Decide(MakePolicy(), slow).reason, Reason::BelowFullSpeed);
+}
+
+// Simula a oscilação real do log: velocidade balançando em torno do limiar. Sem histerese seriam
+// dezenas de trocas; com ela, uma só — a que importa.
+TEST(ForkFrameGen, AnOscillatingSpeedNoLongerProducesDozensOfTransitions)
+{
+	const Policy policy = MakePolicy();
+	const float samples[] = {95.0f, 89.0f, 91.0f, 88.0f, 92.0f, 87.0f, 93.0f, 86.0f, 94.0f, 88.0f};
+
+	bool engaged = false;
+	int transitions = 0;
+	for (const float speed : samples)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.speed_percent = speed;
+		inputs.previously_engaged = engaged;
+		const bool now_engaged = (ForkFrameGen::Decide(policy, inputs).state == State::Engaged);
+		if (now_engaged != engaged)
+			transitions++;
+		engaged = now_engaged;
+	}
+	EXPECT_EQ(transitions, 1) << "engata uma vez em 95% e não larga mais na faixa 86-94";
+}
+
+// Nome curto para log e parsing, frase para o usuário: um log com frases inteiras é caro de
+// filtrar e quebra na primeira vez que alguém reescreve o texto da UI.
+TEST(ForkFrameGen, EveryReasonHasAShortStableName)
+{
+	const Reason all[] = {Reason::Off, Reason::Unsupported, Reason::NoNewFrame, Reason::Unstable,
+		Reason::BelowFullSpeed, Reason::BelowMinimumRealFps, Reason::OverBudget, Reason::Engaged};
+	for (const Reason reason : all)
+	{
+		const std::string short_name = ForkFrameGen::ReasonToString(reason);
+		EXPECT_FALSE(short_name.empty());
+		EXPECT_EQ(short_name.find(' '), std::string::npos) << short_name << " tem espaço";
+		EXPECT_EQ(short_name.find('.'), std::string::npos) << short_name << " parece frase";
+	}
 }

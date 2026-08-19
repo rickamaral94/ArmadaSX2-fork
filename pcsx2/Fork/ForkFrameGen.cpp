@@ -51,7 +51,13 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 	// 30 FPS reais, enquanto um jogo de 60 rodando pela METADE entrega os mesmos 30. O primeiro
 	// merece FG mais do que qualquer outro caso; o segundo é exatamente o que a regra proíbe. Um
 	// número não distingue os dois; a razão contra a taxa alvo da máquina distingue.
-	if (inputs.speed_percent > 0.0f && inputs.speed_percent < policy.min_speed_percent)
+	// A histerese existe porque o aparelho provou que ela faz falta: com limiar único, 20 trocas
+	// de estado em 10 s numa cena pesada. Engata em `min_speed_percent`, mas só larga abaixo de
+	// `min_speed_percent - histerese` — a faixa entre os dois é onde a oscilação vivia.
+	const float speed_floor = inputs.previously_engaged
+								  ? (policy.min_speed_percent - policy.speed_hysteresis_percent)
+								  : policy.min_speed_percent;
+	if (inputs.speed_percent > 0.0f && inputs.speed_percent < speed_floor)
 	{
 		decision.state = State::Waiting;
 		decision.reason = Reason::BelowFullSpeed;
@@ -136,6 +142,30 @@ const char* ForkFrameGen::StateToString(State state)
 	return "Disabled";
 }
 
+const char* ForkFrameGen::ReasonToString(Reason reason)
+{
+	switch (reason)
+	{
+		case Reason::Off:
+			return "Off";
+		case Reason::Unsupported:
+			return "Unsupported";
+		case Reason::NoNewFrame:
+			return "NoNewFrame";
+		case Reason::Unstable:
+			return "Unstable";
+		case Reason::BelowFullSpeed:
+			return "BelowFullSpeed";
+		case Reason::BelowMinimumRealFps:
+			return "BelowMinimumRealFps";
+		case Reason::OverBudget:
+			return "OverBudget";
+		case Reason::Engaged:
+			return "Engaged";
+	}
+	return "Off";
+}
+
 const char* ForkFrameGen::ReasonText(Reason reason)
 {
 	switch (reason)
@@ -166,6 +196,7 @@ ForkFrameGen::Policy ForkFrameGen::PolicyFromConfig()
 	policy.mode = ParseMode(ForkConfig::GetString(ForkConfig::Option::FrameGenMode));
 	policy.budget_ms = ForkConfig::GetFloat(ForkConfig::Option::FrameGenBudgetMs);
 	policy.min_speed_percent = ForkConfig::GetFloat(ForkConfig::Option::FrameGenMinSpeedPercent);
+	policy.speed_hysteresis_percent = ForkConfig::GetFloat(ForkConfig::Option::FrameGenSpeedHysteresis);
 	policy.min_real_fps = ForkConfig::GetFloat(ForkConfig::Option::FrameGenMinRealFps);
 	return policy;
 }
@@ -216,6 +247,10 @@ ForkFrameGen::Decision ForkFrameGen::EvaluateAtPresent(bool supported, bool has_
 		// MÁQUINA (59,94 / 50), que é o único denominador que separa "o jogo renderiza a 30" de
 		// "o aparelho só dá conta de metade".
 		inputs.speed_percent = PerformanceMetrics::GetSpeed();
+		{
+			std::lock_guard lock(s_decision_mutex);
+			inputs.previously_engaged = (s_last_decision.state == State::Engaged);
+		}
 		inputs.frametime_avg_ms = snapshot.real_frametime_avg_ms;
 		inputs.frametime_p99_ms = snapshot.real_frametime_low1_ms;
 		inputs.last_generation_ms = snapshot.generation_avg_ms;

@@ -205,3 +205,63 @@ ali o número que o usuário vê na tela seria começar a confundir os dois de n
 `ForkDiagnostics` não lê o config global: a higiene entra por parâmetro, preenchida pelo
 `GSDeviceVK`, que já vive nesse mundo. É o que mantém o módulo inteiro exercitável sem VM — as
 funções de formato são puras e todos os casos acima têm teste.
+
+
+## 11. Adendo (8.4) — o que a alpha 2 mediu no Odin 2
+
+Primeira sessão com o bloco `@@FORK@@` no aparelho (NFS Underground 2, SLUS-21065). Três defeitos,
+e o primeiro invalidava os outros dois.
+
+### 1. A medição estava desligada por padrão
+
+```
+@@FORK@@ real      fps=0.00 frametime_avg=0.00ms 1%low=0.00ms min=0.00ms max=0.00ms
+PerfLog: 58.9 fps | EE 41% GS 12% VU 2% GPU 11%
+```
+
+Zero, com o jogo a 59 fps. `PresentationMetrics.Enabled` era `false` por padrão, e
+`NotePresented` retorna na primeira linha quando a métrica está desligada — o snapshot inteiro sai
+zerado.
+
+O estrago não parava no log. **A régua também estava meio cega**: os degraus de estabilidade e de
+orçamento comparam contra `frametime_avg_ms` e `last_generation_ms`, e ambos só disparam com valor
+`> 0`. Com tudo zerado, só o degrau de velocidade funcionava — o único que não depende das nossas
+métricas, porque vem do `PerformanceMetrics` do PCSX2. FG estava engatando com base em um terço da
+régua.
+
+Agora liga por padrão. Um fork cuja premissa é *"performance measured"* não pode ter a medição
+como opt-in.
+
+### 2. O estado vazava entre jogos
+
+```
+[626.3038] @@FORK@@ framegen mode=auto engaged=92.4% transitions=3 ...
+```
+
+Impresso no instante da criação da swapchain, **antes de o jogo apresentar um único quadro**. O
+estado do `ForkDiagnostics` é global e ninguém chamava `Reset()`: o primeiro bloco de cada sessão
+trazia os números da sessão anterior. Agora zera junto com as métricas na criação do renderer —
+uma vez por jogo.
+
+### 3. O `auto` piscava, e o número provou
+
+```
+[726.3950] engaged=30.0% transitions=20 dominant=BelowFullSpeed
+[736.4016] engaged=27.5% transitions=19 dominant=BelowFullSpeed
+```
+
+**20 trocas de estado em 10 segundos.** Numa cena pesada (`PerfLog: EE 45% GS 79% VU 61% GPU 64%`)
+a velocidade oscilava em torno do limiar único de 90%, e cada oscilação ligava e desligava a
+geração. Piscar é pior que ficar desligado: o usuário vê a fluidez aparecer e sumir sem entender
+por quê.
+
+`FrameGen.SpeedHysteresis` (5 pontos): engata em 90%, mas só larga abaixo de 85%. Um teste
+reproduz a oscilação medida — 10 amostras balançando entre 86% e 95% — e exige **1** transição
+onde antes havia dezenas.
+
+### O que funcionou
+
+Tudo o que a régua tinha de dizer, ela disse: `dominant=NoNewFrame` durante os FMVs, `engaged=100%`
+com `transitions=0` nos trechos estáveis, e `BelowFullSpeed` exatamente quando o `PerfLog`
+independente mostrava a carga subindo. A grandeza nova estava certa; faltavam os números para
+alimentá-la.

@@ -90,6 +90,15 @@ namespace ForkFrameGen
 		/// Piso absoluto de FPS real, contra o custo de LATÊNCIA da interpolação — não contra
 		/// lentidão, que é papel de [min_speed_percent].
 		float min_real_fps = 15.0f;
+		/// Histerese do degrau de velocidade, em pontos percentuais. Uma vez ENGATADO, FG só
+		/// desengata abaixo de `min_speed_percent - speed_hysteresis_percent`.
+		///
+		/// Não é enfeite: medido no aparelho, com um limiar único de 90%, o modo `auto` trocou de
+		/// estado **20 vezes em 10 segundos** durante uma cena pesada — a velocidade oscilava em
+		/// torno do limiar e cada oscilação ligava e desligava a geração. Piscar é pior que ficar
+		/// desligado: o usuário vê a fluidez aparecer e sumir sem entender por quê, e nenhuma
+		/// medição feita nesse estado significa alguma coisa.
+		float speed_hysteresis_percent = 5.0f;
 		/// Quão irregular o frametime pode ser e ainda contar como estável, medido como razão
 		/// entre p99 e a média.
 		float max_p99_ratio = 1.5f;
@@ -103,6 +112,9 @@ namespace ForkFrameGen
 		float real_fps = 0.0f;
 		/// Velocidade da emulação em %, como o PCSX2 a calcula (`fps / taxa alvo`). 100 = correta.
 		float speed_percent = 100.0f;
+		/// O quadro anterior estava engatado? Entra por parâmetro para que [Decide] continue PURA
+		/// — a histerese precisa de memória, e a memória mora em quem chama.
+		bool previously_engaged = false;
 		float frametime_avg_ms = 0.0f;
 		float frametime_p99_ms = 0.0f;
 		/// Custo da última geração, 0 quando ainda não houve.
@@ -122,6 +134,9 @@ namespace ForkFrameGen
 	Decision Decide(const Policy& policy, const Inputs& inputs);
 
 	Mode ParseMode(std::string_view value);
+	/// Nome curto e estável do motivo, para log e parsing. Diferente de [ReasonText], que é a
+	/// frase para o usuário — um log com frases inteiras é caro de filtrar e fácil de quebrar.
+	const char* ReasonToString(Reason reason);
 	const char* ModeToString(Mode mode);
 	const char* StateToString(State state);
 	/// Frase para a UI e para o overlay.

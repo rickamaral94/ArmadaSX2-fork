@@ -3495,6 +3495,13 @@ bool GSDeviceVK::CheckFeatures()
 	// para que as outras plataformas recebam "NotAndroid" em vez de ficarem em "não sondado".
 	ForkGpuCapabilities::Publish(mobile_profile, m_device_properties.apiVersion);
 
+	// Zera o diagnóstico e as métricas a cada renderer que sobe — ou seja, uma vez por jogo.
+	// Sem isto o estado é global e sobrevive à troca de título: o primeiro bloco de uma sessão
+	// saía com os números acumulados da sessão anterior (medido: `engaged=92.4% transitions=3`
+	// impresso no instante da criação da swapchain, antes de o jogo apresentar um único quadro).
+	ForkDiagnostics::Reset();
+	GSPresentationMetrics::Reset();
+
 	// Fase 4, item 2: cruza o que foi PEDIDO com o que o dispositivo DIZ ser. O fallback do
 	// VKLoader para o driver do sistema é silencioso por desenho, então sem este cruzamento um
 	// A/B de drivers pode estar comparando o driver do sistema com ele mesmo.

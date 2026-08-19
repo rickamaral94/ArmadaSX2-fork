@@ -83,14 +83,19 @@ TEST_F(ForkConfigTest, ReadsValuesFromTheForkSection)
 // próximo — que é exatamente o bug que um override por jogo mal feito produz.
 TEST_F(ForkConfigTest, EachLoadStartsFromDefaults)
 {
+	// Comparado contra o PADRÃO DECLARADO, não contra um literal: o padrão desta opção já mudou
+	// uma vez (passou a ligada na alpha 3), e um teste que fixa `false` reprova a mudança em vez
+	// de verificar o comportamento que ele existe para verificar.
+	const bool default_value = ForkConfig::GetOption(Option::PresentationMetricsEnabled).default_bool;
+
 	MemorySettingsInterface with_value;
-	with_value.SetStringValue(ForkConfig::SECTION, "PresentationMetrics.Enabled", "true");
+	with_value.SetStringValue(ForkConfig::SECTION, "PresentationMetrics.Enabled", default_value ? "false" : "true");
 	ForkConfig::LoadSettings(with_value);
-	ASSERT_TRUE(ForkConfig::GetBool(Option::PresentationMetricsEnabled));
+	ASSERT_EQ(ForkConfig::GetBool(Option::PresentationMetricsEnabled), !default_value);
 
 	MemorySettingsInterface empty;
 	ForkConfig::LoadSettings(empty);
-	EXPECT_FALSE(ForkConfig::GetBool(Option::PresentationMetricsEnabled));
+	EXPECT_EQ(ForkConfig::GetBool(Option::PresentationMetricsEnabled), default_value);
 }
 
 // Valor que não faz sentido para o tipo cai no PADRÃO, não em "false". Um INI editado à mão com
@@ -130,12 +135,14 @@ TEST_F(ForkConfigTest, ChangeCallbackFiresOnLoad)
 
 TEST_F(ForkConfigTest, SetAndSaveRejectsInvalidValues)
 {
+	const bool default_value = ForkConfig::GetOption(Option::PresentationMetricsEnabled).default_bool;
+
 	EXPECT_FALSE(ForkConfig::SetAndSave(Option::PresentationMetricsEnabled, "talvez"));
 	// Recusado significa recusado: o valor em memória não pode ter sido mexido no caminho.
-	EXPECT_FALSE(ForkConfig::GetBool(Option::PresentationMetricsEnabled));
+	EXPECT_EQ(ForkConfig::GetBool(Option::PresentationMetricsEnabled), default_value);
 
-	EXPECT_TRUE(ForkConfig::SetAndSave(Option::PresentationMetricsEnabled, "true"));
-	EXPECT_TRUE(ForkConfig::GetBool(Option::PresentationMetricsEnabled));
+	EXPECT_TRUE(ForkConfig::SetAndSave(Option::PresentationMetricsEnabled, default_value ? "false" : "true"));
+	EXPECT_EQ(ForkConfig::GetBool(Option::PresentationMetricsEnabled), !default_value);
 }
 
 // --- seleção de driver por jogo (Fase 5) ---

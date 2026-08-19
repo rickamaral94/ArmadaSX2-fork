@@ -104,7 +104,7 @@ std::string ForkDiagnostics::FormatFrameGenLine(
 	return fmt::format(
 		"{} framegen  mode={} engaged={:.1f}% transitions={} dominant={} gen_avg={:.2f}ms gen_worst={:.2f}ms budget={:.2f}ms speed_floor={:.0f}% fps_floor={:.1f}",
 		PREFIX, ForkFrameGen::ModeToString(policy.mode), engaged_share, accumulator.transitions,
-		ForkFrameGen::ReasonText(dominant), generation_avg_ms, accumulator.worst_generation_ms, policy.budget_ms, policy.min_speed_percent,
+		ForkFrameGen::ReasonToString(dominant), generation_avg_ms, accumulator.worst_generation_ms, policy.budget_ms, policy.min_speed_percent,
 		policy.min_real_fps);
 }
 
