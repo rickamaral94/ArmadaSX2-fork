@@ -19,15 +19,15 @@ Este repositório **não** é um snapshot: contém a história completa do ARMSX
 
 | Remoto | URL | Uso |
 |---|---|---|
-| `origin` | `github.com/rickamaral94/ArmadaSX2` | nosso fork |
+| `origin` | `github.com/rickamaral94/ArmadaSX2-fork` | nosso fork |
 | `armsx2` | `github.com/ARMSX2/ARMSX2` | upstream direto — origem dos merges |
 | `pcsx2` | `github.com/PCSX2/pcsx2` | upstream de origem — referência e arqueologia |
 
 Reproduzir em um clone novo:
 
 ```sh
-git clone https://github.com/rickamaral94/ArmadaSX2
-cd ArmadaSX2
+git clone https://github.com/rickamaral94/ArmadaSX2-fork
+cd ArmadaSX2-fork
 git remote add armsx2 https://github.com/ARMSX2/ARMSX2.git
 git remote add pcsx2  https://github.com/PCSX2/pcsx2.git
 git fetch armsx2 master
@@ -47,7 +47,7 @@ Ou simplesmente: `./tools/fork/sync-upstream.sh --setup`
 
 > Os links de execução de CI mais antigos apontam para `rickamaral94/Ps2-fork`, o nome anterior do
 > repositório. Ficam como estão de propósito: são registro do que aconteceu, e o GitHub redireciona
-> nomes antigos. Reescrever um histórico para parecer que sempre se chamou ArmadaSX2 seria trocar
+> nomes antigos. Reescrever um histórico para parecer que sempre se chamou ArmadaSX2-fork seria trocar
 > um registro correto por um bonito.
 
 ## 2. Superfície de contato com o upstream
