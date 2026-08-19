@@ -265,3 +265,58 @@ Tudo o que a régua tinha de dizer, ela disse: `dominant=NoNewFrame` durante os 
 com `transitions=0` nos trechos estáveis, e `BelowFullSpeed` exatamente quando o `PerfLog`
 independente mostrava a carga subindo. A grandeza nova estava certa; faltavam os números para
 alimentá-la.
+
+## 12. Adendo (8.5) — o custo de geração, medido
+
+Primeira sessão com a métrica ligada (Odin 2 Portal, Adreno 740, Turnip Mesa 26.3.0-devel, NFS
+Underground 2, upscale 3.00x, higiene **limpa**). O número que faltava desde a Fase 7:
+
+```
+@@FORK@@ load      speed=99.9% vps=59.86 cpu=40% gs=9% vu=3% gpu=11% shader_compiles=0
+@@FORK@@ real      fps=60.00 frametime_avg=16.74ms 1%low=21.17ms
+@@FORK@@ presented fps=61.00 real_frames=60 generated=1 duplicated=0
+@@FORK@@ framegen  engaged=3.3% transitions=20 dominant=OverBudget gen_avg=6.45ms gen_worst=7.23ms budget=6.00ms
+```
+
+**LSFG 3.1p a 1080p x2, flow 25%, custa ~6,5 ms em cena leve e ~16 ms em cena pesada.** O teto de
+6,00 ms era chute meu, feito sem aparelho — e caiu **em cima** do custo normal. Três defeitos
+saíram daí, cada um pior que o anterior.
+
+### 1. O teto estava no lugar errado
+
+8 ms separa os dois regimes com folga: aceita a cena leve, recusa a pesada. Não é ajuste fino, é o
+valor que a medição obrigou.
+
+### 2. O degrau de orçamento oscilava sozinho
+
+`transitions=20` a cada 10 s, com `speed=99.9%` — não era o degrau de velocidade (esse a Fase 8.4
+já tinha estabilizado), era o **orçamento**. O mecanismo está no próprio dado: suspenso por custo,
+nenhuma amostra nova entra na janela de 1 s, a média decai até passar no teto, engata, registra o
+custo alto de novo e suspende. Um oscilador com período de ~0,5 s.
+
+`FrameGen.BudgetHysteresis` (25% do teto): uma vez suspenso, só reengata abaixo de 6 ms.
+
+### 3. O pior: a régua engatava e nada era gerado
+
+`engaged=3.3%` com `generated=1`. Vinte quadros autorizados, **um** produzido.
+
+A causa é minha, da Fase 8: `NoteGenerationDeclined()` derrubava o histórico do LSFG a **cada**
+quadro recusado. Com o orçamento oscilando, quase todo quadro era recusado, então toda vez que a
+régua finalmente autorizava, o backend não tinha par para interpolar — semeava um slot e
+apresentava o quadro simples. O recurso estava, na prática, desligado.
+
+A correção separa os dois tipos de recusa, que nunca deveriam ter sido tratados igual:
+
+- **Buraco de conteúdo** (`NoNewFrame` — menu de pausa, tela preta, borda de FMV): derruba o
+  histórico na hora. Os quadros dos dois lados não têm relação, e costurar inventa movimento que o
+  jogo nunca desenhou.
+- **Recusa de política**: tolera dois quadros. Frame N-2 e frame N ainda são a mesma cena, e
+  interpolar por cima de um pulo de um quadro é muito melhor que não gerar nada.
+
+### O que já funcionava
+
+A linha `load` provou o valor dela na primeira sessão: `1%low=205.30ms` numa janela com
+`shader_compiles=133` — o engasgo era compilação de shader, não carga nem frame generation. Sem
+esse campo, aquele 1% low seria lido como problema de desempenho e teria custado uma investigação
+inteira na direção errada. E `hygiene limpo` confirmou que a medição valia, o que na sessão
+anterior não era verdade.

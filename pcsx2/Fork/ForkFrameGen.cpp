@@ -87,7 +87,12 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 	// 5. Orçamento estourado: a geração passou a roubar tempo da emulação. Suspende — estado
 	// distinto de Waiting, porque aqui houve uma tentativa que custou caro, e a UI precisa poder
 	// dizer isso em vez de sugerir que as condições nunca foram atendidas.
-	if (inputs.last_generation_ms > policy.budget_ms)
+	// Histerese também aqui, e pelo mesmo motivo medido no aparelho: suspenso, nenhum custo novo
+	// entra na janela, a média decai, o degrau libera, o custo alto volta na hora e suspende de
+	// novo. Exigir que a média caia BEM abaixo do teto antes de reengatar quebra o ciclo.
+	const float budget_ceiling =
+		inputs.previously_over_budget ? (policy.budget_ms * (1.0f - policy.budget_hysteresis)) : policy.budget_ms;
+	if (inputs.last_generation_ms > budget_ceiling)
 	{
 		decision.state = State::Suspended;
 		decision.reason = Reason::OverBudget;
@@ -250,6 +255,7 @@ ForkFrameGen::Decision ForkFrameGen::EvaluateAtPresent(bool supported, bool has_
 		{
 			std::lock_guard lock(s_decision_mutex);
 			inputs.previously_engaged = (s_last_decision.state == State::Engaged);
+			inputs.previously_over_budget = (s_last_decision.reason == Reason::OverBudget);
 		}
 		inputs.frametime_avg_ms = snapshot.real_frametime_avg_ms;
 		inputs.frametime_p99_ms = snapshot.real_frametime_low1_ms;

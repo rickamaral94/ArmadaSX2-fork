@@ -220,7 +220,7 @@ namespace GSLsfg
 	bool IsActive() { return false; }
 	u32 GetMultiplier() { return 1; }
 	bool PresentWithGeneration(VkQueue, VKSwapChain*, VkSemaphore, bool) { return false; }
-	void NoteGenerationDeclined() {}
+	void NoteGenerationDeclined(bool) {}
 } // namespace GSLsfg
 
 #else
@@ -1073,13 +1073,27 @@ namespace GSLsfg
 		return true;
 	}
 
-	void NoteGenerationDeclined()
+	/// Quantas recusas seguidas de POLÍTICA toleramos antes de largar o histórico. Duas: um pulo de
+	/// um quadro ainda é a mesma cena e interpola bem; a partir daí o intermediário começa a saltar.
+	constexpr u32 kMaxPolicyDeclinesBeforeHistoryDrop = 2;
+	u32 s_consecutive_policy_declines = 0;
+
+	void NoteGenerationDeclined(bool content_gap)
 	{
-		// Mesma consequência de um quadro sem conteúdo novo: o histórico cai. A régua pode recusar
-		// por segundos seguidos — emulação abaixo do piso, ritmo instável — e retomar costurando o
-		// quadro de antes da recusa com o de depois produziria exatamente um quadro intermediário
-		// inventado, no instante em que o usuário voltou a ter fluidez para julgar.
-		s_frame_index = 0;
+		if (content_gap)
+		{
+			// Buraco de CONTEÚDO: os quadros dos dois lados não têm relação nenhuma — menu de
+			// pausa, tela preta, borda de FMV. Costurar aqui inventa movimento que o jogo nunca
+			// desenhou, e isso o histórico não pode sobreviver.
+			s_frame_index = 0;
+			s_consecutive_policy_declines = 0;
+		}
+		else if (++s_consecutive_policy_declines > kMaxPolicyDeclinesBeforeHistoryDrop)
+		{
+			// Recusa de política que já dura: aí sim o par fica velho demais para interpolar.
+			s_frame_index = 0;
+		}
+
 		// O contador próprio do LSFG continua andando: o quadro foi apresentado pelo chamador, e um
 		// número que congela quando a régua recusa parece "quebrou" em vez de "não engatou".
 		NoteFramesDisplayed(1, 0);
@@ -1197,6 +1211,8 @@ namespace GSLsfg
 		// Counted rather than assumed to be s_multiplier - 1: every break below drops a frame that
 		// was generated but never displayed, and the overlay is supposed to report what reached the
 		// screen, not what we hoped would.
+		s_consecutive_policy_declines = 0;
+
 		u32 presented_generated = 0;
 		if (generated)
 		{

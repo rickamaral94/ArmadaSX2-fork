@@ -119,9 +119,18 @@ namespace GSLsfg
 	/// The caller presented this frame itself instead of handing it over — the fork's frame-generation
 	/// ruler declined (real FPS under its floor, unstable pacing, over budget, or simply off).
 	///
-	/// It has to be told. The decline path is a GAP in this module's frame history exactly like a
-	/// pause-menu repaint is, and without dropping the history the pair either side of the gap gets
-	/// stitched into one bogus in-between frame the moment generation resumes. PresentWithGeneration
-	/// did that itself for the gaps it saw; it cannot see the ones it is never called for.
-	void NoteGenerationDeclined();
+	/// It has to be told, because the decline is a gap in this module's frame history and stitching
+	/// across a gap produces one bogus in-between frame when generation resumes.
+	///
+	/// `content_gap` separates the two kinds of decline, and the distinction was expensive to learn.
+	/// Dropping the history on EVERY declined frame looked conservative and quietly disabled the
+	/// feature: with the budget gate oscillating, the ruler engaged on 3.3% of frames and produced
+	/// exactly ONE generated frame in ten seconds — every engagement began with an empty history, so
+	/// it seeded a slot and presented plainly instead of generating. Measured on an Adreno 740.
+	///
+	/// So: a content gap (no new frame from the game — pause menu, blank, FMV boundary) drops the
+	/// history at once, because the frames either side are genuinely unrelated. A policy decline
+	/// keeps it for a couple of frames, because frame N-2 and frame N are still the same scene and
+	/// interpolating across a one-frame skip is far better than not generating at all.
+	void NoteGenerationDeclined(bool content_gap);
 } // namespace GSLsfg

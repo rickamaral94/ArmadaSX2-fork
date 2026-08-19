@@ -1736,7 +1736,12 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 		// quando a régua autoriza e o backend é quem declina, ele já cuidou do próprio histórico
 		// lá dentro, e avisar de novo contaria o mesmo quadro duas vezes no contador dele.
 		if (generation_backend_active && !generation_allowed)
-			GSLsfg::NoteGenerationDeclined();
+		{
+			// Só um buraco de CONTEÚDO derruba o histórico na hora; recusa de política tolera
+			// alguns quadros. Ver GSLsfg.h — tratar as duas igual desabilitava o recurso na
+			// prática, e o log do aparelho mostrou exatamente isso.
+			GSLsfg::NoteGenerationDeclined(framegen.reason == ForkFrameGen::Reason::NoNewFrame);
+		}
 
 		if (generation_allowed &&
 			GSLsfg::PresentWithGeneration(m_present_queue, present_swap_chain,

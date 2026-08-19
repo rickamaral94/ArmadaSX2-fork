@@ -83,7 +83,20 @@ namespace ForkFrameGen
 		Mode mode = Mode::Off;
 		/// Teto de tempo para produzir o quadro gerado. Estourar significa roubar tempo da
 		/// emulação, que é exatamente o que FG não pode fazer.
-		float budget_ms = 6.0f;
+		///
+		/// 8 ms não é chute: é o valor que o Adreno 740 obrigou. Medido com LSFG 3.1p a 1080p x2,
+		/// flow 25% — cena leve custa ~6,5 ms e cena pesada salta para ~16 ms. O teto anterior de
+		/// 6,0 ms caía EXATAMENTE em cima do custo normal, e o resultado foi FG engatando e
+		/// suspendendo o tempo todo sem nunca gerar nada. 8 ms separa os dois regimes com folga.
+		float budget_ms = 8.0f;
+		/// Histerese do orçamento, como FRAÇÃO do teto: uma vez suspenso por custo, só volta a
+		/// engatar quando a média cair abaixo de `budget_ms * (1 - budget_hysteresis)`.
+		///
+		/// Sem isto o degrau oscila sozinho, e o aparelho mostrou o mecanismo: suspenso, nenhum
+		/// custo novo é registrado, a média da janela de 1 s decai até passar no teto, engata,
+		/// registra o custo alto de novo e suspende. Um oscilador com período de ~0,5 s — 20
+		/// transições a cada 10 s no log.
+		float budget_hysteresis = 0.25f;
 		/// Velocidade mínima da emulação, em porcentagem da taxa alvo da máquina. Abaixo disto FG
 		/// não engata: o projeto define que suavizar uma emulação lenta é mascarar, não melhorar.
 		float min_speed_percent = 90.0f;
@@ -115,6 +128,9 @@ namespace ForkFrameGen
 		/// O quadro anterior estava engatado? Entra por parâmetro para que [Decide] continue PURA
 		/// — a histerese precisa de memória, e a memória mora em quem chama.
 		bool previously_engaged = false;
+		/// O quadro anterior estava SUSPENSO por custo? Governa a histerese do orçamento, que é
+		/// separada da de velocidade porque os dois degraus oscilam por motivos diferentes.
+		bool previously_over_budget = false;
 		float frametime_avg_ms = 0.0f;
 		float frametime_p99_ms = 0.0f;
 		/// Custo da última geração, 0 quando ainda não houve.

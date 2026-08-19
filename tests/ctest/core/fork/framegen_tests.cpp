@@ -20,7 +20,8 @@ namespace
 	{
 		Policy policy;
 		policy.mode = mode;
-		policy.budget_ms = 6.0f;
+		policy.budget_ms = 8.0f;
+		policy.budget_hysteresis = 0.25f;
 		policy.min_speed_percent = 90.0f;
 		policy.speed_hysteresis_percent = 5.0f;
 		policy.min_real_fps = 15.0f;
@@ -326,4 +327,70 @@ TEST(ForkFrameGen, EveryReasonHasAShortStableName)
 		EXPECT_EQ(short_name.find(' '), std::string::npos) << short_name << " tem espaço";
 		EXPECT_EQ(short_name.find('.'), std::string::npos) << short_name << " parece frase";
 	}
+}
+
+// Medido no Adreno 740, LSFG 3.1p a 1080p x2: cena leve custa ~6,5 ms, cena pesada ~16 ms. O teto
+// de 6,0 ms — chute meu, feito sem aparelho — caía EM CIMA do custo normal. O teto novo separa os
+// dois regimes; este teste fixa essa separação com os números que o aparelho produziu.
+TEST(ForkFrameGen, TheBudgetSeparatesTheTwoMeasuredRegimes)
+{
+	const Policy policy = MakePolicy(); // budget 8 ms
+
+	Inputs light = HealthyFrame();
+	light.last_generation_ms = 6.5f; // cena leve, medida
+	EXPECT_EQ(ForkFrameGen::Decide(policy, light).reason, Reason::Engaged);
+
+	Inputs heavy = HealthyFrame();
+	heavy.last_generation_ms = 16.0f; // cena pesada, medida
+	EXPECT_EQ(ForkFrameGen::Decide(policy, heavy).reason, Reason::OverBudget);
+}
+
+// O oscilador que o aparelho expôs: suspenso por custo, nenhuma amostra nova entra na janela de
+// 1 s, a média decai, o degrau libera, o custo alto volta na hora e suspende de novo — 20
+// transições a cada 10 s. A histerese exige que a média caia BEM abaixo do teto antes de reengatar.
+TEST(ForkFrameGen, BudgetHysteresisBreaksTheSuspendResumeOscillation)
+{
+	const Policy policy = MakePolicy(); // teto 8 ms, histerese 25% -> reengata só abaixo de 6 ms
+
+	Inputs cooling = HealthyFrame();
+	cooling.last_generation_ms = 7.0f; // abaixo do teto, mas ainda caro
+	cooling.previously_over_budget = true;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, cooling).reason, Reason::OverBudget)
+		<< "vindo de suspenso, 7 ms ainda não reengata";
+
+	cooling.last_generation_ms = 5.0f; // esfriou de verdade
+	EXPECT_EQ(ForkFrameGen::Decide(policy, cooling).reason, Reason::Engaged);
+
+	// E sem vir de suspenso, 7 ms passa normalmente — a histerese não aperta quem já está engatado.
+	Inputs running = HealthyFrame();
+	running.last_generation_ms = 7.0f;
+	running.previously_over_budget = false;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, running).reason, Reason::Engaged);
+}
+
+// Reproduz a oscilação do log com custo real batendo em torno do teto antigo.
+TEST(ForkFrameGen, TheMeasuredCostNoLongerThrashes)
+{
+	const Policy policy = MakePolicy();
+	const float measured[] = {6.45f, 6.57f, 6.38f, 6.82f, 6.39f, 6.45f, 6.93f, 6.34f, 6.16f, 6.97f};
+
+	bool engaged = false;
+	bool over_budget = false;
+	int transitions = 0;
+	for (const float cost : measured)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.last_generation_ms = cost;
+		inputs.previously_engaged = engaged;
+		inputs.previously_over_budget = over_budget;
+
+		const Decision decision = ForkFrameGen::Decide(policy, inputs);
+		const bool now_engaged = (decision.state == State::Engaged);
+		if (now_engaged != engaged)
+			transitions++;
+		engaged = now_engaged;
+		over_budget = (decision.reason == Reason::OverBudget);
+	}
+	EXPECT_EQ(transitions, 1) << "engata uma vez e fica; antes eram ~20 por 10 s";
+	EXPECT_TRUE(engaged);
 }
