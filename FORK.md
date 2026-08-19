@@ -1,10 +1,25 @@
-# Ps2-fork — fork Android ARM64 de ARMSX2
+# ArmadaSX2 — fork Android ARM64 de ARMSX2
 
 Fork de [ARMSX2](https://github.com/ARMSX2/ARMSX2) (GPL-3.0), que por sua vez é fork do
 [PCSX2](https://github.com/PCSX2/pcsx2) (GPL-3.0). Este arquivo descreve **apenas o que é nosso**;
 o `README.md` da raiz continua sendo o do upstream, intocado de propósito.
 
 **Filosofia:** *Compatibility first. Performance measured. Features optional.*
+
+## Sobre o nome
+
+`ArmadaSX2`. **Arm** pela plataforma, **SX2** pela linhagem (PCSX2 → AetherSX2 → ARMSX2), e
+*armada* porque é palavra própria — não uma variação de marca de terceiro.
+
+A distinção é deliberada. Dizer que este projeto **emula um PS2** é descrição de função, e é o que
+todo emulador faz, o PCSX2 inclusive. Já **chamar o produto** de algo que evoca "PlayStation"
+sugere associação com a Sony, que é precisamente o que a lei de marca protege. Por isso os nomes
+de arquivo, o id do aplicativo e o repositório não carregam "PS2" — enquanto o código e a
+documentação seguem falando de PS2, EE, VU e GS à vontade, porque ali é a descrição técnica
+correta.
+
+Pelo mesmo motivo o `applicationId` deixou de ser `com.armsx2`: era a identidade do projeto de
+origem. Além do nome, o id igual causaria colisão de instalação com o ARMSX2 no mesmo aparelho.
 
 ## Objetivo
 

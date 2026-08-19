@@ -94,7 +94,7 @@ jobs:
             find platforms/android/app/build/outputs -type f >&2 || true
             exit 1
           fi
-          OUT="ps2fork-${{ inputs.tag }}-android-arm64.apk"
+          OUT="armadasx2-${{ inputs.tag }}-android-arm64.apk"
           cp "${APK}" "${OUT}"
           # SHA-256 pelo mesmo motivo que o registramos para pacotes de driver: é IDENTIDADE.
           # Um relato de compatibilidade que diz "alpha 1" não distingue dois builds com o mesmo

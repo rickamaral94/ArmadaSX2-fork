@@ -19,15 +19,15 @@ Este repositório **não** é um snapshot: contém a história completa do ARMSX
 
 | Remoto | URL | Uso |
 |---|---|---|
-| `origin` | `github.com/rickamaral94/Ps2-fork` | nosso fork |
+| `origin` | `github.com/rickamaral94/ArmadaSX2` | nosso fork |
 | `armsx2` | `github.com/ARMSX2/ARMSX2` | upstream direto — origem dos merges |
 | `pcsx2` | `github.com/PCSX2/pcsx2` | upstream de origem — referência e arqueologia |
 
 Reproduzir em um clone novo:
 
 ```sh
-git clone https://github.com/rickamaral94/Ps2-fork
-cd Ps2-fork
+git clone https://github.com/rickamaral94/ArmadaSX2
+cd ArmadaSX2
 git remote add armsx2 https://github.com/ARMSX2/ARMSX2.git
 git remote add pcsx2  https://github.com/PCSX2/pcsx2.git
 git fetch armsx2 master
@@ -44,6 +44,11 @@ Ou simplesmente: `./tools/fork/sync-upstream.sh --setup`
 - Depois de qualquer merge: CI verde + lista de jogos-canário reexecutada.
 
 ---
+
+> Os links de execução de CI mais antigos apontam para `rickamaral94/Ps2-fork`, o nome anterior do
+> repositório. Ficam como estão de propósito: são registro do que aconteceu, e o GitHub redireciona
+> nomes antigos. Reescrever um histórico para parecer que sempre se chamou ArmadaSX2 seria trocar
+> um registro correto por um bonito.
 
 ## 2. Superfície de contato com o upstream
 
@@ -64,6 +69,8 @@ justificativa, o fork está saindo do trilho.
 | `platforms/android/.../ui/common/DriverManagerSection.kt` | +1 condicional, +1 card de status | esconde a seção em GPU incompatível (Fase 3); mostra o driver ativo e avisa quando não é o pedido (Fase 4, item 4) |
 | `platforms/android/.../kr/co/iefriends/pcsx2/NativeApp.java` | +1 declaração `forkQuery` | porta única do fork; consultas novas não custam JNI nova |
 | `platforms/android/app/src/main/cpp/native-lib.cpp` | +1 função JNI; +espelho do stdout nativo em `logs/native.log` | porta única; e o log que o testador CONSEGUE pegar não continha nada de nativo — `session.log` só captura `println` do Java, e `emulog.txt` é truncado a cada início de VM |
+| `platforms/android/app/src/main/res/values/strings.xml` | `app_name` → `ArmadaSX2` | o nome exibido era o do projeto de origem |
+| `platforms/android/gradle.properties` | +1 propriedade `armsx2.applicationId` | identidade de instalação própria: `com.armsx2` colidiria com o ARMSX2 no mesmo aparelho. O `namespace` (pacote Java) segue `com.armsx2` — trocá-lo renomearia centenas de arquivos e quebraria todo merge futuro, sem ganho visível para o usuário |
 | `platforms/android/.../com/armsx2/Pasx2Application.kt` | comentário corrigido | afirmava que o `session.log` carregava saída do Console nativo; não carrega, e a afirmação mandou um testador procurar diagnóstico de driver num arquivo que não pode contê-lo |
 | `platforms/android/.../com/armsx2/CustomDriver.kt` | valida o `.so` e grava o SHA-256 antes de instalar; grava a seleção na configuração | Fase 4 item 5, Fase 5 |
 | `pcsx2/GS/Renderers/Vulkan/GSLsfg.cpp` | +reporte dos quadros gerados à métrica, +medição do custo de geração, +`NoteGenerationDeclined` | o FPS apresentado deixa de ser subestimado; o orçamento da régua deixa de ser decorativo; a recusa da régua não pode costurar dois quadros através do buraco. Ver docs/fase8-regua-no-comando.md |
@@ -104,7 +111,7 @@ Workflow: `.github/workflows/fork-android-arm64.yml`
   bem mais curto que o release sem esconder erros de compilação nossos.
 - Sabor `github` (e não `play`): é o que habilita o gerenciador de driver customizado e os
   caminhos de armazenamento que precisamos testar.
-- Publica o APK como artefato `ps2fork-android-arm64-debug`.
+- Publica o APK como artefato `armadasx2-android-arm64-debug`.
 - Um job secundário (`fork-hygiene`, não bloqueante) roda `tools/fork/fork-diff.sh` e imprime a
   superfície de contato com o upstream a cada push.
 
@@ -146,7 +153,7 @@ Registrar o resultado em `docs/jogos-canario.md` (tabela de execuções).
 | Data | 18/08/2026 08:08 UTC |
 | Job `Android arm64 · debug APK` | sucesso — passo de build 29 min 35 s |
 | Job `Superfície de contato` | sucesso — 3 arquivos do upstream modificados, 8 novos, 0 no núcleo |
-| Artefato | `ps2fork-android-arm64-debug`, 76,8 MB |
+| Artefato | `armadasx2-android-arm64-debug`, 76,8 MB |
 | SHA-256 do artefato | `ae2ca503c4577c060530c2b01a09f6f47462dea271a4453a40c1c559522933ba` |
 
 O que isso prova: a árvore deste fork compila o núcleo C++ para `arm64-v8a` e empacota um APK.

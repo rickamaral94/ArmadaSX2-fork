@@ -92,7 +92,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: ps2fork-android-arm64-debug
+          name: armadasx2-android-arm64-debug
           path: platforms/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
