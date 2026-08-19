@@ -21,7 +21,27 @@ on:
       - 'claude/**'
       - 'fork/**'
       - main
+    # Um push só de documentação não pode custar 33 min de CI. A mesma disciplina que o
+    # build-all.yml do upstream já aplicava e que este workflow não copiou: das primeiras dezenas
+    # de execuções, boa parte compilou um APK inteiro para validar um arquivo .md.
+    #
+    # `paths-ignore` e não `paths` de propósito: o padrão continua sendo COMPILAR. Esquecer um
+    # caminho numa lista de inclusão significa parar de validar código sem ninguém perceber;
+    # esquecer aqui significa apenas gastar um build a mais.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'tools/**'
+      - 'LICENSE*'
+      - '.gitignore'
+      - '.github/workflows/fork-release.yml'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'tools/**'
+      - 'LICENSE*'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:
