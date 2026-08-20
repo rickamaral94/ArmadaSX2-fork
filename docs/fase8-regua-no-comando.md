@@ -545,3 +545,77 @@ Sem os segredos o build continua funcionando, mas passa a **avisar**: um `::warn
 bloco na descrição da release dizendo que aquela versão não instala por cima e que a pasta de
 dados precisa de backup antes. Um alpha que não atualiza é problema de distribuição, não detalhe
 de empacotamento — e ficar em silêncio sobre isso foi o que fez o usuário descobrir no aparelho.
+
+## 16. Adendo (8.9) — a calma provava o que não podia provar, e dois padrões novos
+
+Alpha 7 no Odin 2, dois jogos a 2.00x. A 8.7 funcionou onde tinha que funcionar, e o log mostra o
+orçamento se adaptando sozinho — `budget=8.35ms` nas janelas de 60 fps, `budget=16.68ms` nas de 30.
+
+**God of War II, os dois regimes, impecáveis.** Trinta fps:
+
+```
+real fps=30.00 presented fps=60.00 generated=30 engaged=100.0% transitions=0 gen_warm=5.43ms budget=16.70ms
+```
+
+E sessenta, por **vinte e cinco janelas seguidas** — mais de quatro minutos:
+
+```
+real fps=60.00 presented fps=120.00 generated=60 engaged=100.0% transitions=0 gen_warm=6.43ms budget=8.35ms
+```
+
+**NFS Underground 2 na corrida, ainda não.** Vinte janelas com o mesmo desenho, e desta vez o log
+novo entrega a causa de graça:
+
+| | com `generated=1` | com `generated=0` |
+|---|---|---|
+| `1%low` | **75-84 ms** | **33-39 ms** |
+| `shader_compiles` | 0 em várias | 0 |
+
+Média de quadro nos dois casos: 33,4 ms. Com `shader_compiles=0` dos dois lados, não sobra outra
+leitura: **uma única geração fria acrescenta ~45 ms ao tempo do quadro** — bem mais do que os
+13-16 ms que o nosso cronômetro mede, porque o cronômetro cobre o `wait_idle` e o `present` do
+backend e não o que a inserção do quadro extra faz ao ritmo do FIFO.
+
+### O defeito: a régua usava a ausência do problema como prova de que ele acabou
+
+A sequência, inteira, saiu do log: engata → gera um quadro frio → +45 ms → o degrau de
+estabilidade derruba → carência. E aí, **desengatada**, ela mede a cena: `1%low=34ms` contra média
+de `33,4ms`. Calma perfeita. A "calma sustentada" da 8.6 solta a carência, e trinta quadros depois
+tudo se repete.
+
+A calma era real e mesmo assim enganosa: **a cena está calma porque a geração não está lá.** A
+carência crescente, que existe justamente para extinguir esse pulso, nunca chegava a crescer —
+`transitions=10` por janela, estável, do começo ao fim da corrida.
+
+A correção separa os dois casos pela única coisa que a oscilação não consegue falsificar:
+
+- Um engate que **durou** (≥ 5 quadros) viu a cena com a geração ligada. A calma que ele mede
+  depois vale, e solta a carência como antes.
+- Um engate que **piscou** não viu nada. Depois dele, calma não basta: é preciso que o **regime**
+  tenha mudado — o intervalo real diferir em mais de 15% do que era no desengate. Sair da corrida
+  para um menu vai de 33,4 ms para 16,7 e solta na hora; piscar dentro da corrida mede 33,4 dos
+  dois lados e não solta.
+
+Simulando a corrida medida, transições por 10 s ao longo de um minuto:
+
+| | 0-10s | 10-20s | 20-30s | 30-40s | 40-50s | 50-60s |
+|---|---|---|---|---|---|---|
+| antes | 10 | 10 | 10 | 10 | 10 | 10 |
+| agora | 6 | 2 | 0 | 2 | 0 | 0 |
+
+O que sobra é o correto: numa cena em que gerar custa 45 ms de ritmo, a resposta certa é **não
+gerar** — e parar de tentar, em vez de piscar dez vezes a cada dez segundos anunciando que não vai
+dar.
+
+### Dois padrões novos, a pedido
+
+- **Resolução interna 2.00x.** O número vem da medição: a 2.00x os três jogos ficaram em
+  velocidade correta com ritmo regular (`1%low=33,9ms` contra média de `33,4ms` no NFS); a 3.00x
+  os mesmos jogos deram `1%low` de 83-95 ms e a geração passou a custar 20 ms. `lowEndPreset`
+  continua forçando resolução nativa, então aparelho fraco não herda isto.
+- **Patches de widescreen 16:9.** O alvo é um handheld 16:9, e 4:3 com tarjas desperdiça um terço
+  do painel. A ressalva fica registrada: são patches por CRC, nem todo jogo tem um, e os que têm
+  podem esticar HUD ou revelar geometria nas bordas — por isso a opção continua visível,
+  desligável, e com override por jogo.
+
+Só instalações novas são afetadas: quem já tem configuração salva mantém a escolha dele.

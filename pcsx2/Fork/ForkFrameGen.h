@@ -139,6 +139,19 @@ namespace ForkFrameGen
 		/// 16 s a 60 Hz — que é o suficiente para a cena pesada passar sem mais nenhuma piscada.
 		/// Um engate que DURA zera o contador, então sair da cena pesada devolve a resposta rápida.
 		u32 max_cooldown_doublings = 5;
+		/// Abaixo de quantos quadros um engate conta como PISCADA em vez de tentativa.
+		///
+		/// A distinção decide se a "calma sustentada" pode soltar a carência. Uma piscada é curta
+		/// demais para que a régua tenha visto a cena com a geração ligada: o que ela mede depois,
+		/// já desengatada, é a cena SEM geração — e essa cena está calma justamente porque a
+		/// geração não está lá.
+		u32 blink_frames = 5;
+		/// Quanto o intervalo real precisa mudar para contar como cena diferente.
+		///
+		/// É o teste que a oscilação não consegue falsificar. Um jogo travado em 30 fps que pisca
+		/// a cada segundo mede 33,4 ms antes e depois — nada mudou. Sair da corrida para um menu
+		/// de 60 mede 33,4 e depois 16,7: mudou, e a régua volta a responder na hora.
+		float regime_change_fraction = 0.15f;
 		/// Velocidade mínima da emulação, em porcentagem da taxa alvo da máquina. Abaixo disto FG
 		/// não engata: o projeto define que suavizar uma emulação lenta é mascarar, não melhorar.
 		float min_speed_percent = 90.0f;
@@ -219,6 +232,10 @@ namespace ForkFrameGen
 		u32 frames_engaged = 0;
 		/// Quantos engates seguidos fracassaram por esse critério. É o expoente da carência.
 		u32 failed_engagements = 0;
+		/// Quantos quadros durou o último engate. Distingue tentativa de piscada.
+		u32 last_engagement_frames = 0;
+		/// Intervalo real medido no instante do último desengate, para comparar regimes.
+		float frametime_at_disengage = 0.0f;
 		/// Há quantos quadros seguidos, DENTRO da carência, o quadro teria engatado se a carência
 		/// não existisse. É o contrapeso da carência crescente: sem ele, uma corrida pesada que
 		/// dobrou a espera cinco vezes deixaria o menu seguinte esperando 16 s sem motivo.

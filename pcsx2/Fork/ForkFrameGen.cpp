@@ -10,6 +10,7 @@
 #include "fmt/format.h"
 
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <mutex>
 
@@ -303,7 +304,32 @@ ForkFrameGen::Decision ForkFrameGen::Advance(const Policy& policy, Governor& gov
 		else
 			governor.frames_ready_in_cooldown = 0;
 
-		if (governor.frames_ready_in_cooldown >= policy.reengage_cooldown_frames)
+		// E a calma sustentada só vale como prova quando a régua tem como tê-la observado.
+		//
+		// Este é o buraco que o aparelho encontrou depois da 8.6, e ele é sutil: numa corrida do
+		// NFS a régua engatava por DOIS quadros, a geração fria custava ~45 ms de tempo de quadro
+		// a mais, o degrau de estabilidade derrubava — e aí, desengatada, ela media uma cena
+		// perfeitamente calma (`1%low=34ms` contra média de `33,4ms`) e soltava a carência. Trinta
+		// quadros depois, tudo de novo. A calma era REAL e mesmo assim era mentira: a cena está
+		// calma porque a geração não está lá. A régua estava usando a ausência do problema como
+		// prova de que o problema acabou, e a carência crescente nunca chegava a crescer —
+		// `transitions=10` por janela, estável, por vinte janelas.
+		//
+		// Depois de uma piscada, então, calma não basta: é preciso que o REGIME tenha mudado, e
+		// isso a oscilação não consegue falsificar, porque ela acontece dentro de um intervalo de
+		// quadro constante. Sair da corrida para um menu muda de 33,4 ms para 16,7 e solta na
+		// hora; piscar dentro da corrida mede 33,4 dos dois lados e não solta.
+		//
+		// Um engate que DUROU não precisa disso: ele viu a cena com a geração ligada, e a calma
+		// que ele mede depois vale como qualquer outra evidência.
+		const bool last_was_a_blink = governor.last_engagement_frames < policy.blink_frames;
+		const bool regime_changed =
+			governor.frametime_at_disengage > 0.0f && inputs.frametime_avg_ms > 0.0f &&
+			std::abs(inputs.frametime_avg_ms - governor.frametime_at_disengage) >
+				(policy.regime_change_fraction * governor.frametime_at_disengage);
+
+		if (governor.frames_ready_in_cooldown >= policy.reengage_cooldown_frames &&
+			(!last_was_a_blink || regime_changed))
 		{
 			governor.failed_engagements = 0;
 			governor.frames_ready_in_cooldown = 0;
@@ -324,6 +350,8 @@ ForkFrameGen::Decision ForkFrameGen::Advance(const Policy& policy, Governor& gov
 	if (was_engaged && !is_engaged)
 	{
 		governor.frames_since_disengage = 0;
+		governor.last_engagement_frames = governor.frames_engaged;
+		governor.frametime_at_disengage = inputs.frametime_avg_ms;
 		// O julgamento do engate que acabou de morrer, com a própria carência de régua: um engate
 		// mais curto que ela não chegou a virar fluidez para o usuário — foi uma piscada, e a
 		// resposta certa é tentar de novo mais TARDE, não mais cedo.

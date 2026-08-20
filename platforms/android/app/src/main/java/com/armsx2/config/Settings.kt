@@ -170,8 +170,19 @@ data class Settings(
     val enablePatches: Boolean = true,
     /** EmuCore/EnableCheats — PNACH cheats. */
     val enableCheats: Boolean = false,
-    /** EmuCore/EnableWideScreenPatches — 16:9 widescreen patches. */
-    val enableWideScreenPatches: Boolean = false,
+    /** EmuCore/EnableWideScreenPatches — 16:9 widescreen patches.
+     *
+     *  Default ON neste fork. O alvo é um handheld de tela larga (1080p 16:9), e a alternativa
+     *  padrão — 4:3 com tarjas pretas dos dois lados — desperdiça um terço do painel num aparelho
+     *  cuja razão de existir é jogar em tela cheia.
+     *
+     *  A ressalva honesta: são patches por CRC, e nem todo jogo tem um; os que têm podem mostrar
+     *  artefato de HUD esticado ou geometria aparecendo nas bordas. Por isso a opção continua
+     *  visível e desligável, e o override por jogo vale mais que este padrão — um título que
+     *  quebre com 16:9 se resolve sem mexer no resto da biblioteca. Só instalações novas são
+     *  afetadas: quem já tem configuração salva mantém a escolha dele.
+     */
+    val enableWideScreenPatches: Boolean = true,
     /** EmuCore/EnableNoInterlacingPatches — no-interlacing patches. */
     val enableNoInterlacingPatches: Boolean = false,
     /** EmuCore/EnableFastBoot — skip BIOS splash and boot straight to the game.
@@ -376,8 +387,18 @@ data class Settings(
     val renderer: String = "auto",
     /** Internal resolution multiplier (0.25..5.0; 1.0 = native). Applied live via
      *  the GS upscale helper; per-game so each title keeps its own. Seeded from the
-     *  legacy global "upscaleFloat" pref on first load. */
-    val upscaleFloat: Float = 1.0f,
+     *  legacy global "upscaleFloat" pref on first load.
+     *
+     *  Default 2.00x neste fork, e o número vem de medição, não de gosto. No Odin 2 Portal
+     *  (Adreno 740, Turnip), três jogos a 2.00x ficaram em velocidade correta com frametime
+     *  regular — NFS Underground 2 marcou `1%low=33.9ms` contra média de `33.4ms`, praticamente
+     *  sem tremor. A 3.00x, os mesmos jogos entregaram `1%low` de 83-95 ms e frame generation
+     *  passou a custar 20 ms, acima do que cabe em qualquer orçamento.
+     *
+     *  Aparelho fraco não herda isto: `lowEndPreset` continua forçando resolução nativa, e a
+     *  opção segue ajustável por jogo. Só instalações novas são afetadas.
+     */
+    val upscaleFloat: Float = 2.0f,
     /** Installed custom Vulkan GPU driver id to pin (e.g. a Turnip build). "" = system
      *  driver. Applied at (re)launch via CustomDriver.applyToNative in
      *  MainActivityRuntime.applyRendererPrefs; per-game so a title can pin the driver it

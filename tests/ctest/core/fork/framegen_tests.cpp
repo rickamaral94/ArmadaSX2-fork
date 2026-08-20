@@ -652,3 +652,86 @@ TEST(ForkFrameGen, TheThirtyFpsGameThatWorkedKeepsWorking)
 	EXPECT_GT(engaged_frames, 295);
 	EXPECT_LE(transitions, 1) << "medido no aparelho: transitions=0 por doze janelas seguidas";
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fase 8.9: a calma sustentada estava sendo usada como prova do que ela não podia provar.
+//
+// Medido na alpha 7, corrida do NFS a 2.00x, vinte janelas seguidas: a régua engatava por dois
+// quadros, a geração fria acrescentava ~45 ms ao tempo de quadro, o degrau de estabilidade
+// derrubava — e a cena, já sem geração, media `1%low=34ms` contra média de `33,4ms`. Calma
+// perfeita, real, e mesmo assim enganosa: a cena está calma PORQUE a geração não está lá.
+// Resultado: a carência era solta a cada trinta quadros e a espera crescente nunca crescia.
+// `transitions=10` por janela, estável, do começo ao fim da corrida.
+// ---------------------------------------------------------------------------------------------
+
+namespace
+{
+	/// Simula a corrida medida: engatar custa caro no quadro seguinte, e só nele.
+	///
+	/// É o formato do defeito, não uma caricatura dele. Enquanto a régua está fora, a cena é
+	/// impecável — que é exatamente o que torna a evidência de calma inútil aqui.
+	int TransitionsWithGenerationHurtingTheNextFrame(const Policy& policy, int frames, float frametime_ms)
+	{
+		ForkFrameGen::Governor governor;
+		bool engaged = false;
+		int transitions = 0;
+		for (int i = 0; i < frames; i++)
+		{
+			Inputs inputs = HealthyFrame();
+			inputs.real_fps = 1000.0f / frametime_ms;
+			inputs.frametime_avg_ms = frametime_ms;
+			// O quadro depois de um engate carrega o custo da geração fria; os demais são limpos.
+			inputs.frametime_p99_ms = engaged ? (frametime_ms * 2.4f) : (frametime_ms * 1.02f);
+			const bool now = ForkFrameGen::Advance(policy, governor, inputs).state == State::Engaged;
+			if (now != engaged)
+				transitions++;
+			engaged = now;
+		}
+		return transitions;
+	}
+} // namespace
+
+TEST(ForkFrameGen, CalmMeasuredWithTheFeatureOffIsNotProofTheFeatureWillWork)
+{
+	const Policy policy = MakePolicy();
+
+	// Dez segundos a 30 fps — a janela medida no aparelho.
+	const int first_ten_seconds = TransitionsWithGenerationHurtingTheNextFrame(policy, 300, 33.4f);
+	// Um minuto inteiro.
+	const int a_full_minute = TransitionsWithGenerationHurtingTheNextFrame(policy, 1800, 33.4f);
+
+	EXPECT_LE(first_ten_seconds, 8) << "eram 10 por janela, sem decair nunca";
+	// O que importa não é o número inicial e sim que ele PARE. Se a espera crescente estivesse
+	// sendo solta como antes, um minuto daria seis vezes o que dez segundos dão.
+	EXPECT_LT(a_full_minute, first_ten_seconds * 3)
+		<< "a carência tem que crescer; antes ela era zerada a cada trinta quadros";
+}
+
+// O outro lado: quando a cena muda DE VERDADE, a régua não pode ficar de castigo.
+TEST(ForkFrameGen, AChangeOfRegimeStillReleasesTheCooldownImmediately)
+{
+	const Policy policy = MakePolicy();
+
+	ForkFrameGen::Governor governor;
+	// Corrida: pisca e acumula fracassos, sem nunca soltar.
+	for (int i = 0; i < 900; i++)
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.real_fps = 30.0f;
+		inputs.frametime_avg_ms = 33.4f;
+		inputs.frametime_p99_ms =
+			(governor.last.state == State::Engaged) ? 80.0f : 34.0f;
+		ForkFrameGen::Advance(policy, governor, inputs);
+	}
+	ASSERT_GT(governor.failed_engagements, 2u) << "a corrida tem que ter acumulado castigo";
+
+	// A corrida acaba e entra um menu de 60 fps: outro regime, e a régua responde na hora.
+	int frames_until_engaged = 0;
+	for (int i = 0; i < 300; i++)
+	{
+		frames_until_engaged++;
+		if (ForkFrameGen::Advance(policy, governor, HealthyFrame()).state == State::Engaged)
+			break;
+	}
+	EXPECT_LE(frames_until_engaged, 40) << "mudou de regime: não paga a espera acumulada";
+}
