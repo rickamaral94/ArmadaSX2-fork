@@ -716,3 +716,97 @@ ordenado, que ao menos usa a ordem do próprio cpuinfo.
 **O padrão continua `Disabled`**, e isso é deliberado: a regra do projeto é que nenhuma otimização
 vira global sem comparação A/B, e não há uma única medição de affinity ainda. O que mudou é que
 agora a opção faz o que o nome promete — dá para medir de verdade.
+
+## 19. Adendo (8.12) — a alpha 9 mediu, e a medição tinha um defeito meu
+
+Três sessões com `pace_*`. Nas janelas de 30 fps com FG engatado:
+
+```
+real fps=30.00  presented fps=60.00  generated=30  engaged=100.0%  transitions=0
+pace_avg=16.42ms  pace_min=0.00ms  pace_max=33.6ms
+```
+
+`pace_min=0,00 ms` — dois quadros apresentados no MESMO instante. E `pace_max=33,6`, um quadro de
+jogo inteiro de silêncio depois. Comparado com a mesma cena de FG desligado (`pace_avg=33,39
+pace_min=30,13 pace_max=36,84`) e com 60 fps sem FG (`pace_avg=16,69 pace_min=16,17
+pace_max=17,20`, que é o que cadência regular parece), o desenho é inconfundível.
+
+**Mas parte desse `0,00` é defeito meu, não do recurso.** `NoteFramesDisplayed(1, generated)` era
+chamada uma única vez, no fim do quadro, e registrava os gerados em bloco — todos os
+`NotePresented` caíam no mesmo instante. O número descrevia a nossa contabilidade, não o que foi
+para a tela. Uma métrica de RITMO tem que ser registrada onde o ritmo acontece, e agora cada quadro
+gerado se anota no instante do próprio `vkQueuePresentKHR`.
+
+O que a medição corrigida **não** vai mudar é a conclusão, porque ela já está no código: o quadro
+gerado espera um slot de display (o `vkAcquireNextImageKHR` com timeout é a pacing dele), e o
+quadro real é apresentado **imediatamente depois, sem esperar nada**. Sob FIFO isso põe o gerado
+num vblank e o real no vblank seguinte — 8,3 ms de distância — e deixa ~25 ms de lacuna até o
+próximo par. Metade da suavidade prometida, com a latência inteira cobrada.
+
+### O caminho que o próprio código já indica
+
+O comentário do laço de geração diz a coisa certa: *"esperar por um slot de display É o mecanismo
+aqui"*. Com **x2** só existe uma espera, então só um quadro é espaçado e o par sai grudado. Com
+**x4** num jogo de 30 fps há três esperas, cada uma num vblank: gerado, gerado, gerado, real — **um
+quadro por vblank, 120 Hz preenchidos, regular por construção**. O mecanismo não precisa de código
+novo; precisa de multiplicador suficiente para se completar.
+
+### E o custo estava 2,7x acima do necessário — por uma opção
+
+As três sessões rodaram com `flow 100%`. As sessões boas anteriores rodavam com `flow 25%`:
+
+| flow scale | custo de regime medido |
+|---|---|
+| 25% | **5,2-5,4 ms** |
+| 100% | **14,2-14,7 ms** |
+
+Mesmo aparelho, mesmo jogo, mesmo x2. O `flowScale` é o divisor da pirâmide de fluxo óptico, e a
+100% ele processa em resolução cheia. Foi isso que levou o custo de 5,4 para 14,5 ms — e é também
+por isso que `x4` parecia impossível: a 14,5 ms por quadro gerado, três não caberiam em 33 ms. A
+25%, três quadros gerados custariam algo perto de 10-11 ms e caberiam com folga.
+
+**A combinação a testar é `flow 25%` + `x4` num jogo de 30 fps.** Nenhuma linha de código nova: o
+backend aceita 2 a 4, a UI já oferece as duas opções, e a régua gateia apenas ligado/desligado.
+
+## 20. Adendo (8.13) — o que dá e o que não dá para trazer do ARMSX3
+
+O ARMSX3 0.9.3 (porte Android do RPCS3 pelos mesmos fundadores do ARMSX2) traz uma prática que
+descreve exatamente o nosso pior engasgo medido:
+
+> *"Shader compilation moved off cores the frame depends on; compiler threads use little cluster on
+> big.LITTLE phones."*
+
+É o mesmo raciocínio da nossa 8.11 — tirar do caminho do quadro o que não é o quadro. **Mas não
+transfere como está**, e vale dizer por quê em vez de anunciar que copiamos: no PCSX2 a compilação
+não roda em threads de compilador. `VKShaderCache::CompileShaderToSPV` é chamada de forma
+**síncrona, na própria thread do GS**, quando um pipeline novo é necessário. Não há thread para
+mover; mover exigiria compilação assíncrona, e num emulador isso significa desenhar o quadro com o
+shader errado ou travar esperando — as duas opções são piores que o engasgo.
+
+O que resolve o mesmo problema aqui, e já está feito, é outro: a chave por driver no cache de
+SPIR-V (8.6), que faz a compilação acontecer **uma vez na vida** em vez de uma vez por sessão. O log
+do aparelho confirmou o cache acumulando de 287 para 679 entradas ao longo de três reinícios.
+
+Duas outras notas da 0.9.3 valem como princípio, não como código:
+
+- *"Running out of memory while compiling now says so"* — falhar com nome em vez de travar. É a
+  mesma regra que nos fez trocar `verdict=Ok` por sete veredictos distintos no inspetor de pacote.
+- *"Cleared debug profiler settings previously shipped enabled"* — vale como checagem, e a fiz:
+  `OsdShowGSStats` e `OsdShowGPUStats` estão desligados por padrão (o segundo dispara consultas de
+  pipeline por quadro), e o que ligamos de propósito — `PresentationMetrics.Enabled` e
+  `Diagnostics.Log` — custa uma carga atômica por quadro e um bloco de texto a cada 10 s.
+
+O resto das notas da 0.9.3 é PS3: reserva atômica do PPU, instalação de PKG, teclado USB emulado.
+Não há analogia no PS2.
+
+## 21. Adendo (8.14) — nomes de driver que não distinguiam nada
+
+Os pacotes de uma release costumam vir em mais de uma variante — o `.zip` comum e o `_oneUI.zip`
+ao lado. A lista de download mostrava `releaseName` como título e `fonte · tag` como subtítulo, e
+como as duas variantes compartilham release e tag, **as duas linhas ficavam idênticas**: escolher
+virava sorteio.
+
+A informação que distingue já existia (`assetName`), só não estava sendo mostrada. O subtítulo passa
+a ser `arquivo · tag`, e a fonte sai — estas linhas já vivem dentro do grupo dela, e repeti-la
+gastava justamente a largura que o nome do arquivo precisa. Vale para toda fonte da lista, sem
+depender de ninguém renomear nada.

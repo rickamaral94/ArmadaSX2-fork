@@ -268,7 +268,22 @@ fun DriverManagerSection() {
                                 RemoteDriverRow(
                                     controllerId = "driver.remote.${rd.id}",
                                     title = rd.releaseName.ifBlank { rd.assetName },
-                                    subtitle = listOf(rd.source, rd.tagName).filter(String::isNotBlank).joinToString(" · "),
+                                    // O NOME DO ARQUIVO entra sempre, e o da fonte sai.
+                                    //
+                                    // Uma release costuma trazer mais de um .zip — a variante
+                                    // OneUI ao lado da comum, por exemplo — e todos herdam o mesmo
+                                    // título de release. Sem o nome do arquivo, as duas linhas
+                                    // ficam idênticas e a escolha vira sorteio; foi exatamente o
+                                    // que aconteceu com os pacotes `..._oneUI.zip`. A informação
+                                    // que distingue já existe, só não estava sendo mostrada — e a
+                                    // correção vale para toda fonte, sem depender de ninguém
+                                    // renomear nada.
+                                    //
+                                    // A fonte sai porque estas linhas já vivem dentro do grupo
+                                    // dela: repeti-la gastava a largura que o nome do arquivo
+                                    // precisa.
+                                    subtitle = listOf(rd.assetName, rd.tagName)
+                                        .filter(String::isNotBlank).joinToString(" · "),
                                     busy = busyId == rd.id,
                                     onDownload = {
                                         scope.launch {

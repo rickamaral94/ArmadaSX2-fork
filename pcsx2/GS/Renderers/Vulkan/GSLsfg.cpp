@@ -651,13 +651,18 @@ namespace GSLsfg
 			s_fps_real += real;
 			s_fps_generated += generated;
 
-			// Fase 8 do fork: os quadros GERADOS entram na métrica de apresentação, um a um, e só
-			// os que confirmadamente chegaram à tela — `generated` é contado, não deduzido do
-			// multiplicador. Os reais NÃO são reportados daqui: quem os conta é o chamador, em
-			// GSDeviceVK, nos dois caminhos (com e sem geração). Contá-los aqui também dobraria o
-			// FPS real, que é justamente o número que não pode ser tocado.
-			for (u32 i = 0; i < generated; i++)
-				GSPresentationMetrics::NotePresented(GSPresentationMetrics::FrameKind::Generated);
+			// Os quadros GERADOS não são reportados à métrica de apresentação aqui — cada um se
+			// reporta no instante do próprio `vkQueuePresentKHR`, dentro do laço de geração.
+			//
+			// Registrá-los em bloco no fim do quadro foi um erro que a Fase 8.10 expôs assim que
+			// passou a medir cadência: todos os `NotePresented` caíam no mesmo instante, e o
+			// intervalo mínimo entre quadros apresentados saía `0,00 ms` — número que descrevia a
+			// nossa contabilidade, não o que foi para a tela. Uma métrica de RITMO tem que ser
+			// registrada onde o ritmo acontece.
+			//
+			// Os reais também não saem daqui: quem os conta é o chamador, em GSDeviceVK, nos dois
+			// caminhos (com e sem geração). Contá-los aqui dobraria o FPS real, que é justamente
+			// o número que não pode ser tocado.
 
 			const u64 now = Common::Timer::GetCurrentValue();
 			if (s_fps_window_start == 0)
@@ -1262,6 +1267,9 @@ namespace GSLsfg
 				const VkResult pres = vkQueuePresentKHR(present_queue, &present);
 				if (pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR)
 					break;
+				// No instante do present, não no fim do quadro: é isto que faz `pace_*` medir
+				// cadência de verdade em vez de medir quando nós resolvemos anotar.
+				GSPresentationMetrics::NotePresented(GSPresentationMetrics::FrameKind::Generated);
 				presented_generated++;
 			}
 		}
