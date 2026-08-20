@@ -610,9 +610,26 @@ data class Settings(
      *  when the user's Lossless.dll predates 3.1p. */
     val lsfgPerformance: Boolean = true,
     /** EmuCore/GS/LsfgFlowScale — optical-flow resolution, as a PERCENTAGE of the presented
-     *  image (25..100). Lower is cheaper and blurrier. The native side inverts it: the library
-     *  takes a divisor, so 25% becomes 4.0. See GSLsfg.cpp. */
-    val lsfgFlowScale: Int = 100,
+     *  image (25..100). Lower is cheaper e mais borrado. O lado nativo inverte: a biblioteca
+     *  recebe um divisor, então 25% vira 4.0. Ver GSLsfg.cpp.
+     *
+     *  Padrão 25% neste fork, e o número saiu de medição no Odin 2 (Adreno 740, Turnip), mesmo
+     *  aparelho e mesmo jogo, trocando SÓ esta opção:
+     *
+     *  | flow | custo de regime |
+     *  |------|-----------------|
+     *  | 25%  | 5,3-5,5 ms      |
+     *  | 100% | 14,2-14,7 ms    |
+     *
+     *  Quase três vezes, e é a diferença entre caber e não caber: a 100% a geração comia 14,5 ms
+     *  de um orçamento de 16,7 num jogo de 30 fps, e a régua passava o tempo recusando. A 25% o
+     *  mesmo jogo ficou em `engaged=100% transitions=0` por janelas seguidas, e um jogo de 60 fps
+     *  chegou a `presented fps=120`.
+     *
+     *  O custo é resolução do campo de fluxo, não da imagem: o que borra é a ESTIMATIVA de
+     *  movimento, e num quadro que fica na tela 8 ms isso é bem menos visível do que a alternativa
+     *  — não ter o quadro. Quem quiser o fluxo em resolução cheia sobe a opção; ela continua lá. */
+    val lsfgFlowScale: Int = 25,
     /** [Fork]/FrameGen.Mode — "off", "auto" or "2x". The fork's own frame-generation POLICY,
      *  which is a different thing from the LSFG backend above: the policy decides whether
      *  generating is allowed AT ALL right now, and it refuses in the cases where a generated

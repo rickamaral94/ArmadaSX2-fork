@@ -889,3 +889,46 @@ GS — não há worker para fixar. Isso não mudou por eu ter lido o código; fi
 
 O padrão de afinidade **continua `Disabled`**: segue sem uma única medição A/B, e a regra do
 projeto não abre exceção porque a ideia veio de um projeto que a mediu no aparelho dele.
+
+## 23. Adendo (8.16) — dois padrões que a medição já tinha decidido
+
+A alpha 10 rodou com `flow 25%` e `x2`, e os números fecham a questão do custo:
+
+| | 30 fps (NFS) | 60 fps |
+|---|---|---|
+| `gen_warm` a **25%** | **5,3-5,5 ms** | **7,7-8,2 ms** |
+| `gen_warm` a 100% (alpha 9) | 14,2-14,7 ms | — |
+| `budget` efetivo | 16,7 ms | 8,35 ms |
+
+Quase três vezes mais barato, **trocando só a opção**. E é a diferença entre caber e não caber: a
+100% a geração comia 14,5 ms de um orçamento de 16,7 e a régua vivia recusando; a 25% o jogo de 30
+ficou em `engaged=100% transitions=0` por janelas seguidas, e o de 60 chegou a `presented fps=120`
+com `engaged=100%`.
+
+O que se paga é resolução do CAMPO DE FLUXO, não da imagem: o que borra é a estimativa de
+movimento, e num quadro que fica na tela 8 ms isso é menos visível que a alternativa — não ter o
+quadro. `LsfgFlowScale` passa a 25 por padrão; quem quiser fluxo em resolução cheia sobe a opção.
+
+**E o controle na tela passa a vir desligado.** O alvo é um handheld com controles físicos, onde o
+overlay não é recurso: é uma camada de botões desenhada por cima do jogo que ninguém vai tocar,
+comendo área de tela e recebendo toque acidental de palma. Ligar, para quem joga em celular sem
+controle, é uma linha nas configurações; descobrir onde DESLIGAR é o atrito que o padrão errado
+cobra de todo mundo que usa o aparelho a que este fork se destina.
+
+A guarda contra o pior caso já existia no upstream e foi verificada antes de mexer: o botão de
+pausa é desenhado ACIMA do early-return de `showPad`, com o comentário dizendo exatamente por quê
+— *"with on-screen controls = Never (visMode 0, the RP6 case) ... a pause button drawn only by that
+loop would vanish and lock a controller user out of the menu"*. Ninguém fica trancado fora do menu.
+
+Os dois só afetam instalação nova; quem tem preferência salva mantém a escolha.
+
+### O que continua em aberto, e agora tem nome
+
+A cadência com `x2` ainda é bimodal. Na maioria das janelas o par sai grudado (`pace_min≈0,10ms`,
+`pace_max≈34ms`); em algumas — t=699, 729, 769, 1199 — sai **certo** (`15,70/17,82`, `14,21/19,32`),
+com `pace_avg=16,68` em vez de 16,40. A diferença é se o `vkAcquireNextImageKHR` do quadro gerado
+bloqueou ou não, e com 3 imagens de swapchain isso é uma corrida.
+
+Foi por isso que a 8.15 passou a pedir `multiplier + 2` imagens quando FG está ligado — o número
+que o próprio RPCS3/ARMSX3 documenta como piso. **Essa mudança ainda não rodou no aparelho**: a
+alpha 10 foi construída antes dela. É o que a próxima sessão precisa medir.

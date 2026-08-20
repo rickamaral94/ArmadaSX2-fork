@@ -400,7 +400,17 @@ object TouchControls {
      *  overlaps R1); 1..10 = auto-hide after that many seconds of no touch;
      *  11 = Auto — show on screen touch, hide when a controller is used (the
      *  default / legacy behavior). Persisted. */
-    val visibilityMode = mutableIntStateOf(11)
+    /** Visibilidade do controle na tela: 0 = desligado, 1..10 = some depois de N segundos sem
+     *  toque, 11 = sempre visível.
+     *
+     *  Padrão 0 neste fork. O alvo é um handheld com controles FÍSICOS, e ali o overlay não é um
+     *  recurso: é uma camada de botões desenhada por cima do jogo que ninguém vai tocar, comendo
+     *  área da tela e recebendo toques acidentais da palma. Quem joga num celular sem controle
+     *  liga em uma linha — e o inverso, descobrir onde desligar, é o atrito que o padrão errado
+     *  cobra de todo mundo que usa o aparelho a que este fork se destina.
+     *
+     *  Só instalação nova é afetada: quem já tem preferência salva mantém a escolha dele. */
+    val visibilityMode = mutableIntStateOf(0)
 
     /** Bumped on every touch interaction (screen tap or on-screen button press)
      *  so the auto-hide timer restarts. Not persisted. */
@@ -693,7 +703,7 @@ object TouchControls {
         analogExtraDistance.floatValue =
             MainActivityRuntime.prefs.getFloat(KEY_ANALOG_EXTRA_DIST, 0.35f).coerceIn(0.1f, 1.5f)
         gridSnap.value = MainActivityRuntime.prefs.getBoolean(KEY_GRID_SNAP, false)
-        visibilityMode.intValue = MainActivityRuntime.prefs.getInt(KEY_VIS_MODE, 11).coerceIn(0, 11)
+        visibilityMode.intValue = MainActivityRuntime.prefs.getInt(KEY_VIS_MODE, 0).coerceIn(0, 11)
         if (visibilityMode.intValue == 0) visible.value = false
         // #357: show/hide became tap-to-reveal (inverted). Seed the new pref from the old one so
         // anyone who had the button hidden keeps it hidden — now as tap-to-reveal, which still
