@@ -63,9 +63,11 @@
 #include "discord_rpc.h"
 #include "fmt/format.h"
 
+#include <array>
 #include <atomic>
 #include <bit>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <common/RedtapeWilCom.h>
 
@@ -4123,87 +4125,96 @@ void VMManager::SetEmuThreadAffinities()
 
 	const bool android_mtvu = EmuConfig.Speedhacks.vuThread;
 
-	// Mode 7 = "Performance Cores": don't hand out individual cores at all, just confine all
-	// three threads to the fast part of the SoC and let EAS place them within it. This is the
-	// safest of the pinning modes because it never pins VU to a specific mid-tier core.
+	// Mode 7 = "Performance Cores": não distribui núcleos individuais — separa o SoC em rápido e
+	// lento e deixa o escalonador colocar cada thread dentro da metade que lhe cabe.
+	//
+	// A regra vem do ARMSX3 (porte Android do RPCS3, `thread_ctrl::get_affinity_mask` em
+	// Utilities/Thread.cpp), e a adotamos porque ela resolve dois problemas que a nossa versão
+	// anterior tinha — um deles medido no aparelho:
+	//
+	//  1. A FONTE. Nós líamos frequência do cpuinfo, e o cpuinfo reporta 0 MHz para todos os
+	//     núcleos em boa parte dos SoCs Android — caso em que a nossa máscara saía vazia e o modo
+	//     não fazia nada. O kernel expõe `/sys/devices/system/cpu/cpuN/cpu_capacity`, que é a
+	//     capacidade normalizada que o próprio EAS usa para escalonar. É a fonte certa, e existe
+	//     em todo DynamIQ/big.LITTLE.
+	//
+	//  2. O CRITÉRIO. Agrupar por CLUSTER quebra no QCS8550 do Odin 2, onde o Cortex-X3 é um
+	//     cluster de um núcleo só. O critério deles é por CAPACIDADE: tudo dentro de 25% do
+	//     núcleo mais forte conta como rápido, então o X3 e os quatro A715/A710 ficam juntos e só
+	//     os três A510 sobram como lentos. Chega ao mesmo lugar na topologia que a gente conhece
+	//     e continua correto nas que a gente não conhece.
+	//
+	// A terceira ideia é deles inteira, e é a que mais rende: RESERVAR O NÚCLEO MAIS FORTE PARA A
+	// THREAD QUE SEGURA O QUADRO. No RPCS3 é a RSX, medida gastando ~10 ms por quadro dentro do
+	// próprio laço sem rodar — nem bloqueada na GPU, nem em falta de página, apenas esperando um
+	// núcleo, porque as threads de SPU disputavam a mesma máscara. Aqui a análoga é a MTGS: é ela
+	// que submete e apresenta. EE e VU ficam com os rápidos MENOS o prime, e só quando isso ainda
+	// lhes deixa mais de um núcleo — senão o remédio aperta mais que a doença.
 	if (g_android_affinity_mode == 7)
 	{
-		// "Fast part" = every cluster EXCEPT the slowest one.
-		//
-		// The previous rule was "the cluster owning the highest-frequency core", and on a modern
-		// three-cluster Snapdragon that is a trap rather than a tuning: the QCS8550 in the Odin 2
-		// reports 1x Cortex-X3 + 4x A715/A710 + 3x A510, so the top cluster is a SINGLE core, and
-		// "Performance Cores" quietly confined EE, GS and VU to it — three busy threads fighting
-		// over one core, which is slower than no pinning at all. The mode looked like the safe
-		// choice and was the worst one.
-		//
-		// Dropping only the slowest cluster gives what people mean by the name: 5 cores on that
-		// SoC, the 4 big ones on a 4+4, everything on a single-cluster chip. It keeps the little
-		// cores — where a migrated EE thread costs tens of milliseconds — out of the way without
-		// ever collapsing onto one core.
-		//
-		// NOTE: deliberately NOT Internal::GetPerformanceClusterAffinityMask() — that is still a
-		// stub returning 0 in this core, which would make this mode silently do nothing.
-		const u64 perf_mask = [] {
-			const u32 count = cpuinfo_get_processors_count();
-
-			// Slowest cluster by the frequency of the cores in it.
-			const cpuinfo_cluster* slowest = nullptr;
-			u32 slowest_freq = 0;
-			bool frequencies_differ = false;
-			u32 first_freq = 0;
-			bool have_first = false;
-			for (u32 i = 0; i < count; i++)
+		// Capacidade por núcleo, direto do kernel. Lida uma vez: o arquivo não muda em runtime.
+		static const std::array<u32, 64> capacities = [] {
+			std::array<u32, 64> caps{};
+			for (u32 core = 0; core < 64; core++)
 			{
-				const cpuinfo_processor* proc = cpuinfo_get_processor(i);
-				if (!proc || proc->smt_id != 0 || !proc->core || !proc->cluster)
+				const std::string path = fmt::format("/sys/devices/system/cpu/cpu{}/cpu_capacity", core);
+				std::optional<std::string> text = FileSystem::ReadFileToString(path.c_str());
+				if (!text.has_value())
 					continue;
-				const u32 freq = proc->core->frequency;
-				if (!have_first)
-				{
-					first_freq = freq;
-					have_first = true;
-				}
-				else if (freq != first_freq)
-				{
-					frequencies_differ = true;
-				}
-				if (!slowest || freq < slowest_freq)
-				{
-					slowest = proc->cluster;
-					slowest_freq = freq;
-				}
+				caps[core] = static_cast<u32>(std::atoi(text->c_str()));
 			}
-
-			// cpuinfo reports 0 MHz for every core on a good number of Android SoCs. With no
-			// frequencies there is no way to tell which cluster is the slow one, and guessing
-			// would pin the emulator to the little cores half the time. Returning 0 falls through
-			// to the ordered path, which at least ranks by cpuinfo's own processor order.
-			if (!slowest || !frequencies_differ)
-				return static_cast<u64>(0);
-
-			u64 mask = 0;
-			for (u32 i = 0; i < count; i++)
-			{
-				const cpuinfo_processor* proc = cpuinfo_get_processor(i);
-				if (!proc || proc->smt_id != 0 || proc->cluster == slowest)
-					continue;
-				mask |= static_cast<u64>(1) << GetProcessorIdForProcessor(proc);
-			}
-			return mask;
+			return caps;
 		}();
-		if (perf_mask != 0)
+
+		u32 highest = 0;
+		for (const u32 capacity : capacities)
+			highest = std::max(highest, capacity);
+
+		u64 fast_mask = 0;
+		u64 slow_mask = 0;
+		if (highest > 0)
 		{
-			INFO_LOG("Affinity mode: Performance Cores (mask 0x{:x}, {} cores)", perf_mask,
-				std::popcount(perf_mask));
-			s_vm_thread_handle.SetAffinity(perf_mask);
-			MTGS::GetThreadHandle().SetAffinity(perf_mask);
-			vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? perf_mask : 0);
+			// 25% de folga: uma cluster intermediária (A715/A710) entra junto com o prime em vez
+			// de ser jogada no balaio dos A510.
+			const u32 threshold = highest * 3 / 4;
+			for (u32 core = 0; core < 64; core++)
+			{
+				if (capacities[core] == 0)
+					continue;
+				((capacities[core] >= threshold) ? fast_mask : slow_mask) |= (static_cast<u64>(1) << core);
+			}
+		}
+
+		// Sem capacidades, ou com o SoC inteiro na mesma faixa, não há metade rápida para separar
+		// — e inventar uma fixaria o emulador em núcleos escolhidos no chute. Cai no caminho
+		// ordenado, que ao menos usa a ordem do próprio cpuinfo.
+		if (fast_mask != 0 && slow_mask != 0)
+		{
+			u64 prime_mask = 0;
+			u32 best = 0;
+			for (u32 core = 0; core < 64; core++)
+			{
+				if ((fast_mask & (static_cast<u64>(1) << core)) && capacities[core] > best)
+				{
+					best = capacities[core];
+					prime_mask = (static_cast<u64>(1) << core);
+				}
+			}
+
+			const u64 others_mask =
+				(std::popcount(fast_mask & ~prime_mask) > 1) ? (fast_mask & ~prime_mask) : fast_mask;
+
+			INFO_LOG("Affinity mode: Performance Cores — GS 0x{:x} ({} cores), EE/VU 0x{:x} ({} cores)",
+				fast_mask, std::popcount(fast_mask), others_mask, std::popcount(others_mask));
+
+			MTGS::GetThreadHandle().SetAffinity(fast_mask);
+			s_vm_thread_handle.SetAffinity(others_mask);
+			vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? others_mask : 0);
 			s_thread_affinities_set = true;
 			return;
 		}
-		// No usable cluster mask — fall through to the ordered path rather than silently
-		// leaving the user's chosen mode doing nothing.
+		// Sem leitura utilizável — segue para o caminho ordenado em vez de deixar o modo escolhido
+		// pelo usuário sem efeito nenhum.
 	}
 
 	// Modes 1-6: explicit EE/VU/GS priority over s_processor_list, which is ordered fastest

@@ -626,7 +626,31 @@ bool VKSwapChain::CreateSwapChain()
 	const bool use_triple =
 		(m_window_info.type == WindowInfo::Type::VulkanDirect) ||
 		(m_present_mode == VK_PRESENT_MODE_MAILBOX_KHR);
-	const u32 desired_image_count = use_triple ? 3 : 2;
+	u32 desired_image_count = use_triple ? 3 : 2;
+
+	// Frame generation precisa de MAIS imagens do que a apresentação normal, e pedir de menos
+	// desliga o recurso na prática em vez de deixá-lo lento.
+	//
+	// A conta é direta: por quadro de jogo saem `multiplier` presents (os gerados mais o real), e
+	// ao mesmo tempo uma imagem está sendo composta. Com 3 imagens e multiplicador 2 não sobra
+	// slot livre para o quadro gerado, então o `vkAcquireNextImageKHR` dele bloqueia esperando o
+	// vblank a cada quadro — o que hoje é o nosso mecanismo de pacing por acidente, e o que impede
+	// qualquer multiplicador maior de funcionar: a x4 seriam quatro presents disputando três
+	// imagens.
+	//
+	// O ARMSX3 chegou ao mesmo requisito por outro caminho e o deixou escrito em VKPresent.cpp: o
+	// caminho que segura o quadro real por um present — para o gerado sair NA FRENTE dele, que é o
+	// que corrige a cadência — só é habilitado quando a swapchain tem 4 imagens ou mais, e abaixo
+	// disso eles preferem cair no caminho serializado a "degradar em silêncio". Vale registrar
+	// também que eles desligaram esse caminho por um travamento no reciclo de contexto de quadro
+	// que não conseguiram fechar; a arquitetura do PCSX2 aqui é mais simples, mas o aviso está
+	// dado e a mudança abaixo NÃO é essa — é só o pré-requisito dela.
+	if (GSConfig.LsfgEnabled)
+	{
+		const u32 for_generation = std::max<u32>(GSConfig.LsfgMultiplier, 2u) + 2u;
+		desired_image_count = std::max(desired_image_count, for_generation);
+	}
+
 	u32 image_count = std::clamp<u32>(
 		desired_image_count, surface_capabilities.minImageCount,
 		(surface_capabilities.maxImageCount == 0) ? std::numeric_limits<u32>::max() : surface_capabilities.maxImageCount);

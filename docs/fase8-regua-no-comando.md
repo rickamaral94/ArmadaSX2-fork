@@ -810,3 +810,82 @@ A informação que distingue já existia (`assetName`), só não estava sendo mo
 a ser `arquivo · tag`, e a fonte sai — estas linhas já vivem dentro do grupo dela, e repeti-la
 gastava justamente a largura que o nome do arquivo precisa. Vale para toda fonte da lista, sem
 depender de ninguém renomear nada.
+
+## 22. Adendo (8.15) — o que o ARMSX3 rendeu quando eu li o código em vez das notas
+
+A avaliação anterior (8.13) foi feita a partir das **notas de release**, e a conclusão foi "não
+transfere". Lendo o **código** (`git clone` do repositório, HEAD `da26a45`), a conclusão muda em
+dois pontos e se confirma num terceiro.
+
+### 1. A afinidade deles é melhor que a nossa, por dois motivos concretos
+
+`thread_ctrl::get_affinity_mask` em `Utilities/Thread.cpp`:
+
+- **A fonte.** Eles leem `/sys/devices/system/cpu/cpuN/cpu_capacity` — a capacidade normalizada
+  que o próprio EAS usa para escalonar. Nós líamos frequência do cpuinfo, que **reporta 0 MHz em
+  boa parte dos SoCs Android**; era o caso em que a nossa máscara saía vazia e o modo não fazia
+  nada. `cpu_capacity` existe em todo DynamIQ/big.LITTLE.
+- **O critério.** Nós agrupávamos por cluster; eles agrupam por capacidade, com uma folga de 25%:
+  *"anything within 25% of the fastest core counts as fast, so a mid cluster (A715/A710) joins the
+  prime core rather than being lumped in with the A510s"*. Chega ao mesmo lugar no QCS8550 e
+  continua correto em topologias que a gente não conhece — inclusive a que nos mordeu, o X3 sozinho
+  num cluster de um núcleo.
+
+E uma terceira ideia que é inteiramente deles, com a medição junto:
+
+> *"Reserve the single fastest core for RSX where there is one to spare. […] RSX is the thread the
+> frame waits on: it was measured spending about 10ms per frame inside its own loop without
+> running, not blocked on the GPU and not faulting, simply waiting for a core."*
+
+Aqui a análoga da RSX é a **MTGS** — é ela que submete e apresenta. O modo 7 passa a ser:
+
+| thread | máscara | no Odin 2 (QCS8550) |
+|---|---|---|
+| MTGS | rápidos, **incluindo** o prime | 5 núcleos (`0xf8`) |
+| EE | rápidos **menos** o prime | 4 núcleos (`0x78`) |
+| VU1 (MTVU) | idem | 4 núcleos |
+
+Verificado com as capacidades típicas do SoC: `threshold=768`, `fast=0xf8`, `slow=0x7` (os três
+A510, fora), `prime=0x80` (o X3). A regra anterior — a que eu tinha escrito ontem — dava os mesmos
+5 núcleos para as três threads; a de antes dela dava **um** núcleo para as três.
+
+### 2. Eles têm frame generation, bateram no NOSSO problema, e escreveram a saída
+
+`rpcs3/Emu/RSX/VK/VKPresent.cpp` descreve exatamente a correção de cadência que a 8.12 deduziu:
+
+> *"The pipelined path holds the real frame back by one present so the generated image can go out
+> ahead of it, which means one more image in flight than normal presentation needs […] Below that,
+> present_generated_frame's zero-timeout acquire would fail every frame and frame generation would
+> compute images nothing ever puts on screen — worse than the serialised path it replaces, and
+> silently so. So fall back rather than degrade."*
+
+Duas coisas saem daí, e as duas importam:
+
+- **O pré-requisito é contagem de imagens da swapchain.** Eles só habilitam o caminho pipelinado
+  com `get_swap_image_count() >= 4`. Nós pedimos **2** e recebemos **3** (o mínimo do driver), o
+  que é insuficiente até para x2 — e a x4 seriam quatro presents disputando três imagens. Agora,
+  com FG ligado, pedimos `multiplier + 2`.
+- **Eles desligaram o caminho pipelinado** (`k_framegen_pipelining_enabled = false`) por um
+  travamento no reciclo de contexto de quadro que não conseguiram fechar — *"'already retired' still
+  fired twice on device, so at least one more reclaim path exists and has not been found"*. O que
+  shipou neles é o caminho serializado, que é o mesmo que o nosso. **Ninguém resolveu isso ainda**,
+  nem eles.
+
+O aviso fica registrado: a correção de cadência que a 8.12 apontou é a certa e é a que eles
+tentaram; a arquitetura de present do PCSX2 é mais simples que a deles (não há anel de
+`frame_context`), mas o risco tem nome e endereço.
+
+### 3. O que continua não transferindo, e por quê
+
+A nota da 0.9.3 sobre compilação de shader **é** sobre um pool de threads que eles têm e nós não:
+`vk::pipe_compiler::operator()` fixa os workers em `thread_class::general` e dimensiona o pool pelos
+núcleos a que eles estão fixados, não pela máquina. No PCSX2 a compilação é síncrona na thread do
+GS — não há worker para fixar. Isso não mudou por eu ter lido o código; ficou mais claro.
+
+### O que foi aplicado desta leitura
+
+- Modo 7 de afinidade reescrito sobre `cpu_capacity`, limiar de 25% e prime reservado para a MTGS.
+- Swapchain pede `multiplier + 2` imagens quando frame generation está ligado.
+
+O padrão de afinidade **continua `Disabled`**: segue sem uma única medição A/B, e a regra do
+projeto não abre exceção porque a ideia veio de um projeto que a mediu no aparelho dele.
