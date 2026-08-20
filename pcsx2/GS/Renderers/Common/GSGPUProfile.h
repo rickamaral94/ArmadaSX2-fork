@@ -134,6 +134,33 @@ enum class DriverBug : u8
 /// What we actually DO about a bug. Kept separate from [DriverBug] because the same mitigation
 /// answers several defects, and because a workaround can be forced on for testing without
 /// claiming the device has the bug.
+// COMO LER `workarounds=0x…` NOS LOGS — leia isto antes de tirar conclusões de uma sessão.
+//
+// Um bit ligado aqui significa "a tabela de regras acha que este driver precisa disto". NÃO
+// significa, por si só, que o renderer fez alguma coisa. Os bits se dividem em três grupos, e
+// misturá-los já me fez atribuir a um driver um custo que ele não pagava:
+//
+//   APLICADO PELO PERFIL — o código consulta o bit; ligar/desligar a regra muda o comportamento:
+//     RewriteBooleanNegation, ScalarizeVectorBitwiseAnd, StoreBitwiseNegationInTemporary,
+//     UseRenderTargetCopyForFeedback, RewriteUniformIndexing,
+//     UseDescriptorSets e DisableProvokingVertex (desde a etapa 4; GSDeviceVK::ProcessDeviceExtensions).
+//
+//   APLICADO EM OUTRO LUGAR — o renderer FAZ o trabalho, mas decide por conta própria, com
+//   condição própria, sem ler o bit. Aqui o bit é um espelho que pode estar defasado da realidade:
+//     EmulateColorWriteMask            -> GSDeviceVK::m_broken_colormask_with_depth
+//     DisableAttachmentFeedbackLoopLayout -> desligado só no blob Mali r44p1, e de propósito: o
+//         comentário no GSDeviceVK carrega medição em aparelho ("other Mali blobs, including
+//         other G615 units, run it fine") que a tabela, que marca a Mali inteira, não tem. Quando
+//         código e tabela divergem, ganha quem mediu — a tabela aqui é conselho, não ordem.
+//
+//   AINDA NÃO IMPLEMENTADO — nenhum consumidor em lugar nenhum. Ligar a regra não faz nada além
+//   de aparecer no log:
+//     PreferCoherentReadback, UseStagingImageForReadback, AvoidClearLoadOpRenderPass,
+//     GenerateMipmapManuallyForTallTextures, ForceFifoPresent, AlignSwapchainWidthTo32.
+//
+// Ao adicionar um workaround, coloque-o no primeiro grupo ou diga aqui em qual dos outros dois ele
+// caiu. A auditoria que produziu esta lista é um grep de `DriverWorkaround::<nome>` fora dos três
+// arquivos de perfil; se o resultado for zero, o bit é decorativo.
 enum class DriverWorkaround : u8
 {
 	RewriteBooleanNegation,

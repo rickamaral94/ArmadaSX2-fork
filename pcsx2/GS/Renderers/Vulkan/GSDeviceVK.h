@@ -245,6 +245,13 @@ private:
 	bool CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer);
 	bool ProcessDeviceExtensions();
 
+	/// Builds the MobileDriverContext that GSGPUDriverProfile's rule table is matched against.
+	/// Single source, because the profile is now consulted at two different points of device
+	/// bring-up (ProcessDeviceExtensions, for decisions that must happen before vkCreateDevice's
+	/// consequences are locked in, and CheckFeatures, which publishes it) and the two must never
+	/// be matched against slightly different context.
+	MobileDriverContext BuildMobileDriverContext() const;
+
 	bool CreateAllocator();
 	bool CreateCommandBuffers();
 	bool CreateGlobalDescriptorPool();

@@ -913,6 +913,24 @@ bool GSDeviceVK::CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer
 	return true;
 }
 
+MobileDriverContext GSDeviceVK::BuildMobileDriverContext() const
+{
+	MobileDriverContext driver_context;
+	driver_context.api = MobileGpuApi::Vulkan;
+	driver_context.vendor_id = m_device_properties.vendorID;
+	driver_context.device_id = m_device_properties.deviceID;
+	driver_context.driver_version = m_device_properties.driverVersion;
+	driver_context.api_version = m_device_properties.apiVersion;
+	driver_context.max_draw_indirect_count = m_device_properties.limits.maxDrawIndirectCount;
+	if (m_optional_extensions.vk_khr_driver_properties)
+	{
+		driver_context.driver_id = static_cast<u32>(m_device_driver_properties.driverID);
+		driver_context.driver_name = m_device_driver_properties.driverName;
+		driver_context.driver_info = m_device_driver_properties.driverInfo;
+	}
+	return driver_context;
+}
+
 bool GSDeviceVK::ProcessDeviceExtensions()
 {
 	// advanced feature checks
@@ -998,6 +1016,25 @@ bool GSDeviceVK::ProcessDeviceExtensions()
 		m_optional_extensions.vk_ext_attachment_feedback_loop_layout = false;
 	}
 
+	// Resolve the driver profile HERE as well as in CheckFeatures. Two quirk decisions below
+	// (push descriptors, provoking vertex) are taken during extension processing, long before
+	// CheckFeatures publishes the profile — and until now they were hand-rolled vendorID checks
+	// that duplicated, and in one case CONTRADICTED, the rule table.
+	//
+	// The contradiction was PowerVR: `vk-powervr-proprietary` declares BrokenPushDescriptors /
+	// UseDescriptorSets, but the code below only ever disabled push descriptors for ARM (0x13B5)
+	// and for an unknown Adreno driver — so an Imagination GPU (0x1010) took the push-descriptor
+	// path the table calls broken, and nothing anywhere noticed, because nothing read the table.
+	// DuckStation and PPSSPP both keep exactly one place where per-driver quirks are decided
+	// (DisableFeaturesForDriver / bugs_.Infest); this is that place for the pre-device decisions.
+	//
+	// Resolution is pure data (a scan of a static table), so calling it twice costs a few
+	// microseconds at bring-up and buys agreement between what we LOG and what we DO.
+	const MobileDriverProfile early_driver_profile =
+		GpuProfileDetector::Resolve(GSConfig.AndroidGpuProfileOverride, std::string_view(),
+			m_device_properties.deviceName, BuildMobileDriverContext())
+			.driver;
+
 	// Decide whether to bind textures via VK_KHR_push_descriptor. It's optional
 	// now — when it's absent (some Mali, e.g. Mali-G52), unusable, or known-buggy
 	// we fall back to per-frame allocated descriptor sets so Vulkan still runs.
@@ -1024,6 +1061,17 @@ bool GSDeviceVK::ProcessDeviceExtensions()
 		m_device_driver_properties.driverID != VK_DRIVER_ID_QUALCOMM_PROPRIETARY &&
 		m_device_driver_properties.driverID != VK_DRIVER_ID_MESA_TURNIP)
 		m_use_push_descriptors = false;
+	// ...and finally whatever the rule table says. This is additive on purpose: the two checks
+	// above carry device measurements the table does not have (the Adreno one is an explicit
+	// re-measurement that OVERRULED an older blanket disable), so the table may only take push
+	// descriptors away, never hand them back. Today this bit is set solely by
+	// vk-powervr-proprietary and vk-arm-proprietary — Mali is already covered above, so PowerVR
+	// is the case that actually changes behaviour.
+	if (m_use_push_descriptors && early_driver_profile.UsesWorkaround(DriverWorkaround::UseDescriptorSets))
+	{
+		Console.WriteLn("VK: driver profile requests UseDescriptorSets - disabling push descriptors.");
+		m_use_push_descriptors = false;
+	}
 	if (!m_use_push_descriptors)
 		Console.Warning("VK: Using non-push-descriptor texture binding fallback.");
 
@@ -1032,8 +1080,15 @@ bool GSDeviceVK::ProcessDeviceExtensions()
 	// software provoking-vertex-first path runs instead. Turnip keeps the extension: the
 	// this backend has shipped it on Turnip with no flat-shading reports, and the SW fallback
 	// costs GS-thread CPU per flat-shaded batch.
-	if (m_optional_extensions.vk_ext_provoking_vertex && properties2.properties.vendorID == 0x5143u &&
-		m_device_driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY)
+	//
+	// The rule table says the same thing (vk-qualcomm-proprietary carries BrokenProvokingVertex /
+	// DisableProvokingVertex over exactly this set), so the table is consulted too and the two
+	// agree by construction rather than by coincidence. Keeping the explicit check as well means
+	// a table edit cannot silently RE-ENABLE the extension on the blob.
+	if (m_optional_extensions.vk_ext_provoking_vertex &&
+		((properties2.properties.vendorID == 0x5143u &&
+			 m_device_driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY) ||
+			early_driver_profile.UsesWorkaround(DriverWorkaround::DisableProvokingVertex)))
 		m_optional_extensions.vk_ext_provoking_vertex = false;
 
 	if (m_optional_extensions.vk_ext_line_rasterization && !line_rasterization_feature.bresenhamLines)
@@ -3476,22 +3531,9 @@ bool GSDeviceVK::CheckFeatures()
 	//     Adreno, so publishing the runtime profile here would hand desktop callers a wrong answer.
 	//   - GS tuning / GPU identity: their only consumers are themselves __ANDROID__-gated, and
 	//     changing desktop texture-pool sizing is not this code's business.
-	MobileDriverContext driver_context;
-	driver_context.api = MobileGpuApi::Vulkan;
-	driver_context.vendor_id = m_device_properties.vendorID;
-	driver_context.device_id = m_device_properties.deviceID;
-	driver_context.driver_version = m_device_properties.driverVersion;
-	driver_context.api_version = m_device_properties.apiVersion;
-	driver_context.max_draw_indirect_count = m_device_properties.limits.maxDrawIndirectCount;
-	if (m_optional_extensions.vk_khr_driver_properties)
-	{
-		driver_context.driver_id = static_cast<u32>(m_device_driver_properties.driverID);
-		driver_context.driver_name = m_device_driver_properties.driverName;
-		driver_context.driver_info = m_device_driver_properties.driverInfo;
-	}
 	const GpuProfileSelection mobile_profile = GpuProfileDetector::Resolve(
 		GSConfig.AndroidGpuProfileOverride, std::string_view(), m_device_properties.deviceName,
-		driver_context);
+		BuildMobileDriverContext());
 	SetMobileDriverProfile(mobile_profile.driver);
 
 	// Veredito único do fork sobre este aparelho (Fase 3): fabricante, geração Adreno, Vulkan,

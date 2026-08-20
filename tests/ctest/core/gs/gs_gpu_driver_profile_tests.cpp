@@ -59,6 +59,28 @@ bool TakesTheRenderTargetCopyPath(const GpuProfileSelection& sel)
 {
 	return sel.driver.UsesWorkaround(DriverWorkaround::UseRenderTargetCopyForFeedback);
 }
+
+constexpr u32 kQualcommDriverId = 6;   // VK_DRIVER_ID_QUALCOMM_PROPRIETARY
+constexpr u32 kMesaTurnipDriverId = 18; // VK_DRIVER_ID_MESA_TURNIP
+constexpr u32 kImaginationDriverId = 7; // VK_DRIVER_ID_IMAGINATION_PROPRIETARY
+constexpr u32 kAdrenoVendorId = 0x5143u;
+constexpr u32 kImaginationVendorId = 0x1010u;
+
+GpuProfileSelection ResolveAdrenoVK(const char* device_name, u32 driver_id, u32 packed_version)
+{
+	MobileDriverContext context;
+	context.api = MobileGpuApi::Vulkan;
+	context.vendor_id = kAdrenoVendorId;
+	context.driver_id = driver_id;
+	context.driver_version = packed_version;
+	context.driver_name = (driver_id == kMesaTurnipDriverId) ? "turnip" : "Qualcomm driver";
+	return GpuProfileDetector::Resolve("auto", std::string_view(), device_name, context);
+}
+
+bool EmulatesColorWriteMask(const GpuProfileSelection& sel)
+{
+	return sel.driver.UsesWorkaround(DriverWorkaround::EmulateColorWriteMask);
+}
 } // namespace
 
 // The GL string carries the Arm driver revision in its vendor-specific tail ("v1.r44p1-..."), and
@@ -118,4 +140,74 @@ TEST(GSGpuDriverProfile, OtherMaliOpenGLRevisionsKeepTheInTileRead)
 		ResolveGL("ARM", "Mali-G615 MC6", "OpenGL ES 3.2 v1.r45p1-01eac0.deadbeefdeadbeefdeadbeefdeadbeef")));
 	EXPECT_FALSE(TakesTheRenderTargetCopyPath(
 		ResolveGL("ARM", "Mali-G57 MC2", "OpenGL ES 3.2 v1.r32p1-01eac0.deadbeefdeadbeefdeadbeefdeadbeef")));
+}
+
+
+// --- Adreno colorWriteMask-with-depthtest (PPSSPP #10421) -------------------------------------
+//
+// GSDeviceVK has implemented this workaround for a while under m_broken_colormask_with_depth, with
+// the condition "Adreno, not Turnip, and (pre-6xx OR blob older than 0x801EA000)". The rule table
+// only ever described the 5xx half of that, so `workarounds=0x…` in an emulog UNDER-reported what
+// the renderer was doing on a 6xx-or-newer part with an old blob. These tests pin the two halves of
+// the widened rule and, above all, the Turnip exclusion.
+
+// 0x801EA000 is 512.490.0 once decoded, and PPSSPP reports it as the first known-good blob. A
+// device below it must carry the bug regardless of how new the GPU is.
+TEST(GSGpuDriverProfile, OldQualcommBlobOnModernAdrenoStillEmulatesColorWriteMask)
+{
+	EXPECT_TRUE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Adreno (TM) 640", kQualcommDriverId, PackVulkanVersion(512, 384, 0))));
+	EXPECT_TRUE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 489, 0))));
+}
+
+// ...and 512.490 itself is the boundary, exclusive: at and above it the workaround costs a blend
+// rewrite for nothing.
+TEST(GSGpuDriverProfile, CurrentQualcommBlobDoesNotEmulateColorWriteMask)
+{
+	EXPECT_FALSE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 490, 0))));
+	EXPECT_FALSE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 780, 0))));
+}
+
+// THE TRAP THIS RULE EXISTS TO AVOID. Mesa reports its own version -- 26.x, i.e. numerically far
+// below 512.490 -- so a rule keyed on the version alone would fire on EVERY Turnip device ever, and
+// silently. The rule is keyed on MobileGpuDriver::QualcommProprietary; this asserts that keying
+// actually holds for the target device of this fork.
+TEST(GSGpuDriverProfile, TurnipNeverEmulatesColorWriteMaskDespiteItsLowVersionNumber)
+{
+	EXPECT_FALSE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2))));
+	EXPECT_FALSE(EmulatesColorWriteMask(
+		ResolveAdrenoVK("Turnip Adreno (TM) 650", kMesaTurnipDriverId, PackVulkanVersion(26, 2, 99))));
+}
+
+// --- push descriptors ---------------------------------------------------------------------------
+//
+// GSDeviceVK::ProcessDeviceExtensions now consults UseDescriptorSets instead of only checking
+// vendorIDs by hand, which is what finally makes the PowerVR entry take effect. Pin both directions:
+// PowerVR must ask for the fallback, and the two Adreno drivers this fork actually ships on must
+// NOT -- push descriptors are measured faster on both, and a table edit that took them away would
+// be a silent per-draw regression on the target device.
+TEST(GSGpuDriverProfile, PowerVRAsksForTheDescriptorSetFallback)
+{
+	MobileDriverContext context;
+	context.api = MobileGpuApi::Vulkan;
+	context.vendor_id = kImaginationVendorId;
+	context.driver_id = kImaginationDriverId;
+	context.driver_version = PackVulkanVersion(1, 12, 0);
+	context.driver_name = "PowerVR";
+	const GpuProfileSelection sel =
+		GpuProfileDetector::Resolve("auto", std::string_view(), "PowerVR Rogue GE8320", context);
+
+	EXPECT_TRUE(sel.driver.UsesWorkaround(DriverWorkaround::UseDescriptorSets));
+}
+
+TEST(GSGpuDriverProfile, AdrenoKeepsPushDescriptorsOnBothDrivers)
+{
+	EXPECT_FALSE(ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 780, 0))
+					 .driver.UsesWorkaround(DriverWorkaround::UseDescriptorSets));
+	EXPECT_FALSE(ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2))
+					 .driver.UsesWorkaround(DriverWorkaround::UseDescriptorSets));
 }

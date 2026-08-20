@@ -339,7 +339,7 @@ static bool RuleMatches(const DriverRule& rule, const GpuProfileSelection& selec
 // Sources and exact upstream revisions are mirrored in docs/gpu-driver-database.json. A known
 // driver bug is not automatically an active workaround: expensive renderer fallbacks stay disabled
 // until their PCSX2 integration has a bounded, tested condition.
-static constexpr std::array<DriverRule, 27> s_driver_rules = {{
+static constexpr std::array<DriverRule, 28> s_driver_rules = {{
 	{"gl-arm-buffer-stream", MobileGpuApi::OpenGL, RuntimeGpuProfile::Mali,
 		MobileGpuDriver::ArmProprietary, MobileGpuArchitecture::Unknown, 0, 0, 0, {}, {}, 0, 0, false,
 		Bug(DriverBug::BrokenBufferStreaming) | Bug(DriverBug::BrokenUnsynchronizedMapping) |
@@ -475,6 +475,21 @@ static constexpr std::array<DriverRule, 27> s_driver_rules = {{
 	{"vk-adreno5xx-depth-stencil", MobileGpuApi::Vulkan, RuntimeGpuProfile::Adreno,
 		MobileGpuDriver::QualcommProprietary, MobileGpuArchitecture::Adreno5xx, 500, 599, 0, {}, {}, 0, 0, false,
 		Bug(DriverBug::BrokenDepthStencilDiscard) | Bug(DriverBug::BrokenColorWriteMaskWithDepthTest),
+		Workaround(DriverWorkaround::EmulateColorWriteMask)},
+	// The colorWriteMask-with-depthtest defect is NOT confined to 5xx: PPSSPP #10421 records it
+	// still present on blob 512.384 and reports 512.490 / Adreno 620 as the first known-good
+	// combination, so every 6xx-and-newer part on a blob older than 512.490 has it too. Turnip is
+	// excluded by construction (this rule is keyed on QualcommProprietary), which matters because
+	// Mesa reports its OWN version — always numerically below 512.490 — and a driver-agnostic
+	// rule would fire on every Turnip device on Earth.
+	//
+	// GSDeviceVK::CheckFeatures already implements this workaround under
+	// m_broken_colormask_with_depth, with exactly this condition, and does NOT read the bit below.
+	// The rule exists so the `workarounds=0x…` field in @@FORK@@ identity stops UNDER-reporting
+	// what the renderer actually does on those devices — see the enforcement note in GSGPUProfile.h.
+	{"vk-qualcomm-colormask-before-512-490", MobileGpuApi::Vulkan, RuntimeGpuProfile::Adreno,
+		MobileGpuDriver::QualcommProprietary, MobileGpuArchitecture::Unknown, 600, 65535, 0, {}, {512, 490, 0},
+		0, 0, false, Bug(DriverBug::BrokenColorWriteMaskWithDepthTest),
 		Workaround(DriverWorkaround::EmulateColorWriteMask)},
 	{"vk-qualcomm-dynamic-rendering-before-512-801", MobileGpuApi::Vulkan, RuntimeGpuProfile::Adreno,
 		MobileGpuDriver::QualcommProprietary, MobileGpuArchitecture::Unknown, 0, 0, 0, {}, {512, 801, 0},
