@@ -35,7 +35,12 @@ import com.armsx2.ui.common.ArmsTopBar
 import com.armsx2.ui.common.GlassPanel
 import com.armsx2.ui.common.RoundAction
 
-private const val RepositoryUrl = "https://github.com/ARMSX2/ARMSX2"
+// Os TRÊS elos da linhagem, e nesta ordem de propósito. Trocar o primeiro pelo nosso repositório
+// era necessário — o app não é o ARMSX2 e não deve mandar quem procura o código para lá. Mas
+// trocar SEM acrescentar o cartão do ARMSX2 apagaria o crédito ao projeto de que este fork
+// descende, o que é o oposto do que uma bifurcação GPL deve fazer com quem veio antes.
+private const val RepositoryUrl = "https://github.com/rickamaral94/ArmadaSX2-fork"
+private const val Armsx2RepositoryUrl = "https://github.com/ARMSX2/ARMSX2"
 private const val Pcsx2RepositoryUrl = "https://github.com/PCSX2/pcsx2"
 
 @Composable
@@ -108,10 +113,18 @@ fun AboutScreen(onBack: () -> Unit, viewModel: AboutViewModel = viewModel()) {
                     if (compact) {
                         ProjectCard(
                             title = str("about.repository.title"),
-                            repository = "ARMSX2/ARMSX2",
+                            repository = "rickamaral94/ArmadaSX2-fork",
                             description = str("about.repository.description"),
                             glyph = "⌘",
                             onOpen = { uriHandler.openUri(RepositoryUrl) },
+                        )
+                        ProjectCard(
+                            title = str("about.armsx2.title"),
+                            repository = "ARMSX2/ARMSX2",
+                            description = str("about.armsx2.description"),
+                            glyph = "↟",
+                            secondary = true,
+                            onOpen = { uriHandler.openUri(Armsx2RepositoryUrl) },
                         )
                         ProjectCard(
                             title = str("about.pcsx2.title"),
@@ -125,11 +138,20 @@ fun AboutScreen(onBack: () -> Unit, viewModel: AboutViewModel = viewModel()) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             ProjectCard(
                                 title = str("about.repository.title"),
-                                repository = "ARMSX2/ARMSX2",
+                                repository = "rickamaral94/ArmadaSX2-fork",
                                 description = str("about.repository.description"),
                                 glyph = "⌘",
                                 modifier = Modifier.weight(1f),
                                 onOpen = { uriHandler.openUri(RepositoryUrl) },
+                            )
+                            ProjectCard(
+                                title = str("about.armsx2.title"),
+                                repository = "ARMSX2/ARMSX2",
+                                description = str("about.armsx2.description"),
+                                glyph = "↟",
+                                secondary = true,
+                                modifier = Modifier.weight(1f),
+                                onOpen = { uriHandler.openUri(Armsx2RepositoryUrl) },
                             )
                             ProjectCard(
                                 title = str("about.pcsx2.title"),

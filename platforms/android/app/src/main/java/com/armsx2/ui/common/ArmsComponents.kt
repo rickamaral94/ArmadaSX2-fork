@@ -69,8 +69,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.armsx2.R
-import com.armsx2.ui.theme.ArmsBlue
-import com.armsx2.ui.theme.ArmsCyan
+import com.armsx2.ui.theme.ArmadaRed
+import com.armsx2.ui.theme.ArmadaCrimson
 import com.armsx2.ui.settings.controllerFocusable
 
 @Composable
@@ -116,17 +116,20 @@ fun ArmsBackdrop(
 @Composable
 fun ArmsLogo(modifier: Modifier = Modifier, showWordmark: Boolean = true, iconSize: Dp = 42.dp) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        // The ARMSX2 tower mark (bagas's logo), circle-cropped so its dark square
-        // corners don't show — matches the round hero render.
+        // A marca do ArmadaSX2 — três galões em formação, desenhados em vetor.
+        //
+        // Não é mais recortada em círculo: o recorte existia porque a arte anterior era um PNG
+        // pré-composto com fundo escuro próprio, e os cantos quadrados apareciam sobre o tema. O
+        // vetor tem fundo transparente, então o recorte só comeria as pontas dos galões.
         Image(
-            painter = painterResource(id = R.drawable.savetowerforeground),
-            contentDescription = "ARMSX2",
-            modifier = Modifier.size(iconSize).clip(CircleShape),
+            painter = painterResource(id = R.drawable.ic_armada_mark),
+            contentDescription = "ArmadaSX2",
+            modifier = Modifier.size(iconSize),
         )
         if (showWordmark) {
             Spacer(Modifier.width(12.dp))
             Text(
-                text = "ARMSX2",
+                text = "ArmadaSX2",
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Black,

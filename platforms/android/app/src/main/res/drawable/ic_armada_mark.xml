@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A marca do ArmadaSX2: três galões em formação, do mais claro ao mais escuro.
+
+  Vetor, e não bitmap, por dois motivos. O primeiro é técnico: o mesmo arquivo serve ao ícone do
+  launcher (108dp), ao herói da tela de configuração (82dp) e à barra superior (42dp) sem nenhuma
+  perda — o raster anterior era um PNG pré-composto de 1024px que o launcher recortava e ampliava.
+
+  O segundo é de identidade, e é o que motivou a troca: a arte anterior era o logotipo do projeto
+  de origem. Manter o desenho deles enquanto o app se chama outra coisa é exatamente a mistura de
+  identidades que este fork existe para desfazer.
+
+  A geometria é literal: "armada" é frota, e três galões em formação lêem como frota em qualquer
+  tamanho — sem texto, que é o primeiro detalhe a virar borrão a 42dp.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Galão da frente, o mais claro: é o que o olho pega primeiro num ícone pequeno. -->
+    <path
+        android:fillColor="#FFB9AC"
+        android:pathData="M11,19 L24,6 L37,19 L32,19 L24,11 L16,19 Z" />
+
+    <!-- Galão do meio, no vermelho de marca clareado. -->
+    <path
+        android:fillColor="#FF8B7D"
+        android:pathData="M9,32 L24,17 L39,32 L33.5,32 L24,22.5 L14.5,32 Z" />
+
+    <!-- Galão de trás, no vermelho de marca cheio: ancora a composição na base. -->
+    <path
+        android:fillColor="#E1483B"
+        android:pathData="M7,45 L24,28 L41,45 L35,45 L24,34 L13,45 Z" />
+</vector>

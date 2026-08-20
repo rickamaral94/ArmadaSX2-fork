@@ -977,7 +977,7 @@ data class Settings(
         put("DEV9/Eth/Hosts", "Count", "int", dev9EthHosts.size.toString())
         dev9EthHosts.forEachIndexed { i, h ->
             put("DEV9/Eth/Hosts/Host$i", "Url", "string", h.url)
-            put("DEV9/Eth/Hosts/Host$i", "Desc", "string", "ARMSX2")
+            put("DEV9/Eth/Hosts/Host$i", "Desc", "string", "ArmadaSX2")
             put("DEV9/Eth/Hosts/Host$i", "Address", "string", h.ip.ifEmpty { "0.0.0.0" })
             put("DEV9/Eth/Hosts/Host$i", "Enabled", "bool", h.enabled.toString())
         }

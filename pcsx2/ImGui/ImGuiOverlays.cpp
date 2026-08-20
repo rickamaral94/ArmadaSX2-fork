@@ -568,7 +568,11 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				s_speed_line.append_format("{}ARMSX2 " ARMSX2_IOS_OSD_VERSION " | Core: {}",
 					s_speed_line.empty() ? "" : " | ", BuildVersion::GitRev);
 #elif defined(__ANDROID__)
-				s_speed_line.append_format("{}ARMSX2 2.7", s_speed_line.empty() ? "" : " | ");
+				// Nome do fork e a revisão REAL do build, como no ramo desktop logo abaixo.
+				// O "2.7" que estava aqui era fixo e era a versão do upstream: todo relato de
+				// teste chegaria citando um número que não identifica build nenhum nosso.
+				s_speed_line.append_format("{}ArmadaSX2 {}", s_speed_line.empty() ? "" : " | ",
+					BuildVersion::GitRev);
 #else
 				s_speed_line.append_format("{}PCSX2 {}", s_speed_line.empty() ? "" : " | ", BuildVersion::GitRev);
 #endif

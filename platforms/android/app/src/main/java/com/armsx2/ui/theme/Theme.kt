@@ -295,15 +295,15 @@ object LauncherOrientationPreferences {
 }
 
 private val NightScheme = darkColorScheme(
-    primary = ArmsBlueBright,
-    onPrimary = Color(0xFF07101F),
-    primaryContainer = Color(0xFF183B73),
-    onPrimaryContainer = Color(0xFFD9E7FF),
-    secondary = ArmsCyan,
-    onSecondary = Color(0xFF001F25),
-    secondaryContainer = Color(0xFF123944),
-    onSecondaryContainer = Color(0xFFB9F3FF),
-    tertiary = ArmsViolet,
+    primary = ArmadaRedBright,
+    onPrimary = Color(0xFF33100B),
+    primaryContainer = Color(0xFF6F2118),
+    onPrimaryContainer = Color(0xFFFFDAD4),
+    secondary = ArmadaCrimson,
+    onSecondary = Color(0xFF3A0A1B),
+    secondaryContainer = Color(0xFF6A1533),
+    onSecondaryContainer = Color(0xFFFFD9E2),
+    tertiary = ArmadaBronze,
     background = NightBackground,
     onBackground = NightText,
     surface = NightSurface,
@@ -318,15 +318,15 @@ private val NightScheme = darkColorScheme(
 )
 
 private val DayScheme = lightColorScheme(
-    primary = Color(0xFF245DAD),
+    primary = Color(0xFFB3261E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD8E6FF),
-    onPrimaryContainer = Color(0xFF0A2B58),
-    secondary = Color(0xFF087C91),
+    primaryContainer = Color(0xFFFFDAD4),
+    onPrimaryContainer = Color(0xFF410100),
+    secondary = Color(0xFF9C3355),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFCAF3FA),
-    onSecondaryContainer = Color(0xFF00363F),
-    tertiary = Color(0xFF5E51B5),
+    secondaryContainer = Color(0xFFFFD9E2),
+    onSecondaryContainer = Color(0xFF3E0018),
+    tertiary = Color(0xFF8A5A22),
     background = DayBackground,
     onBackground = DayText,
     surface = DaySurface,
@@ -335,7 +335,9 @@ private val DayScheme = lightColorScheme(
     onSurfaceVariant = DayTextMuted,
     outline = DayOutline,
     outlineVariant = DayOutline,
-    error = Color(0xFFB3263E),
+    // Mais magenta que o primário pelo mesmo motivo do tema escuro: numa marca vermelha, um erro
+    // pintado de vermelho-marca deixa de ser aviso.
+    error = Color(0xFFC2185B),
     scrim = Color.Black,
     surfaceTint = Color.Transparent,
 )

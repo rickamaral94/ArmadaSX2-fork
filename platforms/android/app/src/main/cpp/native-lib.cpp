@@ -2573,7 +2573,7 @@ void Host::OnGameChanged(const std::string& title, const std::string& elf_overri
     // shutdown/eject.
     if (current_crc != 0 || !disc_path.empty() || !title.empty()) {
         Host::AddKeyedOSDMessage("armsx2_free_software_notice",
-            "You are using ARMSX2, and it should not be sold, or distributed as part of any other "
+            "You are using ArmadaSX2, and it should not be sold, or distributed as part of any other "
             "app. If you paid for this app, you should get your money back.",
             10.0f);
     }

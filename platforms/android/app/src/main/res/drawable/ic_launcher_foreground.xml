@@ -1,19 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  savetowerforeground is a fully pre-composed icon (tower + its own dark radial
-  background) that fills the whole 1024px square. Dropping it straight into an
-  adaptive-icon <foreground> with gravity="fill" stretches it across the entire
-  108dp layer, so the launcher mask (which only shows the centre ~72dp safe zone)
-  crops the dark margins and zooms hard into the tower. Inset the artwork so the
-  full composition lands inside the safe zone and the tower keeps its breathing
-  room; the ~18% margin shows the solid #01071C adaptive background, which matches
-  the artwork's dark edges so the seam is invisible.
+  A marca vetorial, recuada para caber na zona segura do ícone adaptativo.
+
+  A máscara do launcher só garante os ~72dp centrais dos 108dp da camada, então arte encostada na
+  borda é cortada — em recorte circular, agressivamente. 22% de recuo deixa os três galões
+  inteiros dentro da zona segura em qualquer máscara (círculo, squircle, gota).
 -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:inset="18%">
-    <bitmap
-        android:antialias="true"
-        android:dither="true"
-        android:gravity="fill"
-        android:src="@drawable/savetowerforeground" />
+    android:inset="22%">
+    <vector
+        android:width="108dp"
+        android:height="108dp"
+        android:viewportWidth="48"
+        android:viewportHeight="48">
+        <path
+            android:fillColor="#FFB9AC"
+            android:pathData="M11,19 L24,6 L37,19 L32,19 L24,11 L16,19 Z" />
+        <path
+            android:fillColor="#FF8B7D"
+            android:pathData="M9,32 L24,17 L39,32 L33.5,32 L24,22.5 L14.5,32 Z" />
+        <path
+            android:fillColor="#E1483B"
+            android:pathData="M7,45 L24,28 L41,45 L35,45 L24,34 L13,45 Z" />
+    </vector>
 </inset>

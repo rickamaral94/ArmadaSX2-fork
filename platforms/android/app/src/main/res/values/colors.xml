@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paleta base dos temas XML nativos (a janela desenhada antes de o Compose assumir).
+
+  Os `purple_*`/`teal_*` eram o gabarito do Android Studio e nunca foram a marca de nada. Ficam,
+  com os mesmos nomes, porque `Theme.ArmadaSX2` os referencia e renomear recurso não muda pixel
+  nenhum — mas os VALORES passam a ser os da identidade, para não haver um lampejo de outra cor
+  antes da primeira composição.
+-->
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <color name="purple_200">#FFFF8B7D</color>
+    <color name="purple_500">#FFE1483B</color>
+    <color name="purple_700">#FF8C2318</color>
+    <color name="teal_200">#FFD65A7E</color>
+    <color name="teal_700">#FF9C3355</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

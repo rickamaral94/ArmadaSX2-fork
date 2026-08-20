@@ -17,14 +17,14 @@ import java.io.File
  * the button, sees "Saved screenshot to …" and then cannot find the file anywhere.
  */
 object Screenshots {
-    private const val ALBUM = "ARMSX2"
+    private const val ALBUM = "ArmadaSX2"
 
     /** Fire-and-forget: queues the capture on the GS thread, then publishes it once it lands. */
     fun capture(context: Context) {
         val dir = File(MainActivityRuntime.assetCopyRoot(context), "snaps")
         dir.mkdirs()
         // Filename must be unique and must end in .png for the core to accept it as a full path.
-        val name = "ARMSX2_${System.currentTimeMillis()}.png"
+        val name = "ArmadaSX2_${System.currentTimeMillis()}.png"
         val target = File(dir, name)
         runCatching { NativeApp.saveScreenshot(target.absolutePath) }.onFailure { return }
 

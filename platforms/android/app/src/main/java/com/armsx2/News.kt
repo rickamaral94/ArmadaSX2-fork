@@ -20,7 +20,10 @@ import java.net.URL
  */
 object News {
     private const val TAG = "News"
-    private const val RELEASES_URL = "https://api.github.com/repos/ARMSX2/ARMSX2/releases?per_page=20"
+    // O nosso repositório, não o de origem. Um fork que consulta as releases alheias oferece ao
+    // usuário uma "atualização" que é outro app — e que, por ter assinatura diferente, nem instala.
+    private const val RELEASES_URL =
+        "https://api.github.com/repos/rickamaral94/ArmadaSX2-fork/releases?per_page=20"
     private const val CACHE_FILE = "releases.json"
     private const val CACHE_TTL_MS = 6L * 60 * 60 * 1000 // 6h; releases are not frequent
     private const val MAX_BODY_BYTES = 512 * 1024
