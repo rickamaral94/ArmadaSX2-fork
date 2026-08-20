@@ -1545,10 +1545,10 @@ std::vector<std::string> GSDeviceVK::GetExtendedStats() const
 			default: break;
 		}
 		lines.push_back(fmt::format(
-			"Swapchain: {}x{} (scale {:.2f}) fmt={} present={} images={} wsi={}",
+			"Swapchain: {}x{} (scale {:.2f}) fmt={} present={} images={} (wanted {}) wsi={}",
 			m_swap_chain->GetWidth(), m_swap_chain->GetHeight(), wi.surface_scale,
 			static_cast<unsigned>(m_swap_chain->GetTextureFormat()),
-			present_name, m_swap_chain->GetImageCount(), wsi_name));
+			present_name, m_swap_chain->GetImageCount(), m_swap_chain->GetDesiredImageCount(), wsi_name));
 	}
 
 	const VKSwapChain::PresentStats ps = VKSwapChain::GetPresentStats();
@@ -3072,6 +3072,35 @@ GSDevice::PresentResult GSDeviceVK::DoBeginPresent(bool frame_skip)
 	{
 		resources.pipeline_statistics_query = QueryState::Ready;
 		vkCmdEndQuery(m_current_command_buffer, m_pipeline_statistics_query_pool, m_current_frame);
+	}
+
+	// A swapchain ficou defasada em relação à configuração? O número de imagens é decidido UMA vez,
+	// na criação, a partir de GSConfig.LsfgEnabled/LsfgMultiplier — e nenhuma das duas é opção de
+	// restart (Pcsx2Config::RestartOptionsAreEqual), nem dispara recriação por qualquer outro
+	// caminho. Consequência: ligar frame generation com o jogo rodando deixava a swapchain com as
+	// 2 imagens do caminho normal, e o quadro gerado bloqueava no vkAcquireNextImageKHR esperando
+	// vblank — exatamente a cadência que o pedido de `multiplier + 2` existe para corrigir. O
+	// recurso "funcionava" e a correção não se aplicava, sem uma linha de log dizendo isso.
+	//
+	// A comparação é contra o que foi PEDIDO, nunca contra GetImageCount(): num aparelho que limita
+	// a swapchain abaixo do pedido, comparar com o número real recriaria a swapchain todo quadro.
+	if (m_swap_chain)
+	{
+		const u32 wanted =
+			VKSwapChain::ComputeDesiredImageCount(m_window_info.type, m_swap_chain->GetPresentMode());
+		if (wanted != m_swap_chain->GetDesiredImageCount())
+		{
+			Console.WriteLnFmt("VK: swapchain image budget changed ({} -> {}), recreating.",
+				m_swap_chain->GetDesiredImageCount(), wanted);
+			WaitForGPUIdle();
+			if (!m_swap_chain->RecreateForImageCountChange())
+			{
+				Console.Error("VK: failed to recreate swap chain for the new image budget.");
+				m_swap_chain.reset();
+				ExecuteCommandBuffer(false);
+				return PresentResult::FrameSkipped;
+			}
+		}
 	}
 
 	VkResult res = m_resize_requested ? VK_ERROR_OUT_OF_DATE_KHR : m_swap_chain->AcquireNextImage();

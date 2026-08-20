@@ -211,3 +211,24 @@ TEST(GSGpuDriverProfile, AdrenoKeepsPushDescriptorsOnBothDrivers)
 	EXPECT_FALSE(ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2))
 					 .driver.UsesWorkaround(DriverWorkaround::UseDescriptorSets));
 }
+
+// --- readback: memória coerente vs cacheada ------------------------------------------------------
+//
+// O Dolphin registra BUG_SLOW_CACHED_READBACK_MEMORY em DUAS entradas — {VENDOR_ARM, DRIVER_ARM} e
+// {VENDOR_QUALCOMM, DRIVER_QUALCOMM}, ambas API_VULKAN/OS_ALL/todas as versões. O nosso port trazia
+// só a de ARM, escrita à mão como IsDeviceMali(); GSDownloadTextureVK::Create agora lê o bit do
+// perfil também. Estes testes fixam os dois lados que importam.
+TEST(GSGpuDriverProfile, QualcommBlobPrefersCoherentReadbackMemory)
+{
+	EXPECT_TRUE(ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 780, 0))
+					.driver.UsesWorkaround(DriverWorkaround::PreferCoherentReadback));
+}
+
+// E o Turnip NÃO: o driver padrão deste fork não tem a patologia de invalidação de cache do blob, e
+// trocar a memória de leitura para coerente ali seria adotar uma mudança sem medição nenhuma no
+// aparelho que a maioria dos usuários realmente usa.
+TEST(GSGpuDriverProfile, TurnipKeepsCachedReadbackMemory)
+{
+	EXPECT_FALSE(ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2))
+					 .driver.UsesWorkaround(DriverWorkaround::PreferCoherentReadback));
+}

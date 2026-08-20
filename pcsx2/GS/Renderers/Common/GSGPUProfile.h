@@ -143,7 +143,8 @@ enum class DriverBug : u8
 //   APLICADO PELO PERFIL — o código consulta o bit; ligar/desligar a regra muda o comportamento:
 //     RewriteBooleanNegation, ScalarizeVectorBitwiseAnd, StoreBitwiseNegationInTemporary,
 //     UseRenderTargetCopyForFeedback, RewriteUniformIndexing,
-//     UseDescriptorSets e DisableProvokingVertex (desde a etapa 4; GSDeviceVK::ProcessDeviceExtensions).
+//     UseDescriptorSets e DisableProvokingVertex (GSDeviceVK::ProcessDeviceExtensions),
+//     PreferCoherentReadback (GSDownloadTextureVK::Create).
 //
 //   APLICADO EM OUTRO LUGAR — o renderer FAZ o trabalho, mas decide por conta própria, com
 //   condição própria, sem ler o bit. Aqui o bit é um espelho que pode estar defasado da realidade:
@@ -155,7 +156,7 @@ enum class DriverBug : u8
 //
 //   AINDA NÃO IMPLEMENTADO — nenhum consumidor em lugar nenhum. Ligar a regra não faz nada além
 //   de aparecer no log:
-//     PreferCoherentReadback, UseStagingImageForReadback, AvoidClearLoadOpRenderPass,
+//     UseStagingImageForReadback, AvoidClearLoadOpRenderPass,
 //     GenerateMipmapManuallyForTallTextures, ForceFifoPresent, AlignSwapchainWidthTo32.
 //
 // Ao adicionar um workaround, coloque-o no primeiro grupo ou diga aqui em qual dos outros dois ele

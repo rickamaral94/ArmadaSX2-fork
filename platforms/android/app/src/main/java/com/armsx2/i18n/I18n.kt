@@ -367,7 +367,7 @@ val EN: Map<String, String> = mapOf(
     "app.keyboard.systemIme" to "Use system keyboard",
     "app.keyboard.systemIme.desc" to "Type with your phone's own keyboard instead of the built-in one when searching or renaming games. The built-in keyboard is recommended if you play with a controller, because it can be navigated with the D-pad.",
     "app.bootLogo" to "Boot animation",
-    "app.bootLogo.desc" to "Play the ArmadaSX2 intro video when the app starts.",
+    "app.bootLogo.desc" to "Play the bundled intro video when the app starts.",
     "app.toolbarPosition" to "Library toolbar",
     "app.toolbarPosition.top" to "Top",
     "app.toolbarPosition.bottom" to "Bottom",

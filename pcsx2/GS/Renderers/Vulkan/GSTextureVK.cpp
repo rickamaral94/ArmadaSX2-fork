@@ -866,11 +866,25 @@ std::unique_ptr<GSDownloadTextureVK> GSDownloadTextureVK::Create(u32 width, u32 
 	// Cached host memory is normally the fastest to read back from on the CPU. On the ARM Mali
 	// Vulkan driver, however, cached readbacks are much slower than coherent memory: mapping a
 	// cached readback buffer spends most of its time inside the kernel cache-invalidation routine
-	// (__pi___inval_cache_range), pegging a CPU core. Prefer coherent memory on Mali so texture
-	// readbacks (GT4, Tales, any hardware-download game) skip that invalidation cost. Every other
-	// vendor keeps the cached preference. (Ports Dolphin BUG_SLOW_CACHED_READBACK_MEMORY.)
-	aci.preferredFlags = GSDeviceVK::GetInstance()->IsDeviceMali() ? VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-															   : VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+	// (__pi___inval_cache_range), pegging a CPU core. Prefer coherent memory there so texture
+	// readbacks (GT4, Tales, any hardware-download game) skip that invalidation cost.
+	//
+	// O port do BUG_SLOW_CACHED_READBACK_MEMORY do Dolphin veio pela METADE. O Dolphin registra
+	// esse bug em DUAS entradas de DriverDetails.cpp, ambas API_VULKAN / OS_ALL / todas as versões:
+	// {VENDOR_ARM, DRIVER_ARM} e {VENDOR_QUALCOMM, DRIVER_QUALCOMM}. Só a primeira chegou aqui.
+	// A nossa própria tabela de regras sempre soube disso — vk-qualcomm-proprietary carrega
+	// SlowCachedReadbackMemory / PreferCoherentReadback desde que existe — mas nada lia a tabela,
+	// que é o mesmo defeito estrutural que a etapa 4 encontrou nos push descriptors do PowerVR.
+	//
+	// Consultar o perfil é ADITIVO: a verificação de Mali fica, para o caso de o perfil cair no
+	// fallback conservador e não casar regra nenhuma. E o Turnip NÃO é afetado — a regra é keyed em
+	// MobileGpuDriver::QualcommProprietary, e o Mesa não tem a patologia de invalidação de cache do
+	// blob. O driver padrão do fork continua com memória cacheada.
+	const bool prefer_coherent_readback = GSDeviceVK::GetInstance()->IsDeviceMali() ||
+		GSDeviceVK::GetInstance()->GetMobileDriverProfile().UsesWorkaround(
+			DriverWorkaround::PreferCoherentReadback);
+	aci.preferredFlags = prefer_coherent_readback ? VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+												  : VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 
 	VmaAllocationInfo ai = {};
 	VmaAllocation allocation;

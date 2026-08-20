@@ -598,25 +598,13 @@ bool VKSwapChain::SelectPresentMode(VkSurfaceKHR surface, GSVSyncMode* vsync_mod
 	return true;
 }
 
-bool VKSwapChain::CreateSwapChain()
+// Quantas imagens esta swapchain PRECISA ter, dada a configuração atual. Separado de
+// CreateSwapChain de propósito: a conta depende de opções que o usuário muda com o jogo rodando
+// (FrameGen liga/desliga, multiplicador muda), e sem um jeito de PERGUNTAR o número desejado não
+// havia como perceber que a swapchain existente ficou defasada. Ver
+// GSDeviceVK::DoBeginPresent, que compara este valor com o que foi pedido na criação.
+u32 VKSwapChain::ComputeDesiredImageCount(WindowInfo::Type wsi_type, VkPresentModeKHR present_mode)
 {
-	// Select swap chain format
-	std::optional<VkSurfaceFormatKHR> surface_format = SelectSurfaceFormat(m_surface);
-	if (!surface_format.has_value())
-		return false;
-
-	// Look up surface properties to determine image count and dimensions
-	VkSurfaceCapabilitiesKHR surface_capabilities;
-	VkResult res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-		GSDeviceVK::GetInstance()->GetPhysicalDevice(), m_surface, &surface_capabilities);
-	if (res != VK_SUCCESS)
-	{
-		LOG_VULKAN_ERROR(res, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: ");
-		return false;
-	}
-
-	// Select number of images in swap chain, we prefer one buffer in the background to work on in triple-buffered mode.
-	// maxImageCount can be zero, in which case there isn't an upper limit on the number of buffers.
 	// VK_KHR_display (VulkanDirect) + FIFO + 2 images stalls vkAcquireNextImageKHR
 	// for ~1.5 vsync intervals per frame waiting for the display engine to release
 	// the previously-presented image (measured on some tiler-class drivers). A third
@@ -624,8 +612,7 @@ bool VKSwapChain::CreateSwapChain()
 	// ~33% throughput. Default to 3 images for VulkanDirect, and for MAILBOX
 	// present mode regardless of WSI.
 	const bool use_triple =
-		(m_window_info.type == WindowInfo::Type::VulkanDirect) ||
-		(m_present_mode == VK_PRESENT_MODE_MAILBOX_KHR);
+		(wsi_type == WindowInfo::Type::VulkanDirect) || (present_mode == VK_PRESENT_MODE_MAILBOX_KHR);
 	u32 desired_image_count = use_triple ? 3 : 2;
 
 	// Frame generation precisa de MAIS imagens do que a apresentação normal, e pedir de menos
@@ -650,6 +637,46 @@ bool VKSwapChain::CreateSwapChain()
 		const u32 for_generation = std::max<u32>(GSConfig.LsfgMultiplier, 2u) + 2u;
 		desired_image_count = std::max(desired_image_count, for_generation);
 	}
+
+	return desired_image_count;
+}
+
+// Recria a swapchain mantendo modo de apresentação e superfície — só o número de imagens muda.
+// Mesmo corpo de SetPresentMode, que já faz exatamente isto para outro motivo.
+bool VKSwapChain::RecreateForImageCountChange()
+{
+	ReleaseCurrentImage();
+	DestroySwapChainImages();
+	if (!CreateSwapChain())
+	{
+		DestroySwapChain();
+		return false;
+	}
+
+	return true;
+}
+
+bool VKSwapChain::CreateSwapChain()
+{
+	// Select swap chain format
+	std::optional<VkSurfaceFormatKHR> surface_format = SelectSurfaceFormat(m_surface);
+	if (!surface_format.has_value())
+		return false;
+
+	// Look up surface properties to determine image count and dimensions
+	VkSurfaceCapabilitiesKHR surface_capabilities;
+	VkResult res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+		GSDeviceVK::GetInstance()->GetPhysicalDevice(), m_surface, &surface_capabilities);
+	if (res != VK_SUCCESS)
+	{
+		LOG_VULKAN_ERROR(res, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: ");
+		return false;
+	}
+
+	// Select number of images in swap chain, we prefer one buffer in the background to work on in triple-buffered mode.
+	// maxImageCount can be zero, in which case there isn't an upper limit on the number of buffers.
+	const u32 desired_image_count = ComputeDesiredImageCount(m_window_info.type, m_present_mode);
+	m_desired_image_count = desired_image_count;
 
 	u32 image_count = std::clamp<u32>(
 		desired_image_count, surface_capabilities.minImageCount,

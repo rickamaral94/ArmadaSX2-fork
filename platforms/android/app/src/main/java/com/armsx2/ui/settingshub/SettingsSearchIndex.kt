@@ -13,7 +13,7 @@ import com.armsx2.navigation.SettingsCategory
 internal data class SettingsSearchEntry(val text: String, val isI18nKey: Boolean, val category: SettingsCategory)
 
 internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
-    SettingsSearchEntry("app.bootLogo", true, SettingsCategory.General),
+    SettingsSearchEntry("app.bootLogo", false, SettingsCategory.General),
     SettingsSearchEntry("app.library.search", true, SettingsCategory.General),
     SettingsSearchEntry("app.library.recents", true, SettingsCategory.General),
     SettingsSearchEntry("app.library.coverSize", true, SettingsCategory.General),

@@ -12,11 +12,18 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 /**
- * Boot splash: plays the bundled ARMSX2 intro video (res/raw/boot_intro.mp4) once per
- * process, then hands off to Main. Tapping, the Back button, a hard timeout, and any
- * playback error all fall through to the app so a bad codec or slow decode never
- * strands the user on a black screen. The splash is opt-out via the "ui.bootLogo"
- * preference (App settings, default on) — when disabled it launches Main immediately.
+ * Boot splash: plays the bundled intro video (res/raw/boot_intro.mp4) once per process,
+ * then hands off to Main. Tapping, the Back button, a hard timeout, and any playback
+ * error all fall through to the app so a bad codec or slow decode never strands the
+ * user on a black screen. The splash is opt-in via the "ui.bootLogo" preference (App
+ * settings) — when disabled it launches Main immediately.
+ *
+ * DEFAULT OFF desde a alpha 13, e por um motivo de identidade, não de desempenho:
+ * boot_intro.mp4 é o vídeo do ARMSX2, herdado no commit que trouxe a interface Android, e
+ * nós ainda não fizemos o nosso. Deixá-lo ligado por padrão faz a PRIMEIRA coisa que o
+ * usuário vê ser a marca de outro projeto — logo depois de trocarmos nome, paleta e logo.
+ * O rótulo em I18n já prometia "the ArmadaSX2 intro video", o que tornava a inconsistência
+ * dupla. Quando existir uma abertura nossa, volte o padrão para ligado.
  */
 class BootSplashActivity : ComponentActivity() {
     private var launchedMain = false
@@ -31,7 +38,7 @@ class BootSplashActivity : ComponentActivity() {
         applyImmersiveUi()
 
         val prefs = getSharedPreferences("ARMSX2", MODE_PRIVATE)
-        val bootLogoEnabled = prefs.getBoolean("ui.bootLogo", true)
+        val bootLogoEnabled = prefs.getBoolean("ui.bootLogo", false)
         if (!bootLogoEnabled || playedThisProcess) {
             launchMainAndFinish()
             return

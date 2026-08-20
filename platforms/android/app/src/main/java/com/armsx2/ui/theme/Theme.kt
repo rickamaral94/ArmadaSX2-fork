@@ -93,14 +93,18 @@ object ThemePreferences {
 /** Whether the animated intro video plays on cold boot. Read by
  *  [com.armsx2.BootSplashActivity] straight from the "ARMSX2" prefs (key
  *  "ui.bootLogo") before Compose is up; this holder just backs the App-tab
- *  toggle and keeps that same key in sync. */
+ *  toggle and keeps that same key in sync.
+ *
+ *  Default FALSE — o vídeo empacotado ainda é o do ARMSX2; ver o cabeçalho de
+ *  BootSplashActivity. Os três lugares que carregam este padrão (aqui, a Activity e
+ *  SettingsSearchIndex) têm de concordar. */
 object BootLogoPreferences {
     private const val PreferenceKey = "ui.bootLogo"
 
-    val enabled = mutableStateOf(true)
+    val enabled = mutableStateOf(false)
 
     fun load() {
-        enabled.value = MainActivityRuntime.prefs.getBoolean(PreferenceKey, true)
+        enabled.value = MainActivityRuntime.prefs.getBoolean(PreferenceKey, false)
     }
 
     fun set(value: Boolean) {

@@ -142,3 +142,67 @@ depois, como todo o resto.
 | `GSGPUDriverProfile.cpp` | `vk-qualcomm-colormask-before-512-490` (tabela 27 → 28 regras) |
 | `GSGPUProfile.h` | Como ler `workarounds=0x…`: os três grupos de bits, e o grep que mantém a lista honesta |
 | `gs_gpu_driver_profile_tests.cpp` | 5 testes novos: os dois lados do limite 512.490, a armadilha do Turnip, PowerVR pedindo o fallback, Adreno mantendo push descriptors nos dois drivers |
+
+---
+
+## 6. Revisão pré-alpha 13 — o que as quatro etapas ainda tinham a dar
+
+Feita a pedido, depois de fechar a etapa 4 e antes de disparar a build. Três correções, todas
+achadas por releitura do que já sabíamos, nenhuma por palpite.
+
+### 6.1 A correção de cadência do FG não se aplicava quando o FG era ligado com o jogo rodando
+
+O número de imagens da swapchain é decidido **uma vez**, na criação, a partir de
+`GSConfig.LsfgEnabled` / `LsfgMultiplier`. Nenhuma das duas é opção de restart
+(`Pcsx2Config::GSOptions::RestartOptionsAreEqual`), e nenhum outro caminho dispara recriação
+por causa delas.
+
+Ou seja: quem entrava no jogo e **depois** ligava frame generation ficava com as 2 imagens do
+caminho normal. O quadro gerado então bloqueava no `vkAcquireNextImageKHR` esperando vblank —
+exatamente a cadência que o pedido de `multiplier + 2` existe para corrigir. O recurso
+"funcionava", a correção não se aplicava, e não havia uma linha de log dizendo isso.
+
+Isto é a lição da etapa 3 se repetindo em outra forma: eu ia medir a alpha 13 contra uma
+hipótese que, na sequência de uso mais provável, nunca chegava a ser testada — e teria lido o
+resultado como "a hipótese estava errada".
+
+*Corrigido:* `VKSwapChain::ComputeDesiredImageCount()` virou consultável e o número **pedido**
+é guardado; `GSDeviceVK::DoBeginPresent` compara e recria a swapchain quando o orçamento muda.
+A comparação é contra o que foi **pedido**, nunca contra `GetImageCount()` — num aparelho que
+limita a swapchain abaixo do pedido, comparar com o número real recriaria a swapchain todo
+quadro. O dump de hardware passa a mostrar `images=N (wanted M)`, então um limite do driver
+fica visível em vez de silencioso.
+
+Vale registrar o que foi verificado e estava **certo**: `GSLsfg::Initialize` é idempotente e
+re-inicializa sozinho quando multiplicador, `LsfgPerformance` ou `LsfgFlowScale` mudam. O lado
+do LSFG sempre tratou mudança ao vivo; só a swapchain não tratava.
+
+### 6.2 Um port do Dolphin que veio pela metade
+
+`GSDownloadTextureVK::Create` prefere memória coerente em vez de cacheada para leitura de
+textura, com o comentário dizendo que porta o `BUG_SLOW_CACHED_READBACK_MEMORY` do Dolphin. Só
+que aplicava a condição a Mali, escrita à mão como `IsDeviceMali()`.
+
+Conferido na fonte que ele diz portar: o `DriverDetails.cpp` do Dolphin registra esse bug em
+**duas** entradas, ambas `API_VULKAN` / `OS_ALL` / todas as versões — `{VENDOR_ARM, DRIVER_ARM}`
+**e** `{VENDOR_QUALCOMM, DRIVER_QUALCOMM}`. A metade Qualcomm nunca chegou aqui.
+
+E a nossa própria tabela sempre soube: `vk-qualcomm-proprietary` carrega
+`SlowCachedReadbackMemory` / `PreferCoherentReadback` desde que existe. Ninguém lia a tabela —
+o mesmo defeito estrutural dos push descriptors do PowerVR.
+
+*Corrigido:* a decisão consulta o perfil, de forma aditiva (a verificação de Mali fica, para o
+caso de o perfil cair no fallback conservador). **O Turnip não é afetado** — a regra é keyed em
+`MobileGpuDriver::QualcommProprietary`, e o driver padrão do fork continua com memória cacheada.
+Terceiro bit inerte que vira vivo.
+
+### 6.3 A abertura do app ainda era a do ARMSX2
+
+`res/raw/boot_intro.mp4` veio do commit que trouxe a interface Android do ARMSX2 e nunca foi
+substituído. Com nome, paleta e logo trocados na etapa 1, a **primeira** coisa que o usuário via
+continuava sendo a marca de outro projeto — e o rótulo em `I18n.kt` já prometia "the ArmadaSX2
+intro video", o que tornava a inconsistência dupla.
+
+*Corrigido:* padrão desligado (nos três lugares que carregam esse padrão), e a descrição deixou
+de prometer uma abertura que não fizemos. O usuário mantém o interruptor. Quando existir uma
+abertura nossa, o padrão volta a ligado.

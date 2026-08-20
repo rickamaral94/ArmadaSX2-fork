@@ -104,6 +104,19 @@ public:
 	// Change vsync enabled state. This may fail as it causes a swapchain recreation.
 	bool SetPresentMode(VkPresentModeKHR present_mode);
 
+	/// How many images the CURRENT configuration wants. Pure — reads GSConfig, touches no state —
+	/// so a caller can ask the question every frame and compare with GetDesiredImageCount().
+	static u32 ComputeDesiredImageCount(WindowInfo::Type wsi_type, VkPresentModeKHR present_mode);
+
+	/// What this swapchain ASKED FOR when it was created, which is not the same as how many images
+	/// it got: the driver clamps to [minImageCount, maxImageCount]. Comparing against the request —
+	/// never against the actual count — is what keeps the staleness check idempotent on a device
+	/// that caps us below what we wanted.
+	__fi u32 GetDesiredImageCount() const { return m_desired_image_count; }
+
+	/// Rebuild with the same surface and present mode, picking up a new image count.
+	bool RecreateForImageCountChange();
+
 private:
 	VKSwapChain(const WindowInfo& wi, VkSurfaceKHR surface, VkPresentModeKHR present_mode,
 		std::optional<bool> exclusive_fullscreen_control);
@@ -123,6 +136,7 @@ private:
 	};
 
 	WindowInfo m_window_info;
+	u32 m_desired_image_count = 0;
 
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swap_chain = VK_NULL_HANDLE;
