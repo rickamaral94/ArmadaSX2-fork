@@ -1038,3 +1038,95 @@ Em 26 sessões o Mesa se anuncia como `26.3.0-devel (git-...)` e o PCSX2 casa re
 futura escrita como "corrigido em 26.3" **não casaria** numa 26.3.0-devel, e o silêncio seria
 total, porque regra que não casa não registra nada. Nenhuma regra de Turnip tem faixa de versão
 hoje; o aviso ficou anotado ao lado da que existe.
+
+## 26. Etapa 3 — os logs, além do frame generation
+
+Varredura de **2.862 janelas de 10 s** e dos `emulog` correspondentes, em 22 sessões e 4 jogos
+(NFS Underground 2, God of War II, Shadow of the Colossus e um PAL). Fora do FG, cinco achados.
+
+### 1. Um patch de widescreen que não estava sendo aplicado
+
+`Patch error: Stretch is an unknown aspect ratio.` — 36 vezes, sempre no mesmo jogo:
+**NFS Underground 2** (SLUS-21065, CRC F5C7B45F), três linhas por carregamento.
+
+Não é cosmético. O padrão de aspecto do app é `Auto 4:3/3:2`, que é exatamente a condição sob a
+qual o override de pnach age — e outros 18 carregamentos, que pedem `16:9`, aplicam
+`1.7777777` sem problema. Ou seja: o mecanismo está certo; a gramática do parser é que era estreita.
+
+Ela recusava três das formas que a **própria lista oficial do PCSX2** (`GSOptions::AspectRatioNames`)
+considera válidas:
+
+- **`Stretch`** — o parser só entendia `N:M`;
+- **`19.5:9`** — o dividendo era lido como `uint`, então `19.5` falhava;
+- e aceitava **lixo no fim**: `16:9abc` passava, porque a leitura parava assim que tinha os três
+  campos. Um erro de digitação virava aspecto silenciosamente errado em vez de erro no log.
+
+O custo do primeiro caso é visível: com widescreen agora ligado por padrão, o jogo renderiza
+geometria de 16:9 e o emulador mantém 4:3 — imagem espremida.
+
+`Stretch` não é uma razão, é a ausência de uma (preencher a viewport), então não cabe no float de
+override e virou override de **modo**, sob a mesma condição do outro — só age se o usuário deixou
+em Auto.
+
+A gramática saiu de dentro da função que aplica o efeito e virou `ForkPnachAspect`, com cinco
+testes. Era código sem teste nenhum, e foi preciso um log de aparelho para descobrir o que ele
+recusava.
+
+### 2. Nada satura — o gargalo é espera, não vazão
+
+Medianas das 2.862 janelas, e os picos:
+
+| thread | mediana | p90 | máx |
+|---|---|---|---|
+| EE | 53% | 66% | 81% |
+| GS | 40% | 66% | 93% |
+| VU | 30% | 68% | 87% |
+| GPU | 21% | 37% | 88% |
+
+E nas **117 janelas abaixo de 95% de velocidade** (4,1% do total), *nenhuma* thread passa de 50%
+de mediana. Uma máquina limitada por vazão mostra alguma coisa em 100%; esta não mostra. O que
+sobra é serialização — esperar a GPU, esperar uma cerca, esperar o vblank.
+
+É consistente com o que a etapa anterior encontrou na apresentação, e diz onde NÃO adianta mexer:
+não é falta de núcleo nem de GPU.
+
+### 3. `shader_compiles` media três coisas diferentes — e o erro é meu
+
+O contador soma compilação de **fonte** (GLSL→SPIR-V pelo shaderc) com criação de **pipeline**
+(`vkCreateGraphicsPipelines`). As duas não se parecem: a primeira custa dezenas de milissegundos e
+trava um quadro; a segunda, com o cache do driver quente, custa microssegundos.
+
+O perfil ao longo das alphas, primeiros 2 minutos do mesmo jogo:
+
+| | alpha 6 | alpha 7 | alpha 9 | alpha 10 |
+|---|---|---|---|---|
+| compilações | 556 | 376 | **305** | **305** |
+
+A queda é o cache de SPIR-V esquentando — a correção da 8.6 funcionando. **Mas ela estaciona em
+305**, e esses 305 restantes são criação de pipeline, não compilação. Lendo só a contagem, eu
+atribuí engasgos à compilação em janelas onde ela não custava nada.
+
+A linha `load` passa a trazer os três: `shader_compiles=` (tudo), `shader_src=` (só fonte) e
+`shader_ms=` (o tempo, que já era medido e nunca era impresso). `shader_compiles=305 shader_src=0
+shader_ms=1.2` e `shader_compiles=305 shader_src=140 shader_ms=890.0` são situações opostas que o
+campo único mostrava idênticas.
+
+### 4. O que está certo e vale registrar
+
+- **Velocidade**: 95,9% das janelas acima de 95%. Nenhum jogo ficou lento de forma sustentada.
+- **GameDB**: os fixes por jogo estão sendo aplicados em massa — 248 `halfPixelOffset`, 241
+  `nativeScaling`, 217 `hwDownloadMode`, 217 `drawBuffering`. A base de compatibilidade funciona.
+- **Áudio**: zero underruns em todo o corpus.
+- **GPU/Vulkan**: um único erro em 22 sessões, e é o `Incorrect UUID` de troca de driver que a 8.6
+  já resolveu.
+
+### 5. Duas coisas observadas e deliberadamente NÃO mexidas
+
+- **`recommendedBlendingLevel`**: 7 carregamentos em que o GameDB recomenda um nível de blending
+  acima do nosso padrão (Basic). O upstream só emite um aviso no OSD e não muda a configuração —
+  e está certo: subir o padrão global castigaria todos os jogos por causa de alguns. É caso de
+  ajuste por jogo, que já existe.
+- **SDL**: `SDL_InitSubSystem(...JOYSTICK...) failed` cinco vezes por boot, 900 no corpus. O app
+  usa a entrada do Android, não a do SDL, então a fonte falha e é ignorada — barulho do upstream,
+  custo desprezível. Fica anotado porque polui o log em que a gente procura problema de verdade,
+  não porque atrapalhe o jogo.

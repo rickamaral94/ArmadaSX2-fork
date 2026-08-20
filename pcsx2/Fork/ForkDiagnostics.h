@@ -90,7 +90,17 @@ namespace ForkDiagnostics
 		/// Shaders compilados NESTE intervalo. Um pico de frametime explicado por compilação não é
 		/// o mesmo problema que um pico explicado por carga, e sem este número os dois são
 		/// indistinguíveis no log.
+		/// Total de compilações na janela: fonte MAIS criação de pipeline.
 		u32 shader_compiles = 0;
+		/// Só as de FONTE (GLSL -> SPIR-V). É o caminho caro, e é o único que trava quadro.
+		u32 shader_source_compiles = 0;
+		/// Tempo gasto na janela, somando os dois caminhos.
+		///
+		/// É o campo que faltava, e a falta custou caro: com a contagem sozinha eu atribuí
+		/// engasgos à compilação em janelas onde ela não custava nada. Uma criação de pipeline
+		/// servida pelo cache do driver leva microssegundos; trezentas delas somam menos que uma
+		/// única compilação de fonte a frio.
+		float shader_ms = 0.0f;
 	};
 
 	std::string FormatLoadLine(const Load& load);

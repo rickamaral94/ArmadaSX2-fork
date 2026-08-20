@@ -37,6 +37,8 @@ namespace
 	u64 s_window_start = 0;
 	bool s_identity_written = false;
 	u32 s_last_shader_compiles = 0;
+	u32 s_last_shader_source = 0;
+	u64 s_last_shader_time_ns = 0;
 } // namespace
 
 void ForkDiagnostics::Detail::SetClockForTesting(u64 (*clock)())
@@ -151,7 +153,11 @@ std::string ForkDiagnostics::FormatLoadLine(const Load& load)
 	// ausência do campo.
 	if (load.internal_fps_valid)
 		line += fmt::format(" internal_fps={:.2f}", load.internal_fps);
-	line += fmt::format(" shader_compiles={}", load.shader_compiles);
+	// Os três juntos, e não a contagem sozinha: `shader_compiles=305 shader_src=0 shader_ms=1.2`
+	// e `shader_compiles=305 shader_src=140 shader_ms=890.0` são situações opostas que o campo
+	// único mostrava idênticas.
+	line += fmt::format(" shader_compiles={} shader_src={} shader_ms={:.1f}", load.shader_compiles,
+		load.shader_source_compiles, load.shader_ms);
 	return line;
 }
 
@@ -227,6 +233,8 @@ void ForkDiagnostics::Reset()
 	s_window_start = 0;
 	s_identity_written = false;
 	s_last_shader_compiles = GSShaderCompileIndicator::s_total_count.load(std::memory_order_relaxed);
+	s_last_shader_source = GSShaderCompileIndicator::s_total_source_count.load(std::memory_order_relaxed);
+	s_last_shader_time_ns = GSShaderCompileIndicator::s_total_time_ns.load(std::memory_order_relaxed);
 }
 
 void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const Hygiene& hygiene)
@@ -291,6 +299,14 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 		const u32 compiles_now = GSShaderCompileIndicator::s_total_count.load(std::memory_order_relaxed);
 		load.shader_compiles = compiles_now - s_last_shader_compiles;
 		s_last_shader_compiles = compiles_now;
+
+		const u32 source_now = GSShaderCompileIndicator::s_total_source_count.load(std::memory_order_relaxed);
+		load.shader_source_compiles = source_now - s_last_shader_source;
+		s_last_shader_source = source_now;
+
+		const u64 time_now = GSShaderCompileIndicator::s_total_time_ns.load(std::memory_order_relaxed);
+		load.shader_ms = static_cast<float>(time_now - s_last_shader_time_ns) / 1e6f;
+		s_last_shader_time_ns = time_now;
 		load_line = FormatLoadLine(load);
 		real_line = FormatRealLine(snapshot);
 		presented_line = FormatPresentedLine(snapshot);

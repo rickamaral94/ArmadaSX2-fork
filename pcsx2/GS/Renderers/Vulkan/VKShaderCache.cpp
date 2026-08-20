@@ -298,7 +298,9 @@ std::optional<VKShaderCache::SPIRVCodeVector> VKShaderCache::CompileShaderToSPV(
 	if (!dyn_shaderc::Open())
 		return ret;
 
-	const GSShaderCompileIndicator::CompileTimer compile_timer;
+	// @@ARMSX2_SHADER_KIND@@ `true` = compilação de FONTE. É este o caminho caro (shaderc, dezenas
+	// de milissegundos); a criação de pipeline usa o construtor padrão.
+	const GSShaderCompileIndicator::CompileTimer compile_timer(true);
 
 	shaderc_compile_options_t options = dyn_shaderc::shaderc_compile_options_initialize();
 	pxAssertRel(options, "shaderc_compile_options_initialize() failed");

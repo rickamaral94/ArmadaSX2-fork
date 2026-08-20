@@ -12,6 +12,7 @@
 
 #include "Achievements.h"
 #include "Config.h"
+#include "Fork/ForkPnachAspect.h"
 #include "GameDatabase.h"
 #include "Host.h"
 #include "IopMem.h"
@@ -46,6 +47,8 @@ namespace Patch
 	{
 		std::string name;
 		std::optional<float> override_aspect_ratio;
+		/// Override de MODO, para as formas que não são uma razão numérica ("Stretch").
+		std::optional<AspectRatioType> override_aspect_ratio_type;
 		std::optional<GSInterlaceMode> override_interlace_mode;
 		std::vector<PatchCommand> patches;
 		std::vector<DynamicPatch> dpatches;
@@ -140,6 +143,7 @@ namespace Patch
 	static std::vector<std::string> s_just_enabled_patches;
 	static u32 s_patches_crc;
 	static std::optional<float> s_override_aspect_ratio;
+	static std::optional<AspectRatioType> s_override_aspect_ratio_type;
 	static std::optional<GSInterlaceMode> s_override_interlace_mode;
 
 	static const PatchTextTable s_patch_commands[] = {
@@ -683,8 +687,14 @@ void Patch::ReloadEnabledLists()
 // too. Declared intent is the only thing that separates them.
 static bool IsHardcoreSafePatchGroup(const Patch::PatchGroup& p)
 {
-	if (p.override_aspect_ratio.has_value() || p.override_interlace_mode.has_value())
+	// @@ARMSX2_PNACH_ASPECT@@ O override de MODO entra aqui pelo mesmo motivo que o de razão: um
+	// grupo que só muda o aspecto não toca em nada do jogo. Sem esta linha, um pnach que pedisse
+	// apenas `Stretch` seria filtrado no modo hardcore — silenciosamente, e por engano.
+	if (p.override_aspect_ratio.has_value() || p.override_aspect_ratio_type.has_value() ||
+		p.override_interlace_mode.has_value())
+	{
 		return true;
+	}
 
 	// Nothing declared and nothing written is inert, so it costs nothing to allow.
 	return p.patches.empty() && p.dpatches.empty();
@@ -733,6 +743,8 @@ u32 Patch::EnablePatches(const std::vector<PatchGroup>* patches, const std::vect
 
 		if (p.override_aspect_ratio.has_value())
 			s_override_aspect_ratio = p.override_aspect_ratio;
+		if (p.override_aspect_ratio_type.has_value())
+			s_override_aspect_ratio_type = p.override_aspect_ratio_type;
 		if (p.override_interlace_mode.has_value())
 			s_override_interlace_mode = p.override_interlace_mode;
 
@@ -825,6 +837,7 @@ void Patch::UpdateActivePatches(bool reload_enabled_list, bool verbose, bool ver
 	const size_t prev_count = s_active_patches.size();
 	s_active_patches.clear();
 	s_override_aspect_ratio.reset();
+	s_override_aspect_ratio_type.reset();
 	s_override_interlace_mode.reset();
 	s_active_pnach_dynamic_patches.clear();
 
@@ -890,6 +903,17 @@ void Patch::ApplyPatchSettingOverrides()
 		Console.WriteLn(Color_Gray,
 			fmt::format("Patch: Setting aspect ratio to {} by patch request.", s_override_aspect_ratio.value()));
 	}
+	// @@ARMSX2_PNACH_ASPECT@@ O override de MODO, sob a mesma condição do de razão: só age quando o
+	// usuário deixou o aspecto em Auto. Quem escolheu 4:3 ou 16:9 à mão escolheu, e um pnach não
+	// desfaz isso.
+	else if (s_override_aspect_ratio_type.has_value() && EmuConfig.GS.AspectRatio == AspectRatioType::RAuto4_3_3_2)
+	{
+		EmuConfig.CurrentAspectRatio = s_override_aspect_ratio_type.value();
+
+		Console.WriteLn(Color_Gray,
+			fmt::format("Patch: Setting aspect ratio to {} by patch request.",
+				Pcsx2Config::GSOptions::AspectRatioNames[static_cast<size_t>(s_override_aspect_ratio_type.value())]));
+	}
 
 	// Disable interlacing in GS if active.
 	if (s_override_interlace_mode.has_value() && EmuConfig.GS.InterlaceMode == GSInterlaceMode::Automatic)
@@ -941,6 +965,7 @@ void Patch::UnloadPatches()
 {
 	s_override_interlace_mode = {};
 	s_override_aspect_ratio = {};
+	s_override_aspect_ratio_type = {};
 	s_patches_crc = 0;
 	s_active_patches = {};
 	s_active_pnach_dynamic_patches = {};
@@ -1031,22 +1056,32 @@ void Patch::PatchFunc::patch(PatchGroup* group, const std::string_view cmd, cons
 
 void Patch::PatchFunc::gsaspectratio(PatchGroup* group, const std::string_view cmd, const std::string_view param)
 {
-	std::string str(param);
-	std::istringstream ss(str);
-	uint dividend, divisor;
-	char delimiter;
-	float aspect_ratio = 0.f;
-
-	ss >> dividend >> delimiter >> divisor;
-	if (!ss.fail() && delimiter == ':' && divisor != 0)
+	// @@ARMSX2_PNACH_ASPECT@@ A gramática mora em ForkPnachAspect, para poder ser testada sem
+	// emulador. Ela aceita duas coisas que o parser anterior recusava, e o custo da recusa era
+	// real: a linha era descartada com erro e o pedido do pnach simplesmente não acontecia.
+	//
+	//   * o NOME "Stretch" — medido: NFS Underground 2 (SLUS-21065, CRC F5C7B45F) o pede três
+	//     vezes, as três falham, e o jogo fica sem override nenhum, com a geometria já corrigida
+	//     pelo patch de widescreen espremida no 4:3 do modo Auto. Outros 18 carregamentos, que
+	//     pedem "16:9", sempre funcionaram — o mecanismo estava certo, a gramática é que era
+	//     estreita;
+	//   * dividendo fracionário, para "19.5:9", que a lista oficial do PCSX2 traz e o parser lia
+	//     como `uint`.
+	const ForkPnachAspect::Result parsed = ForkPnachAspect::Parse(param);
+	switch (parsed.kind)
 	{
-		aspect_ratio = static_cast<float>(dividend) / static_cast<float>(divisor);
-	}
+		case ForkPnachAspect::Kind::Ratio:
+			group->override_aspect_ratio = parsed.ratio;
+			return;
 
-	if (aspect_ratio > 0.f)
-	{
-		group->override_aspect_ratio = aspect_ratio;
-		return;
+		case ForkPnachAspect::Kind::Stretch:
+			// Não é uma razão, é a ausência de uma: preencher a viewport. Por isso override de
+			// MODO, e não o float.
+			group->override_aspect_ratio_type = AspectRatioType::Stretch;
+			return;
+
+		case ForkPnachAspect::Kind::Invalid:
+			break;
 	}
 
 	Console.Error(fmt::format("Patch error: {} is an unknown aspect ratio.", param));

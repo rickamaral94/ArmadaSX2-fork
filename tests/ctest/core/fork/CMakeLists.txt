@@ -9,6 +9,7 @@ add_pcsx2_test(fork_config_tests
 	benchmark_tests.cpp
 	framegen_tests.cpp
 	lsfg_package_tests.cpp
+	pnach_aspect_tests.cpp
 	diagnostics_tests.cpp
 )
 

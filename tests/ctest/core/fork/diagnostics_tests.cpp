@@ -255,3 +255,40 @@ TEST(ForkDiagnostics, TheIdentityLineCarriesTheDriverCost)
     EXPECT_TRUE(Contains(line, "workarounds=0x40")) << line;
     EXPECT_TRUE(Contains(line, "rules=1")) << line;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Etapa 3: `shader_compiles` sozinho não distingue as duas situações que mais importam.
+//
+// O contador somava compilação de FONTE (shaderc, dezenas de ms, trava quadro) com criação de
+// PIPELINE (microssegundos quando o cache do driver está quente). Medido nas alphas: os 2 primeiros
+// minutos do mesmo jogo caíram de 556 para 305 conforme o cache de SPIR-V esquentou, e pararam
+// ali — os 305 restantes são pipeline, não compilação. Lendo só a contagem, eu atribuí engasgos à
+// compilação em janelas onde ela não custava nada.
+// ---------------------------------------------------------------------------------------------
+
+TEST(ForkDiagnostics, TheLoadLineSeparatesShaderKindAndCost)
+{
+    ForkDiagnostics::Load warm{};
+    warm.speed_percent = 100.0f;
+    warm.vps = 59.94f;
+    warm.shader_compiles = 305;
+    warm.shader_source_compiles = 0;
+    warm.shader_ms = 1.2f;
+
+    ForkDiagnostics::Load cold = warm;
+    cold.shader_source_compiles = 140;
+    cold.shader_ms = 890.0f;
+
+    const std::string warm_line = ForkDiagnostics::FormatLoadLine(warm);
+    const std::string cold_line = ForkDiagnostics::FormatLoadLine(cold);
+
+    // A contagem total é IDÊNTICA nos dois — que é exatamente por que ela sozinha não servia.
+    EXPECT_TRUE(Contains(warm_line, "shader_compiles=305")) << warm_line;
+    EXPECT_TRUE(Contains(cold_line, "shader_compiles=305")) << cold_line;
+
+    // O que separa: quantas foram de fonte, e quanto tempo custaram.
+    EXPECT_TRUE(Contains(warm_line, "shader_src=0")) << warm_line;
+    EXPECT_TRUE(Contains(warm_line, "shader_ms=1.2")) << warm_line;
+    EXPECT_TRUE(Contains(cold_line, "shader_src=140")) << cold_line;
+    EXPECT_TRUE(Contains(cold_line, "shader_ms=890.0")) << cold_line;
+}

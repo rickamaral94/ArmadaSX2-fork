@@ -24,6 +24,21 @@ namespace GSShaderCompileIndicator
 	inline std::atomic<u32> s_total_count{0};
 	inline std::atomic<u64> s_total_time_ns{0};
 
+	/// @@ARMSX2_SHADER_KIND@@ O subconjunto que é compilação de FONTE (GLSL -> SPIR-V), separado
+	/// da criação de pipeline.
+	///
+	/// O contador único somava as duas, e elas não se parecem em nada: compilar fonte custa
+	/// dezenas de milissegundos e é o que trava um quadro; criar pipeline com o cache do driver
+	/// quente custa microssegundos. Lidos juntos, `shader_compiles=305` num boot com cache quente
+	/// parece um problema grave e não é — foi o que me fez atribuir engasgos à compilação em
+	/// janelas onde ela não custava nada.
+	///
+	/// Medido nas alphas: os primeiros 2 min do mesmo jogo caíram de 556 para 305 conforme o
+	/// cache de SPIR-V esquentou, e pararam ali. Os 305 que sobram são criação de pipeline, não
+	/// compilação — e é por isso que precisam de nome próprio.
+	inline std::atomic<u32> s_total_source_count{0};
+	inline std::atomic<u64> s_total_source_time_ns{0};
+
 	inline u64 GetRecentCompileHold()
 	{
 		static const u64 hold = static_cast<u64>(Common::Timer::ConvertNanosecondsToValue(static_cast<double>(RECENT_COMPILE_HOLD_NS)));
@@ -45,6 +60,15 @@ namespace GSShaderCompileIndicator
 		s_total_count.fetch_add(1, std::memory_order_relaxed);
 		s_total_time_ns.fetch_add(duration_ns, std::memory_order_relaxed);
 		s_last_time.store(now, std::memory_order_relaxed);
+	}
+
+	/// Variante para o caminho de compilação de FONTE. Alimenta os mesmos totais — para nada que
+	/// já lia `s_total_count` mudar de significado — e mais o par específico.
+	inline void OnSourceCompileDone(u64 duration_ns, u64 start_time)
+	{
+		OnCompileDone(duration_ns, start_time);
+		s_total_source_count.fetch_add(1, std::memory_order_relaxed);
+		s_total_source_time_ns.fetch_add(duration_ns, std::memory_order_relaxed);
 	}
 
 	inline u32 GetCount()
@@ -95,12 +119,22 @@ namespace GSShaderCompileIndicator
 	struct CompileTimer
 	{
 		Common::Timer timer;
+		/// True no caminho de compilação de fonte. Falso (o padrão) na criação de pipeline, para
+		/// que todos os pontos de medição existentes continuem valendo sem alteração.
+		bool source = false;
 
 		CompileTimer() = default;
+		explicit CompileTimer(bool is_source)
+			: source(is_source)
+		{
+		}
 
 		~CompileTimer()
 		{
-			OnCompileDone(static_cast<u64>(timer.GetTimeNanoseconds()), timer.GetStartValue());
+			if (source)
+				OnSourceCompileDone(static_cast<u64>(timer.GetTimeNanoseconds()), timer.GetStartValue());
+			else
+				OnCompileDone(static_cast<u64>(timer.GetTimeNanoseconds()), timer.GetStartValue());
 		}
 
 		CompileTimer(const CompileTimer&) = delete;
