@@ -94,18 +94,28 @@ std::string ForkDiagnostics::FormatPresentedLine(const GSPresentationMetrics::Sn
 }
 
 std::string ForkDiagnostics::FormatFrameGenLine(
-	const Accumulator& accumulator, const ForkFrameGen::Policy& policy, float generation_avg_ms)
+	const Accumulator& accumulator, const ForkFrameGen::Policy& policy, float generation_avg_ms,
+	float generation_warm_avg_ms, float frametime_avg_ms)
 {
 	const ForkFrameGen::Reason dominant = accumulator.DominantReason();
 	const u32 engaged = accumulator.frames_by_reason[static_cast<size_t>(ForkFrameGen::Reason::Engaged)];
 	const float engaged_share =
 		accumulator.frames > 0 ? (100.0f * static_cast<float>(engaged) / static_cast<float>(accumulator.frames)) : 0.0f;
 
+	// O orçamento efetivo, e não o teto absoluto: ele depende do intervalo real, então imprimir o
+	// teto faria o log mostrar um número contra o qual nada foi comparado.
+	const float budget = (frametime_avg_ms > 0.0f)
+							 ? std::min(policy.budget_ms, policy.budget_fraction * frametime_avg_ms)
+							 : policy.budget_ms;
+
+	// `gen_avg` (tudo) e `gen_warm` (só o regime) aparecem os DOIS de propósito. Foi comparar um
+	// com o outro que revelou por que o recurso vivia recusando: 13 ms isolados contra 6,5 ms em
+	// sequência. Com um número só, esse mecanismo é invisível no log.
 	return fmt::format(
-		"{} framegen  mode={} engaged={:.1f}% transitions={} dominant={} gen_avg={:.2f}ms gen_worst={:.2f}ms budget={:.2f}ms speed_floor={:.0f}% fps_floor={:.1f}",
+		"{} framegen  mode={} engaged={:.1f}% transitions={} dominant={} gen_avg={:.2f}ms gen_warm={:.2f}ms gen_worst={:.2f}ms budget={:.2f}ms speed_floor={:.0f}% fps_floor={:.1f}",
 		PREFIX, ForkFrameGen::ModeToString(policy.mode), engaged_share, accumulator.transitions,
-		ForkFrameGen::ReasonToString(dominant), generation_avg_ms, accumulator.worst_generation_ms, policy.budget_ms, policy.min_speed_percent,
-		policy.min_real_fps);
+		ForkFrameGen::ReasonToString(dominant), generation_avg_ms, generation_warm_avg_ms,
+		accumulator.worst_generation_ms, budget, policy.min_speed_percent, policy.min_real_fps);
 }
 
 std::string ForkDiagnostics::FormatLoadLine(const Load& load)
@@ -250,7 +260,8 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 		load_line = FormatLoadLine(load);
 		real_line = FormatRealLine(snapshot);
 		presented_line = FormatPresentedLine(snapshot);
-		framegen_line = FormatFrameGenLine(s_accumulator, ForkFrameGen::PolicyFromConfig(), snapshot.generation_avg_ms);
+		framegen_line = FormatFrameGenLine(s_accumulator, ForkFrameGen::PolicyFromConfig(),
+			snapshot.generation_avg_ms, snapshot.generation_warm_avg_ms, snapshot.real_frametime_avg_ms);
 
 		s_accumulator.Reset();
 		s_window_start = now;

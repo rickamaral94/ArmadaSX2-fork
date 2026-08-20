@@ -56,7 +56,7 @@ TEST(ForkDiagnostics, EveryLineCarriesTheGreppablePrefix)
 
 	EXPECT_TRUE(Contains(ForkDiagnostics::FormatRealLine(snapshot), "@@FORK@@"));
 	EXPECT_TRUE(Contains(ForkDiagnostics::FormatPresentedLine(snapshot), "@@FORK@@"));
-	EXPECT_TRUE(Contains(ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 0.0f), "@@FORK@@"));
+	EXPECT_TRUE(Contains(ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 0.0f, 0.0f, 16.6f), "@@FORK@@"));
 }
 
 // A pergunta que o log tem de responder: "o Auto engata firme ou fica piscando?". Contagem de
@@ -99,7 +99,7 @@ TEST(ForkDiagnostics, WorstGenerationCostSurvivesTheAverage)
 
 	ForkFrameGen::Policy policy;
 	policy.budget_ms = 6.0f;
-	const std::string line = ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 1.4f);
+	const std::string line = ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 1.4f, 1.2f, 16.6f);
 	EXPECT_TRUE(Contains(line, "gen_worst=11.50ms")) << line;
 	EXPECT_TRUE(Contains(line, "budget=6.00ms")) << line;
 }
@@ -116,7 +116,7 @@ TEST(ForkDiagnostics, DominantReasonIsTheMostFrequentOne)
 	EXPECT_EQ(accumulator.DominantReason(), Reason::BelowMinimumRealFps);
 
 	ForkFrameGen::Policy policy;
-	const std::string line = ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 0.0f);
+	const std::string line = ForkDiagnostics::FormatFrameGenLine(accumulator, policy, 0.0f, 0.0f, 16.6f);
 	EXPECT_TRUE(Contains(line, "engaged=23.1%")) << line;
 }
 

@@ -96,6 +96,8 @@ namespace ForkConfig
 		FrameGenSpeedHysteresis,
 		/// Histerese do orçamento, como fração do teto.
 		FrameGenBudgetHysteresis,
+		/// Fração do intervalo real que a geração pode consumir. É o orçamento de verdade.
+		FrameGenBudgetFraction,
 		/// Quadros de carência após desengatar, antes de poder engatar de novo.
 		FrameGenCooldownFrames,
 		/// Quantas vezes a carência pode dobrar quando o engate seguinte também fracassa.

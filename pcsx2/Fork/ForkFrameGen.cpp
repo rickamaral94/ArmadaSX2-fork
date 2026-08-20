@@ -13,6 +13,19 @@
 #include <atomic>
 #include <mutex>
 
+namespace
+{
+	/// O orçamento efetivo deste quadro: uma fração do intervalo real, limitada por um teto
+	/// absoluto. Separado para poder ser lido — e testado — sem atravessar a régua inteira.
+	float ComputeBudgetMs(const ForkFrameGen::Policy& policy, const ForkFrameGen::Inputs& inputs)
+	{
+		// Sem medida de intervalo não há fração que faça sentido; sobra o teto.
+		if (inputs.frametime_avg_ms <= 0.0f)
+			return policy.budget_ms;
+		return std::min(policy.budget_ms, policy.budget_fraction * inputs.frametime_avg_ms);
+	}
+} // namespace
+
 ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& inputs)
 {
 	Decision decision;
@@ -106,8 +119,14 @@ ForkFrameGen::Decision ForkFrameGen::Decide(const Policy& policy, const Inputs& 
 	// Histerese também aqui, e pelo mesmo motivo medido no aparelho: suspenso, nenhum custo novo
 	// entra na janela, a média decai, o degrau libera, o custo alto volta na hora e suspende de
 	// novo. Exigir que a média caia BEM abaixo do teto antes de reengatar quebra o ciclo.
+	//
+	// E o orçamento é uma FRAÇÃO do intervalo real, não um número fixo de milissegundos. A conta
+	// que importa é "cabe no tempo que existe", e o tempo que existe depende de o jogo desenhar a
+	// 30 ou a 60. Um teto absoluto respondia a pergunta errada e recusava, no jogo de 30, o caso
+	// em que FG mais rende — medido: NFS a 30 fps recusado 11 minutos por um custo real de 6,5 ms.
+	const float budget = ComputeBudgetMs(policy, inputs);
 	const float budget_ceiling =
-		inputs.previously_over_budget ? (policy.budget_ms * (1.0f - policy.budget_hysteresis)) : policy.budget_ms;
+		inputs.previously_over_budget ? (budget * (1.0f - policy.budget_hysteresis)) : budget;
 	if (inputs.last_generation_ms > budget_ceiling)
 	{
 		decision.state = State::Suspended;
@@ -224,6 +243,7 @@ ForkFrameGen::Policy ForkFrameGen::PolicyFromConfig()
 	policy.speed_hysteresis_percent = ForkConfig::GetFloat(ForkConfig::Option::FrameGenSpeedHysteresis);
 	policy.min_real_fps = ForkConfig::GetFloat(ForkConfig::Option::FrameGenMinRealFps);
 	policy.budget_hysteresis = ForkConfig::GetFloat(ForkConfig::Option::FrameGenBudgetHysteresis);
+	policy.budget_fraction = ForkConfig::GetFloat(ForkConfig::Option::FrameGenBudgetFraction);
 	policy.reengage_cooldown_frames =
 		static_cast<u32>(std::max(0, ForkConfig::GetInt(ForkConfig::Option::FrameGenCooldownFrames)));
 	// Limitado a 16 dobras porque 30 << 16 já passa do teto do contador: aceitar mais só criaria
@@ -361,7 +381,11 @@ ForkFrameGen::Decision ForkFrameGen::EvaluateAtPresent(bool supported, bool has_
 		inputs.speed_percent = PerformanceMetrics::GetSpeed();
 		inputs.frametime_avg_ms = snapshot.real_frametime_avg_ms;
 		inputs.frametime_p99_ms = snapshot.real_frametime_low1_ms;
-		inputs.last_generation_ms = snapshot.generation_avg_ms;
+		// O custo AQUECIDO, não a média de tudo. A diferença não é cosmética: enquanto a régua
+		// recusa, a única amostra que entra na janela é a de um quadro frio isolado, que custa o
+		// dobro — e recusar por ela é recusar por causa da própria recusa. Zero significa "sem
+		// evidência ainda", e sem evidência o orçamento não tem o que barrar.
+		inputs.last_generation_ms = snapshot.generation_warm_avg_ms;
 	}
 
 	std::lock_guard lock(s_governor_mutex);

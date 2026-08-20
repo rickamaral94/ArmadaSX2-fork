@@ -20,7 +20,8 @@ namespace
 	{
 		Policy policy;
 		policy.mode = mode;
-		policy.budget_ms = 8.0f;
+		policy.budget_ms = 20.0f;
+		policy.budget_fraction = 0.5f;
 		policy.budget_hysteresis = 0.25f;
 		policy.min_speed_percent = 90.0f;
 		policy.speed_hysteresis_percent = 5.0f;
@@ -546,4 +547,108 @@ TEST(ForkFrameGen, AnEngagementThatLastsClearsTheBackoff)
 	stalled.has_new_frame = false;
 	ForkFrameGen::Advance(policy, governor, stalled);
 	EXPECT_EQ(governor.failed_engagements, 0u);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fase 8.7: o orçamento perguntava a coisa errada.
+//
+// Três jogos medidos no mesmo aparelho, mesmo upscale de 2.00x, mesmos 30 fps travados a 100% de
+// velocidade. God of War II engatou e ficou em `engaged=100% transitions=0` com custo de 5,7 ms.
+// NFS Underground 2 passou ONZE MINUTOS em `engaged=3.3% dominant=Cooldown`, e o custo que a régua
+// via era 13 ms. A diferença entre os dois não era o jogo: era qual deles conseguiu passar dos
+// primeiros quadros antes de um engasgo derrubar a geração.
+// ---------------------------------------------------------------------------------------------
+
+namespace
+{
+	/// Um quadro de jogo que desenha a 30 e roda a 100% — o caso medido nos três jogos.
+	Inputs ThirtyFpsFrame()
+	{
+		Inputs inputs = HealthyFrame();
+		inputs.real_fps = 30.0f;
+		inputs.frametime_avg_ms = 33.3f;
+		inputs.frametime_p99_ms = 34.0f;
+		return inputs;
+	}
+} // namespace
+
+// O orçamento é uma fração do tempo que EXISTE. Oito milissegundos dentro de um quadro de 16,7 é
+// metade dele; dentro de um quadro de 33,3 é um quarto. Tratar os dois como iguais proibia, no
+// jogo de 30, exatamente o caso em que FG mais rende.
+TEST(ForkFrameGen, TheBudgetScalesWithTheRealFrameInterval)
+{
+	const Policy policy = MakePolicy();
+
+	// A 60 Hz o comportamento medido não muda: 0,5 x 16,6 = 8,3 ms, o teto antigo.
+	Inputs sixty = HealthyFrame();
+	sixty.last_generation_ms = 8.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, sixty).reason, Reason::Engaged);
+	sixty.last_generation_ms = 9.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, sixty).reason, Reason::OverBudget);
+
+	// A 30 Hz há o dobro de tempo, e os 13 ms medidos no NFS cabem.
+	Inputs thirty = ThirtyFpsFrame();
+	thirty.last_generation_ms = 13.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, thirty).reason, Reason::Engaged);
+
+	// Mas não é permissão para tudo: os 20 ms que o upscale de 3.00x custava continuam recusados.
+	thirty.last_generation_ms = 20.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, thirty).reason, Reason::OverBudget);
+}
+
+// O teto absoluto existe para o caso lento, em que a fração sozinha ficaria absurda.
+TEST(ForkFrameGen, TheAbsoluteCeilingStillCapsAVerySlowGame)
+{
+	Policy policy = MakePolicy();
+	policy.min_real_fps = 1.0f; // tira o degrau de FPS do caminho para testar só o teto
+
+	Inputs crawling = HealthyFrame();
+	crawling.real_fps = 12.0f;
+	crawling.frametime_avg_ms = 83.0f; // a fração autorizaria 41 ms
+	crawling.frametime_p99_ms = 84.0f;
+	crawling.last_generation_ms = 25.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, crawling).reason, Reason::OverBudget);
+}
+
+// A armadilha medida, do lado da RÉGUA: sem evidência de custo de regime, o orçamento não barra.
+//
+// Quem separa o custo frio do aquecido é a camada de medição (ver GSPresentationMetrics), e ela
+// entrega zero enquanto não houver amostra aquecida. Zero é "não sei", e a régua trata como tal:
+// deixa engatar, e é o degrau de VELOCIDADE que protege a emulação enquanto a evidência não chega.
+TEST(ForkFrameGen, WithoutWarmEvidenceTheBudgetDoesNotRefuse)
+{
+	const Policy policy = MakePolicy();
+
+	Inputs no_evidence = ThirtyFpsFrame();
+	no_evidence.last_generation_ms = 0.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, no_evidence).reason, Reason::Engaged);
+
+	// E assim que a evidência chega, ela vale: 20 ms num quadro de 33 não cabem.
+	Inputs with_evidence = no_evidence;
+	with_evidence.last_generation_ms = 20.0f;
+	EXPECT_EQ(ForkFrameGen::Decide(policy, with_evidence).reason, Reason::OverBudget);
+}
+
+// O caso que já funcionava tem que continuar funcionando: God of War II, 30 fps, 5,7 ms.
+TEST(ForkFrameGen, TheThirtyFpsGameThatWorkedKeepsWorking)
+{
+	const Policy policy = MakePolicy();
+
+	ForkFrameGen::Governor governor;
+	int engaged_frames = 0;
+	int transitions = 0;
+	bool engaged = false;
+	for (int i = 0; i < 300; i++)
+	{
+		Inputs inputs = ThirtyFpsFrame();
+		inputs.last_generation_ms = 5.7f;
+		const bool now = ForkFrameGen::Advance(policy, governor, inputs).state == State::Engaged;
+		if (now != engaged)
+			transitions++;
+		engaged = now;
+		if (now)
+			engaged_frames++;
+	}
+	EXPECT_GT(engaged_frames, 295);
+	EXPECT_LE(transitions, 1) << "medido no aparelho: transitions=0 por doze janelas seguidas";
 }

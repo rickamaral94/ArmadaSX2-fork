@@ -23,6 +23,13 @@ namespace
 	/// uma janela deslizante.
 	constexpr size_t MAX_SAMPLES = 512;
 
+	/// Quantas gerações seguidas antes de o custo passar a descrever o REGIME em vez do
+	/// aquecimento. Três porque é o que a medição no Adreno 740 mostrou bastar: a partir da
+	/// terceira, o custo assenta na faixa de 5,6-6,6 ms e para de saltar.
+	constexpr u32 WARMUP_GENERATIONS = 3;
+	/// Intervalo máximo entre duas gerações para que continuem na mesma sequência.
+	constexpr double GENERATION_RUN_GAP_SECONDS = 0.2;
+
 	/// Um intervalo entre quadros REAIS acima deste múltiplo da mediana conta como engasgo.
 	constexpr double STUTTER_FACTOR = 2.0;
 
@@ -96,7 +103,22 @@ namespace
 		Common::Timer::Value last_real_at = 0;
 
 		std::vector<std::pair<Common::Timer::Value, double>> present_calls;
-		std::vector<std::pair<Common::Timer::Value, double>> generation_costs;
+
+		/// Custo de uma geração, com a posição dela dentro da SEQUÊNCIA de gerações seguidas.
+		///
+		/// A posição existe porque a primeira geração depois de uma interrupção custa cerca do
+		/// dobro das seguintes — reconstrução de histórico e pipeline frio — e essa amostra não
+		/// descreve o regime. Medido em três jogos: janelas com 30-60 gerações deram 5,6-6,6 ms;
+		/// janelas com uma geração isolada deram 10-19 ms.
+		struct GenerationSample
+		{
+			Common::Timer::Value at;
+			double ms;
+			u32 run_index; ///< 0 = primeira da sequência
+		};
+		std::vector<GenerationSample> generation_costs;
+		Common::Timer::Value last_generation_at = 0;
+		u32 generation_run = 0;
 		std::vector<Common::Timer::Value> skipped;
 		std::vector<Common::Timer::Value> errors;
 
@@ -143,7 +165,7 @@ namespace
 		ExpireOlderThan(s_state.presented, cutoff, [](const PresentedSample& s) { return s.at; });
 		ExpireOlderThan(s_state.real_intervals, cutoff, [](const auto& s) { return s.first; });
 		ExpireOlderThan(s_state.present_calls, cutoff, [](const auto& s) { return s.first; });
-		ExpireOlderThan(s_state.generation_costs, cutoff, [](const auto& s) { return s.first; });
+		ExpireOlderThan(s_state.generation_costs, cutoff, [](const auto& s) { return s.at; });
 		ExpireOlderThan(s_state.skipped, cutoff, [](const auto& s) { return s; });
 		ExpireOlderThan(s_state.errors, cutoff, [](const auto& s) { return s; });
 	}
@@ -212,6 +234,8 @@ void GSPresentationMetrics::Reset()
 	s_state.real_intervals.clear();
 	s_state.present_calls.clear();
 	s_state.generation_costs.clear();
+	s_state.last_generation_at = 0;
+	s_state.generation_run = 0;
 	s_state.skipped.clear();
 	s_state.errors.clear();
 	s_state.last_real_at = 0;
@@ -295,7 +319,19 @@ void GSPresentationMetrics::NoteGenerationCost(double ms)
 
 	const Common::Timer::Value now = Now();
 	std::lock_guard lock(s_state.mutex);
-	PushCapped(s_state.generation_costs, std::make_pair(now, ms));
+
+	// A sequência continua enquanto as gerações estiverem próximas. O limite é generoso — seis
+	// quadros a 30 Hz — porque um jogo que desenha a 30 gera a cada 33 ms e não pode ser tratado
+	// como interrompido; e é apertado o bastante para que uma tentativa isolada a cada meio
+	// segundo, que é o padrão de quando a régua está recusando, comece uma sequência nova.
+	const Common::Timer::Value gap = Common::Timer::ConvertSecondsToValue(GENERATION_RUN_GAP_SECONDS);
+	if (s_state.last_generation_at != 0 && (now - s_state.last_generation_at) <= gap)
+		s_state.generation_run++;
+	else
+		s_state.generation_run = 0;
+	s_state.last_generation_at = now;
+
+	PushCapped(s_state.generation_costs, State::GenerationSample{now, ms, s_state.generation_run});
 	if (s_state.session.active)
 	{
 		s_state.session.generation_samples++;
@@ -388,10 +424,26 @@ GSPresentationMetrics::Snapshot GSPresentationMetrics::GetSnapshot()
 	if (!s_state.generation_costs.empty())
 	{
 		double total = 0.0;
-		for (const auto& [at, ms] : s_state.generation_costs)
-			total += ms;
+		double warm_total = 0.0;
+		u64 warm_count = 0;
+		for (const State::GenerationSample& sample : s_state.generation_costs)
+		{
+			total += sample.ms;
+			if (sample.run_index >= WARMUP_GENERATIONS)
+			{
+				warm_total += sample.ms;
+				warm_count++;
+			}
+		}
 		out.generation_avg_ms =
 			static_cast<float>(total / static_cast<double>(s_state.generation_costs.size()));
+		// Zero quando ainda não há amostra aquecida, e isso é informação, não falha: significa
+		// "não há evidência sobre o custo de regime". Quem lê decide o que fazer com isso — a
+		// régua de FG trata como "sem motivo para recusar", porque recusar com base no custo do
+		// próprio aquecimento é o que mantinha o recurso desligado.
+		out.generation_warm_avg_ms =
+			(warm_count > 0) ? static_cast<float>(warm_total / static_cast<double>(warm_count)) : 0.0f;
+		out.generation_warm_samples = warm_count;
 	}
 
 	return out;

@@ -59,7 +59,22 @@ namespace GSPresentationMetrics
 		u64 skipped_presents; ///< present pulado inteiro (frame skip / throttle)
 		float present_call_avg_ms; ///< custo da chamada de present ao WSI
 		float present_call_max_ms;
-		float generation_avg_ms; ///< custo da interpolação, quando houver
+		float generation_avg_ms; ///< custo da interpolação, quando houver — TODAS as amostras
+		/// Custo médio só das gerações AQUECIDAS: as que vieram depois de algumas seguidas.
+		///
+		/// Existe separado de `generation_avg_ms` porque os dois respondem perguntas diferentes, e
+		/// confundi-las manteve o recurso desligado por onze minutos de log. A primeira geração
+		/// depois de uma interrupção custa cerca do dobro (medido: 10-19 ms isolada contra
+		/// 5,6-6,6 ms em sequência), e é ela que uma régua de orçamento acaba lendo justamente
+		/// quando está recusando — a medição que decide o recurso passa a ser produzida pelo
+		/// recurso estar sendo negado.
+		///
+		/// `generation_avg_ms` continua com TUDO, porque foi comparar os dois que revelou o
+		/// mecanismo; este é o número com que se decide.
+		///
+		/// Zero significa "ainda não há evidência sobre o custo de regime", não "custa zero".
+		float generation_warm_avg_ms;
+		u64 generation_warm_samples;
 		u64 present_errors;
 	};
 

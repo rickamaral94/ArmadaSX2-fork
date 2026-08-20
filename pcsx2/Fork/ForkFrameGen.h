@@ -84,14 +84,30 @@ namespace ForkFrameGen
 	struct Policy
 	{
 		Mode mode = Mode::Off;
-		/// Teto de tempo para produzir o quadro gerado. Estourar significa roubar tempo da
-		/// emulação, que é exatamente o que FG não pode fazer.
+		/// Quanto do INTERVALO REAL entre quadros a geração pode consumir.
 		///
-		/// 8 ms não é chute: é o valor que o Adreno 740 obrigou. Medido com LSFG 3.1p a 1080p x2,
-		/// flow 25% — cena leve custa ~6,5 ms e cena pesada salta para ~16 ms. O teto anterior de
-		/// 6,0 ms caía EXATAMENTE em cima do custo normal, e o resultado foi FG engatando e
-		/// suspendendo o tempo todo sem nunca gerar nada. 8 ms separa os dois regimes com folga.
-		float budget_ms = 8.0f;
+		/// O orçamento era um número absoluto de milissegundos, e isso estava errado por um motivo
+		/// que só apareceu com três jogos medidos lado a lado: 8 ms dentro de um quadro de 60 Hz
+		/// (16,7 ms) é metade do tempo disponível; os MESMOS 8 ms dentro de um quadro de 30 Hz
+		/// (33,3 ms) são um quarto. Um teto absoluto trata os dois casos como iguais e acaba
+		/// proibindo, no jogo de 30, exatamente o caso em que FG mais rende.
+		///
+		/// O aparelho mostrou a conta: NFS Underground 2 a 2.00x, 30 fps travados, geração custando
+		/// ~6,5 ms quando aquecida — e recusada por 11 minutos seguidos contra um teto de 8 ms que
+		/// o custo A FRIO (13 ms) estourava. God of War II, mesmo aparelho, mesmo upscale, mesmos
+		/// 30 fps, custo 5,7 ms: engatou e ficou em `engaged=100% transitions=0`. A diferença não
+		/// era o jogo, era qual dos dois conseguiu passar dos primeiros quadros.
+		///
+		/// 0,5 preserva o comportamento medido a 60 Hz (0,5 × 16,7 = 8,35 ms ≈ o teto antigo) e
+		/// abre 16,7 ms a 30 Hz, que admite os 13 ms frios e continua recusando os 20 ms que o
+		/// upscale de 3.00x custava.
+		float budget_fraction = 0.5f;
+		/// Teto absoluto, que só morde quando o intervalo real é muito longo.
+		///
+		/// A fração sozinha ficaria permissiva demais num jogo lento: a 15 fps ela autorizaria 33 ms
+		/// de geração. Os degraus de velocidade e de FPS mínimo já barram esse caso antes, mas o
+		/// teto existe para que a régua não dependa da ordem dos degraus para estar correta.
+		float budget_ms = 20.0f;
 		/// Histerese do orçamento, como FRAÇÃO do teto: uma vez suspenso por custo, só volta a
 		/// engatar quando a média cair abaixo de `budget_ms * (1 - budget_hysteresis)`.
 		///
@@ -161,7 +177,11 @@ namespace ForkFrameGen
 		u32 frames_since_disengage = 1000;
 		float frametime_avg_ms = 0.0f;
 		float frametime_p99_ms = 0.0f;
-		/// Custo da última geração, 0 quando ainda não houve.
+		/// Custo de regime da geração — a média das gerações AQUECIDAS, não de todas.
+		///
+		/// Zero quando ainda não houve nenhuma aquecida, e isso quer dizer "sem evidência", não
+		/// "de graça". Sem evidência o orçamento não barra: a alternativa, medida no aparelho, é
+		/// julgar o recurso pelo custo do próprio aquecimento e nunca deixá-lo aquecer.
 		float last_generation_ms = 0.0f;
 	};
 

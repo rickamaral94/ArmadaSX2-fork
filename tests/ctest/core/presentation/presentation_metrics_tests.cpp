@@ -341,3 +341,58 @@ TEST_F(PresentationMetricsTest, SessionIsInertBeforeBeginAndAfterEnd)
 	PresentRealFrames(50, 10.0);
 	EXPECT_EQ(GSPresentationMetrics::GetSessionStats().real_frames, after_end);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fase 8.7: separar o custo FRIO do custo de REGIME.
+//
+// A primeira geração depois de uma interrupção custa cerca do dobro das seguintes. Medido em três
+// jogos no Adreno 740: janelas com 30-60 gerações deram 5,6-6,6 ms; janelas com uma geração
+// isolada deram 10-19 ms. Quem lê a média de tudo para DECIDIR se pode gerar acaba lendo, enquanto
+// recusa, apenas amostras frias — e recusa por causa da própria recusa.
+// ---------------------------------------------------------------------------------------------
+
+TEST_F(PresentationMetricsTest, IsolatedGenerationsNeverCountAsWarm)
+{
+	// O padrão de quando a régua está recusando: uma tentativa cara a cada meio segundo.
+	for (int i = 0; i < 3; i++)
+	{
+		GSPresentationMetrics::NoteGenerationCost(13.0);
+		AdvanceMs(500.0);
+	}
+	GSPresentationMetrics::NoteGenerationCost(13.0);
+
+	const Snapshot snap = GSPresentationMetrics::GetSnapshot();
+	EXPECT_EQ(snap.generation_warm_samples, 0u);
+	EXPECT_FLOAT_EQ(snap.generation_warm_avg_ms, 0.0f) << "sem evidência de regime é zero, não 13";
+	// A média de TUDO continua contando a verdade — foi ela que revelou o mecanismo.
+	EXPECT_GT(snap.generation_avg_ms, 12.0f);
+}
+
+TEST_F(PresentationMetricsTest, ASustainedRunReportsTheRegimeCostNotTheWarmUp)
+{
+	// Uma sequência como a de um jogo de 30 fps: geração a cada 33 ms. As três primeiras caras.
+	for (int i = 0; i < 12; i++)
+	{
+		GSPresentationMetrics::NoteGenerationCost((i < 3) ? 13.0 : 6.5);
+		AdvanceMs(33.0);
+	}
+
+	const Snapshot snap = GSPresentationMetrics::GetSnapshot();
+	EXPECT_EQ(snap.generation_warm_samples, 9u);
+	EXPECT_NEAR(snap.generation_warm_avg_ms, 6.5f, 0.01f);
+	// E a média de tudo fica no meio do caminho, como deve.
+	EXPECT_GT(snap.generation_avg_ms, 6.5f);
+	EXPECT_LT(snap.generation_avg_ms, 13.0f);
+}
+
+// O limite de sequência tem que ser generoso o bastante para um jogo que desenha a 30: gerar a
+// cada 33 ms é ritmo normal, não interrupção.
+TEST_F(PresentationMetricsTest, ThirtyFpsPacingDoesNotBreakTheRun)
+{
+	for (int i = 0; i < 10; i++)
+	{
+		GSPresentationMetrics::NoteGenerationCost(6.0);
+		AdvanceMs(33.4);
+	}
+	EXPECT_GT(GSPresentationMetrics::GetSnapshot().generation_warm_samples, 5u);
+}

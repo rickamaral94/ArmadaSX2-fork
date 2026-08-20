@@ -429,3 +429,93 @@ porque todo o resto do log é lido à luz dele.
   FG mais ajudaria — mas a 3.00x de upscale ele custa 20 ms e não cabe. **A comparação a fazer é
   2.00x com FG contra 3.00x sem**, e ela é do usuário, não minha: é preferência, não medição.
 - A régua nunca escondeu velocidade errada em nenhuma janela da sessão.
+
+## 14. Adendo (8.7) — o orçamento perguntava a coisa errada
+
+Alpha 6 no Odin 2, três jogos a **2.00x** de upscale, cerca de 40 minutos de log. A sessão contém
+o experimento controlado que faltava: **NFS Underground 2 e God of War II, mesmo aparelho, mesmo
+upscale, ambos travados em 30 fps a 100% de velocidade, e resultados opostos.**
+
+God of War II, doze janelas seguidas:
+
+```
+speed=100% internal_fps=29.97
+real fps=30.00 frametime_avg=33.4ms
+presented fps=60.00 real_frames=30 generated=30
+framegen engaged=100.0% transitions=0 gen_avg=5.7ms
+```
+
+NFS Underground 2, **onze minutos** seguidos:
+
+```
+speed=100% internal_fps=29.9
+real fps=29.00 frametime_avg=33.4ms 1%low=33.9ms
+presented fps=29.00 generated=0
+framegen engaged=3.3% transitions=15 dominant=Cooldown gen_avg=13.3ms
+```
+
+O `1%low=33.9` contra média de `33.4` diz que o NFS a 2.00x roda **liso** — praticamente sem
+tremor. Não havia nada de errado com o jogo. A régua é que estava recusando.
+
+### Defeito 1: o custo que a régua lia era produzido pela própria recusa
+
+Cruzando todas as janelas da sessão, o padrão é limpo e não admite outra leitura:
+
+| gerações na janela | custo médio |
+|---|---|
+| 30-60 (sequência) | **5,6-6,6 ms** |
+| 1 (isolada) | **10-19 ms** |
+
+A primeira geração depois de uma interrupção custa **cerca do dobro** — reconstruir histórico,
+pipeline frio. E enquanto a régua recusa, a única amostra que entra na janela de 1 s é exatamente
+essa: um quadro frio isolado. **A medição que decide o recurso passava a ser produzida pelo
+recurso estar sendo negado.** Recusa → histórico cai → a próxima tentativa é fria → custa o dobro
+→ estoura o teto → recusa. Onze minutos.
+
+O GoW II não era melhor: só teve a sorte de passar dos primeiros quadros antes de um engasgo
+derrubar a geração, e a partir daí mediu o próprio regime — 5,7 ms — e ficou.
+
+A correção é na **medição**, não na régua, e é onde ela tinha que ser: `GSPresentationMetrics`
+agora marca cada geração com a posição dela dentro da sequência e publica dois números.
+`generation_avg_ms` continua com tudo — foi comparar os dois que revelou o mecanismo, e jogar essa
+informação fora seria apagar a evidência. `generation_warm_avg_ms` traz só o regime, e é com ele
+que a régua decide. **Zero significa "ainda não sei", não "de graça"** — e sem evidência o
+orçamento não barra, porque quem protege a emulação de verdade é o degrau de velocidade, que vale
+em todos os quadros. O orçamento sempre foi um guarda preditivo.
+
+O log passa a mostrar os dois: `gen_avg=` e `gen_warm=`.
+
+### Defeito 2: 8 ms significam coisas diferentes a 30 e a 60
+
+O teto era um número absoluto de milissegundos. Oito milissegundos dentro de um quadro de 60 Hz
+(16,7 ms) são metade do tempo disponível; os mesmos 8 ms dentro de um quadro de 30 Hz (33,3 ms)
+são um quarto. Um teto absoluto trata os dois como iguais — e acaba proibindo, no jogo de 30,
+exatamente o caso em que frame generation mais rende.
+
+O orçamento passa a ser uma **fração do intervalo real** (`FrameGen.BudgetFraction`, 0,5):
+
+| taxa do jogo | intervalo | orçamento | veredito sobre o custo medido |
+|---|---|---|---|
+| 60 fps | 16,7 ms | 8,35 ms | igual ao teto antigo — nada muda |
+| 30 fps | 33,3 ms | 16,7 ms | admite os 13 ms frios do NFS |
+| 30 fps a 3.00x | 33,3 ms | 16,7 ms | continua recusando os 20 ms medidos |
+
+`FrameGen.BudgetMs` sobrevive como **teto absoluto** (20 ms), que só morde quando o intervalo real
+é muito longo — para a régua não depender da ordem dos degraus para estar correta.
+
+### O que já tinha funcionado
+
+O cache de shaders por driver da 8.6 está confirmado no aparelho:
+
+```
+Read 287 entries from '.../vulkan_shaders_972c1a6fedf27758.idx'
+Read 391 entries from '.../vulkan_shaders_972c1a6fedf27758.idx'
+Read 679 entries from '.../vulkan_shaders_972c1a6fedf27758.idx'
+```
+
+Nome com chave de driver, três reinícios do app, **nenhum** `Incorrect UUID` e nenhum
+`Removing existing index file` — e o cache acumulando de 287 para 679 entradas em vez de voltar a
+zero. Era isso que a 8.6 prometia.
+
+E a 2.00x, com o que este adendo corrige, o quadro esperado é o do God of War II: 30 reais, 60
+apresentados, `engaged=100% transitions=0`.

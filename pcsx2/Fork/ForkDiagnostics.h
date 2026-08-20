@@ -69,7 +69,8 @@ namespace ForkDiagnostics
 	std::string FormatRealLine(const GSPresentationMetrics::Snapshot& snapshot);
 	std::string FormatPresentedLine(const GSPresentationMetrics::Snapshot& snapshot);
 	std::string FormatFrameGenLine(
-		const Accumulator& accumulator, const ForkFrameGen::Policy& policy, float generation_avg_ms);
+		const Accumulator& accumulator, const ForkFrameGen::Policy& policy, float generation_avg_ms,
+		float generation_warm_avg_ms, float frametime_avg_ms);
 
 	/// Onde o tempo está indo. Responde a PRIMEIRA pergunta de qualquer relato de lentidão —
 	/// "é CPU ou GPU?" — que o bloco anterior não respondia de jeito nenhum. Sem isso, "está
