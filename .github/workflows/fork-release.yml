@@ -77,6 +77,48 @@ jobs:
       # A tag entra como versionName para que o número que aparece no OSD e nos logs seja o
       # mesmo da release. Sem isso, todo relato de teste chegaria dizendo "2.6.1", que é a
       # versão do upstream, e não daria para saber qual build produziu qual medição.
+      # Assinatura ESTÁVEL entre releases.
+      #
+      # Sem isto o Gradle cai em `signingConfigs.debug`, que usa a `~/.android/debug.keystore` do
+      # runner — e o runner é descartável, então cada build gera uma chave nova. O Android recusa
+      # instalar por cima ("conflito com um pacote já existente") e o usuário perde memory cards,
+      # cache de shaders e o driver Turnip a cada atualização. Medido no aparelho, alpha 6 → 7.
+      #
+      # A chave nunca entra no repositório: vem de segredo, é escrita fora da árvore e apagada
+      # depois. Sem o segredo o build continua funcionando, mas AVISA — um alpha que não instala
+      # por cima é um problema de distribuição, não um detalhe.
+      - name: Materializar keystore de assinatura
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ARMADA_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ARMADA_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ARMADA_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ARMADA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Assinatura instável::Sem o segredo ARMADA_KEYSTORE_BASE64 o APK é assinado com a keystore de DEBUG do runner, que muda a cada build. Esta release NÃO vai instalar por cima da anterior."
+            exit 0
+          fi
+          for var in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "$(eval "echo \${${var}:-}")" ]; then
+              echo "ARMADA_KEYSTORE_BASE64 está definido mas ${var} não. Configure os quatro segredos." >&2
+              exit 1
+            fi
+          done
+
+          KEYSTORE_PATH="${RUNNER_TEMP}/armada-release.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 -d > "${KEYSTORE_PATH}"
+          echo "KEYSTORE_PATH=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
+
+          # O Gradle lê este arquivo em rootProject (platforms/android). Não é commitado: existe
+          # só dentro do runner e some com ele.
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "${KEYSTORE_PATH}" "${KEYSTORE_PASSWORD}" "${KEY_ALIAS}" "${KEY_PASSWORD}" \
+            > platforms/android/armsx2_keystore.properties
+          echo "stable=true" >> "$GITHUB_OUTPUT"
+
       - name: Build release APK (github flavor, arm64-v8a)
         working-directory: platforms/android
         run: |
@@ -104,6 +146,12 @@ jobs:
           echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
           echo "size=$(du -h "${OUT}" | cut -f1)" >> "$GITHUB_OUTPUT"
 
+      # A chave sai do disco assim que o APK está assinado, mesmo se um passo seguinte falhar.
+      - name: Apagar a keystore do runner
+        if: always()
+        run: |
+          rm -f "${KEYSTORE_PATH:-}" platforms/android/armsx2_keystore.properties || true
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -113,8 +161,18 @@ jobs:
           [ -n "${TITLE}" ] || TITLE="${{ inputs.tag }}"
 
           {
-            echo "APK arm64, sabor \`github\`, build de release (LTO + R8), assinado com a keystore"
-            echo "de debug — instala por sideload, **não** serve para a Play Store."
+            echo "APK arm64, sabor \`github\`, build de release (LTO + R8). Instala por sideload,"
+            echo "**não** serve para a Play Store."
+            echo
+            if [ "${{ steps.signing.outputs.stable }}" = "true" ]; then
+              echo "Assinado com a chave estável do fork: **instala por cima da release anterior**,"
+              echo "preservando memory cards, configurações e cache de shaders."
+            else
+              echo "> **Atenção:** assinado com a keystore de debug do runner, que muda a cada build."
+              echo "> Esta versão **não instala por cima** da anterior — é preciso desinstalar antes,"
+              echo "> e a desinstalação apaga \`Android/data/com.armsx2/files/\` (memory cards,"
+              echo "> configurações, cache de shaders e drivers). Faça backup dessa pasta primeiro."
+            fi
             echo
             echo "| | |"
             echo "|---|---|"

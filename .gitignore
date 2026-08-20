@@ -176,3 +176,10 @@ platforms/android/app/src/main/cpp/3rdparty/discord/include/
 # Só pelo nome: o upstream versiona .dll legítimos (WinPixEventRuntime), e um `*.dll`
 # genérico esconderia um arquivo novo deles em vez de proteger contra este aqui.
 **/Lossless.dll
+
+# Assinatura do fork. A chave e a senha nunca entram no repositório: no CI vêm de segredo e são
+# apagadas no fim do job; na máquina de quem constrói, ficam fora do versionamento. Um fork
+# público com a chave privada dentro é uma chave que qualquer um usa para assinar "atualizações".
+armsx2_keystore.properties
+*.jks
+*.keystore

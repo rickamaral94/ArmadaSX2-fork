@@ -519,3 +519,29 @@ zero. Era isso que a 8.6 prometia.
 
 E a 2.00x, com o que este adendo corrige, o quadro esperado é o do God of War II: 30 reais, 60
 apresentados, `engaged=100% transitions=0`.
+
+## 15. Adendo (8.8) — cada release exigia desinstalar a anterior
+
+A alpha 7 não instalou por cima da 6: *"Como o pacote tem um conflito com um pacote já existente,
+o app não foi instalado."* Isso é conflito de **assinatura**, e a causa era do próprio workflow.
+
+Sem keystore configurada, o Gradle cai em `signingConfigs.debug`, que usa a `~/.android/debug.keystore`
+do ambiente de build. No runner do GitHub esse arquivo é gerado do zero a cada job — então **toda
+release saiu com uma chave diferente**, e o Android trata a nova como um app estranho tentando se
+passar pelo instalado.
+
+O custo não é o clique a mais de desinstalar. É que a desinstalação apaga
+`Android/data/com.armsx2/files/` inteiro: memory cards, `PCSX2-Android.ini`, o pacote do driver
+Turnip e o cache de shaders — o mesmo cache que a 8.6 acabou de ensinar a sobreviver a trocas de
+driver, e que a sessão medida mostrou acumulando de 287 para 679 entradas.
+
+A correção assina com chave estável vinda de segredo (`ARMADA_KEYSTORE_BASE64` e os três
+companheiros), materializada fora da árvore e apagada no fim do job — `if: always()`, para não
+ficar no disco quando um passo posterior falha. `tools/fork/make-signing-key.sh` gera a chave e
+imprime os quatro segredos para colar; a chave nunca entra no repositório, porque um fork público
+com a chave privada dentro é uma chave que qualquer um usa para assinar "atualizações".
+
+Sem os segredos o build continua funcionando, mas passa a **avisar**: um `::warning` no job e um
+bloco na descrição da release dizendo que aquela versão não instala por cima e que a pasta de
+dados precisa de backup antes. Um alpha que não atualiza é problema de distribuição, não detalhe
+de empacotamento — e ficar em silêncio sobre isso foi o que fez o usuário descobrir no aparelho.
