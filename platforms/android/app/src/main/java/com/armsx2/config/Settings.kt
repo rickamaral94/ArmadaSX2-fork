@@ -423,14 +423,31 @@ data class Settings(
      *  only does anything on games that implement the prompt. Per-game because the same combo is
      *  a normal input elsewhere, and titles that ignore the prompt gain nothing from holding it. */
     val autoProgressiveScan: Boolean = false,
-    /** Affinity Control Mode (EXPERIMENTAL, default 0 = off). 0 Disabled · 1 EE>VU>GS ·
-     *  2 EE>GS>VU · 3 VU>EE>GS · 4 VU>GS>EE · 5 GS>EE>VU · 6 GS>VU>EE · 7 Performance Cores.
-     *  Pushed to native via NativeApp.setAffinityMode before runVMThread and consumed by
-     *  VMManager::SetEmuThreadAffinities, so it applies on the next boot. Per-game because the
-     *  best placement is workload-dependent: GS-bound titles want the GS thread on the prime
-     *  core, VU-bound ones want VU left free to float there. Off is still the recommended
-     *  default — Android's EAS scheduler usually beats hand-pinning. */
-    val affinityMode: Int = 0,
+    /** Affinity Control Mode. 0 Disabled · 1 EE>VU>GS · 2 EE>GS>VU · 3 VU>EE>GS · 4 VU>GS>EE ·
+     *  5 GS>EE>VU · 6 GS>VU>EE · 7 Performance Cores.
+     *
+     *  Empurrado ao nativo por NativeApp.setAffinityMode antes de runVMThread e consumido por
+     *  VMManager::SetEmuThreadAffinities, então vale no próximo boot. Por jogo, porque a melhor
+     *  colocação depende da carga: título preso no GS quer a thread do GS no núcleo prime, preso
+     *  na VU quer a VU livre para flutuar lá.
+     *
+     *  **Padrão 7 (Performance Cores) neste fork, por decisão do mantenedor.** A ressalva fica
+     *  registrada porque ela é real: não existe uma medição A/B nossa, e a regra do projeto é que
+     *  nada vira global sem comparação. O que reduz o risco é que os dois defeitos que tornavam
+     *  este modo perigoso foram corrigidos antes de ligá-lo:
+     *
+     *   - a regra era "o cluster do núcleo mais rápido", e no QCS8550 esse cluster tem UM núcleo
+     *     (1x X3 + 4x A715/A710 + 3x A510) — o modo confinava EE, GS e VU a um core só;
+     *   - a fonte era a frequência do cpuinfo, que reporta 0 MHz em boa parte dos SoCs Android.
+     *
+     *  Agora a capacidade vem de /sys/devices/system/cpu/cpuN/cpu_capacity — a mesma que o EAS
+     *  usa — e a MTGS recebe os núcleos rápidos incluindo o prime enquanto EE/VU ficam com os
+     *  rápidos menos o prime, para que a thread que segura o quadro não dispute com elas.
+     *
+     *  Quem quiser voltar ao escalonador do Android põe em Disabled; e o log imprime a máscara
+     *  escolhida (`Affinity mode: Performance Cores (mask 0x..., N cores)`), então o A/B que
+     *  falta é uma sessão com e outra sem, na mesma cena. */
+    val affinityMode: Int = 7,
     /** EmuCore/GS FramerateNTSC — the emulated PS2 vsync rate for NTSC games
      *  (PCSX2 default 59.94). Lowering it slows the game's target rate; raising it
      *  speeds it up. Mirrors NetherSX2's "Framerate For NTSC". */

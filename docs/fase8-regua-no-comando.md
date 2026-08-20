@@ -932,3 +932,28 @@ bloqueou ou não, e com 3 imagens de swapchain isso é uma corrida.
 Foi por isso que a 8.15 passou a pedir `multiplier + 2` imagens quando FG está ligado — o número
 que o próprio RPCS3/ARMSX3 documenta como piso. **Essa mudança ainda não rodou no aparelho**: a
 alpha 10 foi construída antes dela. É o que a próxima sessão precisa medir.
+
+## 24. Adendo (8.17) — a afinidade vira padrão, e o caminho de falha dela deixa de ser detalhe
+
+O mantenedor decidiu ligar o modo 7 (*Performance Cores*) por padrão. A ressalva do projeto fica
+registrada porque continua verdadeira: **não existe uma medição A/B nossa**, e a regra diz que nada
+vira global sem comparação. O que reduz o risco é que os dois defeitos que tornavam este modo
+perigoso foram corrigidos antes de ele ser ligado — a regra do "cluster do núcleo mais rápido", que
+no QCS8550 confinava EE, GS e VU a um único core (8.11), e a fonte de capacidade, que era a
+frequência do cpuinfo e vinha zerada em boa parte dos SoCs Android (8.15).
+
+Mas ligar por padrão mudou o peso de uma terceira coisa, que passou despercebida enquanto o modo era
+opt-in: **o caminho de falha**.
+
+Quando a capacidade não é legível, o modo caía no *caminho ordenado* — a linha 6, `GS>VU>EE`, que
+fixa cada thread a **um núcleo específico**. Enquanto alguém tinha ativamente escolhido "Performance
+Cores", "fazer algo em vez de nada" era defensável. Como PADRÃO, num aparelho onde nem
+`/sys/devices/system/cpu/cpuN/cpu_capacity` dá para ler, isso é uma escolha agressiva que o usuário
+não fez, tomada justamente onde se sabe menos sobre o hardware.
+
+Agora, sem capacidade utilizável, o modo se comporta como **Disabled**: zera as máscaras e devolve o
+escalonamento ao EAS, com uma linha no log dizendo isso. O padrão só age onde consegue enxergar.
+
+O A/B que falta continua sendo uma sessão com e outra sem, na mesma cena. O log imprime a máscara
+escolhida — `Affinity mode: Performance Cores — GS 0x...` — então a comparação é interpretável
+quando alguém a fizer.

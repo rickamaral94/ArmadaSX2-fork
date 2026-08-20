@@ -4213,8 +4213,21 @@ void VMManager::SetEmuThreadAffinities()
 			s_thread_affinities_set = true;
 			return;
 		}
-		// Sem leitura utilizável — segue para o caminho ordenado em vez de deixar o modo escolhido
-		// pelo usuário sem efeito nenhum.
+		// Sem leitura utilizável, o modo se comporta como DESLIGADO — e não cai no caminho
+		// ordenado, que era o que ele fazia antes.
+		//
+		// A diferença passou a importar quando este virou o modo PADRÃO. Cair no caminho ordenado
+		// significa entrar na linha 6 (GS>VU>EE), que fixa cada thread a UM núcleo específico —
+		// uma escolha agressiva, e que o usuário não fez. Enquanto o modo era opt-in, "fazer algo
+		// em vez de nada" era defensável; como padrão, num aparelho onde nem a capacidade dá para
+		// ler, o certo é devolver o escalonamento ao Android.
+		INFO_LOG("Affinity mode: Performance Cores sem capacidade utilizável — deixando com o EAS");
+		MTGS::GetThreadHandle().SetAffinity(0);
+		vu1Thread.GetThreadHandle().SetAffinity(0);
+		s_vm_thread_handle.SetAffinity(0);
+		s_software_renderer_processor_list = {};
+		s_thread_affinities_set = false;
+		return;
 	}
 
 	// Modes 1-6: explicit EE/VU/GS priority over s_processor_list, which is ordered fastest
