@@ -89,8 +89,23 @@ std::string ForkDiagnostics::FormatRealLine(const GSPresentationMetrics::Snapsho
 
 std::string ForkDiagnostics::FormatPresentedLine(const GSPresentationMetrics::Snapshot& snapshot)
 {
-	return fmt::format("{} presented fps={:.2f} real_frames={} generated={} duplicated={}", PREFIX,
-		snapshot.presented_fps, snapshot.real_frames, snapshot.generated_frames, snapshot.duplicated_frames);
+	// A CADÊNCIA do que saiu para a tela, e não só a contagem.
+	//
+	// `presented fps=60` num jogo de 30 pode significar duas coisas opostas, e até a 8.10 o log
+	// não distinguia: quadros a cada 16,7 ms — o recurso funcionando — ou pares 8,3/25,0, que dão
+	// o mesmo 60 e se parecem com 30 fps com atraso a mais. `pace` é o que separa: com min e max
+	// colados na média, a cadência é regular; afastados, os quadros estão saindo grudados.
+	std::string line = fmt::format("{} presented fps={:.2f} real_frames={} generated={} duplicated={}",
+		PREFIX, snapshot.presented_fps, snapshot.real_frames, snapshot.generated_frames,
+		snapshot.duplicated_frames);
+
+	if (snapshot.presented_frametime_avg_ms > 0.0f)
+	{
+		line += fmt::format(" pace_avg={:.2f}ms pace_min={:.2f}ms pace_max={:.2f}ms",
+			snapshot.presented_frametime_avg_ms, snapshot.presented_frametime_min_ms,
+			snapshot.presented_frametime_max_ms);
+	}
+	return line;
 }
 
 std::string ForkDiagnostics::FormatFrameGenLine(

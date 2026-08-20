@@ -62,6 +62,14 @@ object CustomDriver {
         val idPrefix: String,
     )
     private val DRIVER_SOURCES = listOf(
+        // Builds Turnip do próprio fork, e por isso em primeiro: são as que a campanha de
+        // medição usa, então o testador não precisa procurar a dele no meio das outras. Mesmo
+        // formato de zip adrenotools das demais (meta.json + libvulkan_freedreno.so na raiz).
+        DriverSource(
+            "Amaral · Adreno Tools",
+            "https://api.github.com/repos/rickamaral94/Amaral-Adreno-Tools/releases",
+            "amaral",
+        ),
         DriverSource(
             "AdrenoToolsDrivers",
             "https://api.github.com/repos/K11MCH1/AdrenoToolsDrivers/releases",

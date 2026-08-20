@@ -53,6 +53,21 @@ namespace GSPresentationMetrics
 		/// Intervalos acima de 2x a mediana da janela — o que se sente como engasgo, e o que uma
 		/// média esconde.
 		u32 stutter_count;
+		/// Intervalos entre quadros APRESENTADOS — reais, duplicados e gerados juntos, na ordem em
+		/// que saíram para a tela.
+		///
+		/// É a cadência que o olho vê, e até a Fase 8.10 ela não era medida por ninguém: o módulo
+		/// contava quantos quadros chegaram ao display e media o ritmo só dos REAIS. Um fluxo bem
+		/// espaçado e um mal espaçado produziam exatamente os mesmos números.
+		///
+		/// A distinção importa porque a diferença entre os dois é o recurso inteiro. Um jogo de 30
+		/// com um quadro gerado, num painel de 120 Hz, pode sair 16,7/16,7 — que é o que se quer —
+		/// ou 8,3/25,0, que tem o mesmo `presented fps=60` e se parece com 30 fps com atraso. `min`
+		/// e `max` colados na média significam cadência regular; afastados, significam que os
+		/// quadros estão saindo em pares em vez de espaçados.
+		float presented_frametime_avg_ms;
+		float presented_frametime_min_ms;
+		float presented_frametime_max_ms;
 		u64 real_frames; ///< na janela
 		u64 duplicated_frames;
 		u64 generated_frames;

@@ -619,3 +619,100 @@ dar.
   desligável, e com override por jogo.
 
 Só instalações novas são afetadas: quem já tem configuração salva mantém a escolha dele.
+
+## 17. Adendo (8.10) — o número que faltava: a cadência do que sai para a tela
+
+Relato do testador na alpha 8: *"não gerou quadro algum que fizesse diferença real"*. E o log
+concorda com ele de um jeito que precisa ser lido com cuidado — porque, pelos números que a gente
+tinha, **estava tudo certo**:
+
+```
+real fps=30.00 frametime_avg=33.40ms 1%low=33.50ms
+presented fps=60.00 real_frames=30 generated=30
+framegen engaged=100.0% transitions=0 gen_warm=14.29ms budget=16.70ms
+```
+
+Doze janelas seguidas assim. Trinta reais viram sessenta apresentados, sem uma troca de estado. Se
+o contrato da Fase 8 fosse só esse, estaria cumprido. Não estava, e o motivo é que **nunca medimos
+a cadência dos quadros APRESENTADOS** — só a dos reais.
+
+### Por que a contagem não basta
+
+O painel do aparelho roda a 120 Hz em FIFO (confirmado no log: `present=VK_PRESENT_MODE_FIFO_KHR`,
+e `presented fps=120` foi atingido em outras sessões, o que sob FIFO só é possível se o painel dá
+120). Num jogo de 30 fps com um quadro gerado, `presented fps=60` pode significar duas coisas
+opostas:
+
+- quadros a cada **16,7 ms** — o recurso funcionando, movimento visivelmente mais fluido;
+- quadros em **pares**, 8,3 ms e depois 25,0 — mesmo `presented fps=60`, mesma contagem, e o olho
+  vê 30 fps com a latência da interpolação de brinde.
+
+O segundo caso é o que o mecanismo prevê. O backend produz o quadro gerado *depois* que o quadro
+real N existe (é entre N-1 e N que ele interpola), e então os dois presents são enfileirados no
+mesmo instante. Sob FIFO a apresentação entrega um por vblank: o gerado no vblank seguinte, o real
+no vblank depois — 8,3 ms de distância — e aí 25 ms de silêncio até o próximo quadro do jogo.
+
+O `lsfg-vk` no Linux não sofre disso porque lá a própria fila FIFO segura a aplicação: gerando o
+dobro de quadros, o jogo é freado pela contrapressão e os presents saem espaçados sozinhos. Aqui a
+taxa do produtor é fixada pelo vsync do PS2, não pela swapchain — a contrapressão não existe, e o
+truque de "deixar o compositor pacear" não se aplica.
+
+**Isto ainda é hipótese.** É por isso que a 8.10 não muda a geração: ela mede.
+
+### O que passa a existir
+
+`pace_avg`, `pace_min` e `pace_max` na linha `presented` — média, menor e maior intervalo entre
+quadros que efetivamente foram para a tela, na janela. Calculados a partir das amostras que o
+módulo já guardava, sem nenhum registro novo no caminho quente.
+
+A leitura é direta: **min e max colados na média** significam cadência regular e o recurso
+entregando; **afastados** — algo como `pace_avg=16.7 pace_min=8.3 pace_max=25.0` — significam
+quadros saindo grudados, e aí o `presented fps` está contando o que não se vê.
+
+Dois testes fixam exatamente essa distinção, e o segundo existe para provar que a média sozinha
+não serve: os dois casos têm `pace_avg` idêntico.
+
+### O caminho, se a hipótese se confirmar
+
+Não é atrasar o quadro real para paceá-lo — isso custa latência e trabalho de sincronização que o
+Android não facilita (sem semáforo entre dispositivos, o bloqueio já é o mecanismo).
+
+É **casar a taxa apresentada com o painel**. Num painel de 120 Hz:
+
+| jogo | multiplicador | apresentado | cadência sob FIFO |
+|---|---|---|---|
+| 30 fps | x4 | 120 | um quadro por vblank — regular por construção |
+| 60 fps | x2 | 120 | um quadro por vblank — regular por construção |
+| 30 fps | x2 | 60 | dois presents por quadro de jogo, e a lacuna |
+
+Com um quadro para cada vblank não sobra lacuna para o pacing errar. E o multiplicador **já
+existe**: o backend aceita 2 a 4, a UI já oferece x2/x3/x4, e a régua do fork gateia apenas
+ligado/desligado — o número de quadros vem de `GSConfig.LsfgMultiplier`. Ou seja, **x4 num jogo de
+30 fps é testável hoje, sem mudança de código**. O que falta é a medição que diz se valeu, e é ela
+que este adendo entrega.
+
+O custo é a incógnita: a x2 a geração custou 14,3 ms de um orçamento de 16,7. A x4 reaproveita o
+mesmo campo de fluxo para os três quadros, então não deve triplicar — mas "não deve" não é medida,
+e o degrau de orçamento vai barrar se não couber. O que é exatamente o comportamento desejado.
+
+## 18. Adendo (8.11) — o modo "Performance Cores" era uma armadilha
+
+Avaliando o que já existe no emulador para virar padrão, o candidato óbvio era o *Affinity Control
+Mode*, hoje em `Disabled`. Num big.LITTLE, deixar a thread do EE migrar para um núcleo pequeno
+custa dezenas de milissegundos, e o modo 7 ("Performance Cores") parecia a escolha segura.
+
+Era o contrário. A regra era *"o cluster que contém o núcleo de maior frequência"*, e no QCS8550 do
+Odin 2 a topologia é **1x Cortex-X3 + 4x A715/A710 + 3x A510**: o cluster do topo tem **um núcleo
+só**. O modo confinava EE, GS e VU aos três num único core — pior que não fixar nada. A opção com
+o nome mais tranquilizador era a mais perigosa.
+
+A regra passa a ser **todos os clusters exceto o mais lento**: 5 núcleos naquele SoC, os 4 grandes
+num 4+4, tudo num chip de cluster único. É o que as pessoas querem dizer com o nome, mantém os
+núcleos pequenos fora do caminho, e nunca colapsa em um core. Quando o cpuinfo reporta 0 MHz para
+todos os núcleos — comum no Android — não há como saber qual é o cluster lento, e adivinhar fixaria
+o emulador nos pequenos metade das vezes: nesse caso a máscara sai vazia e o modo cai no caminho
+ordenado, que ao menos usa a ordem do próprio cpuinfo.
+
+**O padrão continua `Disabled`**, e isso é deliberado: a regra do projeto é que nenhuma otimização
+vira global sem comparação A/B, e não há uma única medição de affinity ainda. O que mudou é que
+agora a opção faz o que o nome promete — dá para medir de verdade.

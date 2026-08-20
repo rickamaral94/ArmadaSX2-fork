@@ -396,3 +396,48 @@ TEST_F(PresentationMetricsTest, ThirtyFpsPacingDoesNotBreakTheRun)
 	}
 	EXPECT_GT(GSPresentationMetrics::GetSnapshot().generation_warm_samples, 5u);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fase 8.10: a cadência do que sai para a tela.
+//
+// Contar quadros apresentados não distingue os dois resultados que mais importam. Um jogo de 30
+// com um quadro gerado dá `presented fps=60` tanto espaçado a 16,7 ms — que é o recurso
+// funcionando — quanto em pares 8,3/25,0, que se parecem com 30 fps e ainda cobram a latência da
+// interpolação. Até aqui os dois produziam números idênticos.
+// ---------------------------------------------------------------------------------------------
+
+TEST_F(PresentationMetricsTest, EvenlyPacedGenerationShowsMinAndMaxOnTheAverage)
+{
+	// 30 reais + 30 gerados, alternados e bem espaçados: tudo a 16,7 ms.
+	for (int i = 0; i < 20; i++)
+	{
+		GSPresentationMetrics::NotePresented(FrameKind::Real);
+		AdvanceMs(16.7);
+		GSPresentationMetrics::NotePresented(FrameKind::Generated);
+		AdvanceMs(16.7);
+	}
+
+	const Snapshot snap = GSPresentationMetrics::GetSnapshot();
+	EXPECT_NEAR(snap.presented_frametime_avg_ms, 16.7f, 0.5f);
+	EXPECT_NEAR(snap.presented_frametime_min_ms, 16.7f, 0.5f);
+	EXPECT_NEAR(snap.presented_frametime_max_ms, 16.7f, 0.5f);
+}
+
+TEST_F(PresentationMetricsTest, FramesPresentedInPairsAreCaughtDespiteTheSameFps)
+{
+	// Os MESMOS 60 quadros por segundo, saindo grudados: 8,3 ms e depois 25,0.
+	for (int i = 0; i < 20; i++)
+	{
+		GSPresentationMetrics::NotePresented(FrameKind::Generated);
+		AdvanceMs(8.3);
+		GSPresentationMetrics::NotePresented(FrameKind::Real);
+		AdvanceMs(25.0);
+	}
+
+	const Snapshot snap = GSPresentationMetrics::GetSnapshot();
+	// A média é a mesma do caso bem espaçado — é justamente por isso que ela sozinha não serve.
+	EXPECT_NEAR(snap.presented_frametime_avg_ms, 16.7f, 1.0f);
+	// O que denuncia é a distância entre os extremos.
+	EXPECT_LT(snap.presented_frametime_min_ms, 10.0f);
+	EXPECT_GT(snap.presented_frametime_max_ms, 20.0f);
+}

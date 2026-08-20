@@ -64,6 +64,7 @@
 #include "fmt/format.h"
 
 #include <atomic>
+#include <bit>
 #include <mutex>
 #include <sstream>
 #include <common/RedtapeWilCom.h>
@@ -4123,38 +4124,69 @@ void VMManager::SetEmuThreadAffinities()
 	const bool android_mtvu = EmuConfig.Speedhacks.vuThread;
 
 	// Mode 7 = "Performance Cores": don't hand out individual cores at all, just confine all
-	// three threads to the big/prime cluster and let EAS place them within it. This is the
+	// three threads to the fast part of the SoC and let EAS place them within it. This is the
 	// safest of the pinning modes because it never pins VU to a specific mid-tier core.
 	if (g_android_affinity_mode == 7)
 	{
+		// "Fast part" = every cluster EXCEPT the slowest one.
+		//
+		// The previous rule was "the cluster owning the highest-frequency core", and on a modern
+		// three-cluster Snapdragon that is a trap rather than a tuning: the QCS8550 in the Odin 2
+		// reports 1x Cortex-X3 + 4x A715/A710 + 3x A510, so the top cluster is a SINGLE core, and
+		// "Performance Cores" quietly confined EE, GS and VU to it — three busy threads fighting
+		// over one core, which is slower than no pinning at all. The mode looked like the safe
+		// choice and was the worst one.
+		//
+		// Dropping only the slowest cluster gives what people mean by the name: 5 cores on that
+		// SoC, the 4 big ones on a 4+4, everything on a single-cluster chip. It keeps the little
+		// cores — where a migrated EE thread costs tens of milliseconds — out of the way without
+		// ever collapsing onto one core.
+		//
 		// NOTE: deliberately NOT Internal::GetPerformanceClusterAffinityMask() — that is still a
-		// stub returning 0 in this core, which would make this mode silently do nothing. Derive
-		// the cluster from cpuinfo here instead: find the cluster owning the highest-frequency
-		// core and union every processor in it. cpuinfo reports 0 MHz for all cores on many
-		// Android SoCs, in which case this settles on the first cluster it lists — still a
-		// coherent cluster rather than a garbage mask.
+		// stub returning 0 in this core, which would make this mode silently do nothing.
 		const u64 perf_mask = [] {
 			const u32 count = cpuinfo_get_processors_count();
-			const cpuinfo_cluster* target = nullptr;
-			u32 best_freq = 0;
+
+			// Slowest cluster by the frequency of the cores in it.
+			const cpuinfo_cluster* slowest = nullptr;
+			u32 slowest_freq = 0;
+			bool frequencies_differ = false;
+			u32 first_freq = 0;
+			bool have_first = false;
 			for (u32 i = 0; i < count; i++)
 			{
 				const cpuinfo_processor* proc = cpuinfo_get_processor(i);
 				if (!proc || proc->smt_id != 0 || !proc->core || !proc->cluster)
 					continue;
-				if (!target || proc->core->frequency > best_freq)
+				const u32 freq = proc->core->frequency;
+				if (!have_first)
 				{
-					target = proc->cluster;
-					best_freq = proc->core->frequency;
+					first_freq = freq;
+					have_first = true;
+				}
+				else if (freq != first_freq)
+				{
+					frequencies_differ = true;
+				}
+				if (!slowest || freq < slowest_freq)
+				{
+					slowest = proc->cluster;
+					slowest_freq = freq;
 				}
 			}
+
+			// cpuinfo reports 0 MHz for every core on a good number of Android SoCs. With no
+			// frequencies there is no way to tell which cluster is the slow one, and guessing
+			// would pin the emulator to the little cores half the time. Returning 0 falls through
+			// to the ordered path, which at least ranks by cpuinfo's own processor order.
+			if (!slowest || !frequencies_differ)
+				return static_cast<u64>(0);
+
 			u64 mask = 0;
-			if (!target)
-				return mask;
 			for (u32 i = 0; i < count; i++)
 			{
 				const cpuinfo_processor* proc = cpuinfo_get_processor(i);
-				if (!proc || proc->smt_id != 0 || proc->cluster != target)
+				if (!proc || proc->smt_id != 0 || proc->cluster == slowest)
 					continue;
 				mask |= static_cast<u64>(1) << GetProcessorIdForProcessor(proc);
 			}
@@ -4162,7 +4194,8 @@ void VMManager::SetEmuThreadAffinities()
 		}();
 		if (perf_mask != 0)
 		{
-			INFO_LOG("Affinity mode: Performance Cores (mask 0x{:x})", perf_mask);
+			INFO_LOG("Affinity mode: Performance Cores (mask 0x{:x}, {} cores)", perf_mask,
+				std::popcount(perf_mask));
 			s_vm_thread_handle.SetAffinity(perf_mask);
 			MTGS::GetThreadHandle().SetAffinity(perf_mask);
 			vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? perf_mask : 0);

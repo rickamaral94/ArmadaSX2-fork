@@ -657,8 +657,11 @@ data class Settings(
     // Performance Overlay element toggles. Default true to mirror native
     // initialize(), which turns every OsdShow* bit on at first boot.
     // Disabling GPU also stops the GPU timing queries (real perf win).
-    /** EmuCore/GS/OsdShowFPS. */
-    val osdShowFps: Boolean = false,
+    /** EmuCore/GS/OsdShowFPS — contador de FPS. Ligado por padrão neste fork.
+     *
+     *  É o número que qualquer relato de teste cita primeiro, e tê-lo desligado por padrão
+     *  significa que a primeira coisa que todo testador faz é procurar onde ligar. */
+    val osdShowFps: Boolean = true,
     /** EmuCore/GS/OsdScale — size of on-screen messages/stats, percent (25–500, 100 = PCSX2's
      *  normal). Defaults to 65: at 100 the stats block dominates a handheld screen, and 65 matches
      *  the size NetherSX2 ships. Saves still on the old 100 default are migrated once (ConfigStore). */
@@ -670,8 +673,14 @@ data class Settings(
     val vsyncEnable: Boolean = false,
     /** EmuCore/GS/OsdShowVPS. */
     val osdShowVps: Boolean = false,
-    /** EmuCore/GS/OsdShowSpeed. */
-    val osdShowSpeed: Boolean = false,
+    /** EmuCore/GS/OsdShowSpeed — velocidade em %. Ligada JUNTO com o FPS, de propósito.
+     *
+     *  FPS sozinho não distingue os dois casos que este fork mais precisa separar: um jogo que
+     *  desenha a 30 nativamente rodando perfeito marca os mesmos "30" que um jogo de 60 rodando
+     *  pela metade. A velocidade contra a taxa alvo da máquina separa — 100% contra 50% — e é
+     *  a mesma grandeza que a régua de frame generation usa para decidir. Mostrar um sem o
+     *  outro é convidar exatamente a confusão que a regra do projeto proíbe. */
+    val osdShowSpeed: Boolean = true,
     /** EmuCore/GS/OsdShowCPU. */
     val osdShowCpu: Boolean = false,
     /** EmuCore/GS/OsdShowGPU. */

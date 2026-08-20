@@ -421,6 +421,31 @@ GSPresentationMetrics::Snapshot GSPresentationMetrics::GetSnapshot()
 		out.present_call_max_ms = static_cast<float>(highest);
 	}
 
+	// Cadência do que saiu para a tela. Calculada aqui a partir de `presented`, que já guarda o
+	// instante de cada quadro apresentado — não precisa de registro novo no caminho quente.
+	if (s_state.presented.size() >= 2)
+	{
+		double total = 0.0;
+		double lowest = 1e30;
+		double highest = 0.0;
+		size_t count = 0;
+		for (size_t i = 1; i < s_state.presented.size(); i++)
+		{
+			const double ms = Common::Timer::ConvertValueToMilliseconds(
+				s_state.presented[i].at - s_state.presented[i - 1].at);
+			total += ms;
+			lowest = std::min(lowest, ms);
+			highest = std::max(highest, ms);
+			count++;
+		}
+		if (count > 0)
+		{
+			out.presented_frametime_avg_ms = static_cast<float>(total / static_cast<double>(count));
+			out.presented_frametime_min_ms = static_cast<float>(lowest);
+			out.presented_frametime_max_ms = static_cast<float>(highest);
+		}
+	}
+
 	if (!s_state.generation_costs.empty())
 	{
 		double total = 0.0;
