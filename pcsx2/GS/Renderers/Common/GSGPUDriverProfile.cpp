@@ -455,6 +455,15 @@ static constexpr std::array<DriverRule, 27> s_driver_rules = {{
 	// feedback-loop-layout texelFetch sampler — while reading a separate RT copy renders
 	// correctly. Hence both bug bits and the expensive workaround. The reporter sees the same
 	// failure on the proprietary blob.
+	//
+	// ARMADILHA DE VERSÃO, para quem for adicionar uma regra de Turnip com faixa de versão: uma
+	// build `-devel` do Mesa reporta o `driverVersion` do Vulkan como <minor anterior>.99, não como
+	// o número do nome. Medido no Odin 2 em 26 sessões: o Mesa se anuncia "Mesa 26.3.0-devel
+	// (git-...)" e o PCSX2 casa regras contra `version=26.2.99`.
+	//
+	// Uma regra escrita como "corrigido em 26.3" portanto NÃO casaria numa 26.3.0-devel — e o
+	// silêncio seria total, porque regra que não casa não loga nada. Esta regra aqui não tem faixa
+	// de versão, então o problema não existe hoje; o aviso fica para a primeira que tiver.
 	{"vk-turnip-attachment-self-read", MobileGpuApi::Vulkan, RuntimeGpuProfile::Adreno,
 		MobileGpuDriver::MesaTurnip, MobileGpuArchitecture::Unknown, 0, 0, 0, {}, {}, 0, 0, false,
 		Bug(DriverBug::BrokenSubpassFeedback) | Bug(DriverBug::BrokenAttachmentFeedbackLoopLayout),

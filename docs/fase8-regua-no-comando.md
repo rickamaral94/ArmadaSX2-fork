@@ -957,3 +957,84 @@ escalonamento ao EAS, com uma linha no log dizendo isso. O padrão só age onde 
 O A/B que falta continua sendo uma sessão com e outra sem, na mesma cena. O log imprime a máscara
 escolhida — `Affinity mode: Performance Cores — GS 0x...` — então a comparação é interpretável
 quando alguém a fizer.
+
+## 25. Etapa 2 — os drivers Turnip estão de fato ajudando?
+
+Reavaliação de **22 sessões**, de todas as alphas. A resposta tem duas metades, e a primeira é
+desconfortável.
+
+### Nunca medimos
+
+Quarenta e sete blocos de identidade dizem `active=Mesa Turnip`. Um diz `Qualcomm proprietary` — e
+esse é o bug de identidade estale da alpha 5, que a própria sessão corrige onze segundos depois.
+
+**Nenhuma sessão inteira jamais rodou no driver do sistema.** Não existe A/B, e nenhuma afirmação
+de desempenho comparando os dois pode sair dos nossos números.
+
+O que existe: em **todas** as 22 sessões a velocidade mediana ficou entre 99,8% e 100,0%, com
+upscale de 2.00x e 3.00x, três builds de Turnip e quatro jogos. O Turnip não está atrapalhando. O
+quanto ele ajuda, os nossos logs não dizem.
+
+### Mas há uma comparação real, e ela é decisiva
+
+O app subiu uma vez no driver do sistema antes de trocar — tempo suficiente para sondar o
+dispositivo. Mesmo aparelho, mesma GPU, mesma sessão:
+
+| | Qualcomm proprietary | Mesa Turnip |
+|---|---|---|
+| Vulkan | **1.3.128** | **1.4.359** |
+| regras de defeito casadas | 4 | 1 |
+| defeitos conhecidos | **9** | **2** |
+| desvios forçados | **4** | **1** |
+| `VK_EXT_provoking_vertex` | não | sim |
+| `VK_EXT_attachment_feedback_loop_layout` | não | sim |
+| `VK_EXT_rasterization_order_attachment_access` | não | sim |
+| `VK_EXT_memory_budget` | não | sim |
+
+Os bitmasks conferem com a tabela de regras do emulador: `bugs=0x300` no Turnip é exatamente
+`BrokenSubpassFeedback | BrokenAttachmentFeedbackLoopLayout`, e `0x018073a0` no blob acrescenta
+sete.
+
+E o mais importante para nós: **`UseRenderTargetCopyForFeedback` — o desvio caro, que eu já cheguei
+a descrever como pedágio do Turnip — dispara nos DOIS.** A cópia de render target é paga de
+qualquer jeito. Não é motivo para preferir o blob.
+
+O que o blob paga a mais:
+
+- **`DisableProvokingVertex`** — ele nem expõe a extensão, então o emulador desiste do
+  provoking-vertex-last e paga expansão de vértice no sombreamento flat;
+- **`PreferCoherentReadback` + `UseStagingImageForReadback`** — dois defeitos de LEITURA DE VOLTA,
+  e leitura de volta é o coração da emulação de PS2 (transferências GS→EE);
+- **`BrokenDynamicRendering` + `BrokenImagelessFramebuffer`** — a versão do blob no aparelho
+  (512.676.53) está abaixo das duas correções, então ele é empurrado para caminhos de render pass
+  mais antigos;
+- **`BrokenPrimitiveRestart`**, **`BrokenReversedDepthRange`** — correção, não desempenho, mas
+  cada um é um caminho a mais que o emulador precisa emular à mão.
+
+**Veredito:** no nível de capacidade o Turnip domina, e não marginalmente. No nível de quadro por
+segundo, continuamos sem medida — e é isso que a mudança abaixo conserta.
+
+### O que a etapa mudou no código
+
+A informação acima **já era calculada e já era impressa** — numa linha do upstream
+(`VK: GPU profile override=...`), longe do bloco `@@FORK@@ identity`, que existe justamente para
+descrever o driver. Chegar à tabela acima exigiu achar aquela linha em duas sessões diferentes e
+decodificar dois bitmasks à mão.
+
+O bloco de identidade passa a carregar o custo:
+
+```
+@@FORK@@ identity  gpu='...' turnip=Supported requested='...' active=Mesa Turnip unexpected=no
+                   mesa=26.3.0 vk=1.4.359 bugs=0x300 workarounds=0x40 rules=1 sha256=-
+```
+
+Um A/B de driver vira a diferença entre duas linhas, em vez de arqueologia. E `bugs=0x300` contra
+`bugs=0x18073a0` já responde antes de qualquer decodificação.
+
+### Uma armadilha encontrada de passagem
+
+Em 26 sessões o Mesa se anuncia como `26.3.0-devel (git-...)` e o PCSX2 casa regras contra
+`version=26.2.99` — convenção do Mesa para pré-lançamento (minor anterior, patch 99). Uma regra
+futura escrita como "corrigido em 26.3" **não casaria** numa 26.3.0-devel, e o silêncio seria
+total, porque regra que não casa não registra nada. Nenhuma regra de Turnip tem faixa de versão
+hoje; o aviso ficou anotado ao lado da que existe.

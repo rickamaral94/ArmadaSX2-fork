@@ -60,6 +60,21 @@ namespace ForkGpuCapabilities
 		u32 vulkan_api_version = 0;
 		u32 android_sdk = 0;
 		TurnipSupport turnip = TurnipSupport::Unknown;
+
+		// O PREÇO do driver ativo, em defeitos conhecidos e em desvios que o emulador precisa
+		// tomar por causa deles.
+		//
+		// Existe porque a pergunta "o Turnip está ajudando?" ficou sem resposta por onze alphas.
+		// A informação já era calculada e impressa — numa linha do upstream, a `VK: GPU profile
+		// override=...`, longe do bloco que existe justamente para descrever o driver. Quem
+		// comparasse duas sessões teria de saber que aquela linha existe, achá-la nas duas e
+		// decodificar dois bitmasks à mão. Foi o que eu tive de fazer.
+		//
+		// No bloco de identidade, cada sessão passa a se autodescrever, e um A/B de driver vira
+		// diferença entre duas linhas em vez de arqueologia.
+		u64 driver_bugs = 0;
+		u64 driver_workarounds = 0;
+		u32 driver_matched_rules = 0;
 	};
 
 	/// A regra, isolada de qualquer estado para poder ser testada exaustivamente. Toda a Fase 3 se

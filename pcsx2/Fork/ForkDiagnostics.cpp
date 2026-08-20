@@ -191,13 +191,32 @@ std::string ForkDiagnostics::FormatIdentityLine()
 	const ForkDriverIdentity::Identity identity = ForkDriverIdentity::Get();
 	const ForkGpuCapabilities::Capabilities caps = ForkGpuCapabilities::Get();
 
-	return fmt::format("{} identity  gpu='{}' turnip={} requested='{}' active={} unexpected={} mesa={} sha256={}",
+	// `vk` e a contagem de defeitos entram aqui porque são o que separa um driver do outro em
+	// termos de CUSTO, e é a comparação que a linha existe para permitir. Medido no Odin 2, mesma
+	// GPU: o blob da Qualcomm expõe Vulkan 1.3.128 com 9 defeitos e 4 desvios; o Turnip expõe
+	// 1.4.359 com 2 e 1. Sem estes campos, chegar a essa frase exigiu decodificar bitmask à mão
+	// de uma linha do upstream que nem sempre está no mesmo lugar.
+	//
+	// A versão é desempacotada na mão, e não com `VK_API_VERSION_*`: este módulo compila no
+	// harness de teste sem GPU nem headers do Vulkan, e puxar um header inteiro para três
+	// deslocamentos de bits tornaria os testes dependentes do SDK.
+	//
+	// Bitmask em hexadecimal, e não a lista de nomes, por uma razão prática: a lista muda de
+	// tamanho conforme o driver e quebraria o alinhamento de uma linha feita para ser lida aos
+	// pares. O número é estável, curto, e `bugs=0x300` contra `bugs=0x18073a0` já responde a
+	// pergunta antes de qualquer decodificação.
+	return fmt::format(
+		"{} identity  gpu='{}' turnip={} requested='{}' active={} unexpected={} mesa={} vk={}.{}.{} "
+		"bugs=0x{:x} workarounds=0x{:x} rules={} sha256={}",
 		PREFIX, caps.gpu_name, ForkGpuCapabilities::TurnipSupportToString(caps.turnip),
 		identity.requested_driver.empty() ? "system" : identity.requested_driver,
 		GpuProfileDetector::DriverToString(identity.active_driver),
 		ForkDriverIdentity::IsUnexpected(identity.outcome) ? "YES" : "no",
 		identity.mesa.known ? fmt::format("{}.{}.{}", identity.mesa.major, identity.mesa.minor, identity.mesa.patch)
 							: std::string("-"),
+		caps.vulkan_api_version >> 22, (caps.vulkan_api_version >> 12) & 0x3FFu,
+		caps.vulkan_api_version & 0xFFFu, caps.driver_bugs, caps.driver_workarounds,
+		caps.driver_matched_rules,
 		identity.package_sha256.empty() ? std::string("-") : identity.package_sha256);
 }
 

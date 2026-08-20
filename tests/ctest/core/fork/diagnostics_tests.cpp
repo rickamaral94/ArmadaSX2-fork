@@ -3,6 +3,8 @@
 
 #include "Fork/ForkDiagnostics.h"
 
+#include "Fork/ForkGpuCapabilities.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -217,4 +219,39 @@ TEST(ForkDiagnostics, EveryContaminantIsListed)
 	EXPECT_TRUE(Contains(line, "pacote-de-texturas"));
 	EXPECT_TRUE(Contains(line, "EECycleRate"));
 	EXPECT_TRUE(Contains(line, "EECycleSkip"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Etapa 2: o bloco de identidade tem que carregar o CUSTO do driver, não só o nome dele.
+//
+// A pergunta "o Turnip está ajudando?" ficou sem resposta por onze alphas, e não por falta de
+// dado: o emulador já resolvia defeitos e desvios por driver e já os imprimia — numa linha do
+// upstream, longe do bloco que existe para descrever exatamente isso. Responder exigiu decodificar
+// dois bitmasks à mão a partir de sessões diferentes.
+//
+// Medido no Odin 2, mesma GPU: o blob da Qualcomm expõe Vulkan 1.3.128 com 9 defeitos e 4 desvios;
+// o Turnip, 1.4.359 com 2 e 1. Com estes campos na linha, um A/B de driver vira a diferença entre
+// duas linhas de log.
+// ---------------------------------------------------------------------------------------------
+
+TEST(ForkDiagnostics, TheIdentityLineCarriesTheDriverCost)
+{
+    GpuProfileSelection profile;
+    profile.runtime_profile = RuntimeGpuProfile::Adreno;
+    profile.gpu.architecture = MobileGpuArchitecture::Adreno7xx;
+    profile.gpu.name = "Turnip Adreno (TM) 740";
+    profile.driver.driver = MobileGpuDriver::MesaTurnip;
+    // Os números reais do aparelho: os dois defeitos de auto-leitura de anexo e o desvio caro.
+    profile.driver.bugs = 0x300;
+    profile.driver.workarounds = 0x40;
+    profile.driver.matched_rule_count = 1;
+
+    // Vulkan 1.4.359, empacotado como a spec manda (major<<22 | minor<<12 | patch).
+    ForkGpuCapabilities::Publish(profile, (1u << 22) | (4u << 12) | 359u);
+
+    const std::string line = ForkDiagnostics::FormatIdentityLine();
+    EXPECT_TRUE(Contains(line, "vk=1.4.359")) << line;
+    EXPECT_TRUE(Contains(line, "bugs=0x300")) << line;
+    EXPECT_TRUE(Contains(line, "workarounds=0x40")) << line;
+    EXPECT_TRUE(Contains(line, "rules=1")) << line;
 }
