@@ -106,6 +106,7 @@ class ValidationReceiver : BroadcastReceiver() {
             .put("emuState", MainActivityRuntime.eState.value.name)
             .put("gameSerial", serial)
             .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("buildCommit", BuildConfig.GIT_COMMIT)
             .put("configSha256", hash)
             .put("driver", ForkNative.query("driver.status") ?: JSONObject.NULL)
             .put("gpu", ForkNative.query("gpu.capabilities") ?: JSONObject.NULL)

@@ -40,6 +40,13 @@ val armsx2MarchExtra = providers.gradleProperty("armsx2.marchExtra").orElse("")
 // interpreter bisect into the EE recompiler. Never set for a shipped build.
 val armsx2RecTestHooks = providers.gradleProperty("armsx2.recTestHooks").orElse("false")
 val armsx2ApplicationId = providers.gradleProperty("armsx2.applicationId").orElse("com.armsx2")
+// Exact source revision embedded in the APK for hardware-validation provenance. GitHub Actions
+// supplies GITHUB_SHA; reproducible local builders can pass -Parmsx2.gitCommit=<sha>. Unknown is
+// deliberately visible and makes a Phase B bundle non-publishable.
+val armsx2GitCommit = providers.environmentVariable("GITHUB_SHA")
+    .orElse(providers.gradleProperty("armsx2.gitCommit"))
+    .orElse("unknown")
+    .map { value -> value.lowercase().takeIf { it.matches(Regex("[0-9a-f]{40}")) } ?: "unknown" }
 val armsx2SigningPropertiesFile = rootProject.file("armsx2_keystore.properties")
 val armsx2SigningProperties = Properties().apply {
     if (armsx2SigningPropertiesFile.isFile) {
@@ -102,6 +109,7 @@ android {
         targetSdk = 37
         versionCode = providers.gradleProperty("armsx2.versionCode").orNull?.toInt() ?: 1088
         versionName = providers.gradleProperty("armsx2.versionName").orNull ?: "2.6.1"
+        buildConfigField("String", "GIT_COMMIT", "\"${armsx2GitCommit.get()}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
