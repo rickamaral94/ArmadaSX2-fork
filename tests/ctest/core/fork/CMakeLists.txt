@@ -10,6 +10,7 @@ add_pcsx2_test(fork_config_tests
 	framegen_tests.cpp
 	lsfg_package_tests.cpp
 	pnach_aspect_tests.cpp
+	pipeline_compiler_tests.cpp
 	diagnostics_tests.cpp
 )
 

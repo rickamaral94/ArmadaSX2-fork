@@ -551,6 +551,7 @@ set(pcsx2GSSources
 	Fork/ForkFrameGen.cpp
 	Fork/ForkLsfgPackage.cpp
 	Fork/ForkPnachAspect.cpp
+	Fork/ForkPipelineCompiler.cpp
 	Fork/ForkGpuCapabilities.cpp
 	Fork/ForkRuntime.cpp
 	GS/Renderers/Common/GSRenderer.cpp
@@ -613,6 +614,7 @@ set(pcsx2GSHeaders
 	Fork/ForkFrameGen.h
 	Fork/ForkLsfgPackage.h
 	Fork/ForkPnachAspect.h
+	Fork/ForkPipelineCompiler.h
 	Fork/ForkGpuCapabilities.h
 	Fork/ForkRuntime.h
 	GS/Renderers/Common/GSPresentationPolicy.h
