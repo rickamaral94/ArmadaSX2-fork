@@ -1,0 +1,42 @@
+name: Phase B · Android validation runner
+
+on:
+  push:
+    branches:
+      - 'fork/**'
+    paths:
+      - 'tools/fork/android_validation.py'
+      - 'tools/fork/android-validation.example.json'
+      - 'tools/fork/requirements-android-validation.txt'
+      - 'tests/tools/test_android_validation.py'
+      - '.github/workflows/phase-b-android-validation.yml'
+  pull_request:
+    paths:
+      - 'tools/fork/android_validation.py'
+      - 'tools/fork/android-validation.example.json'
+      - 'tools/fork/requirements-android-validation.txt'
+      - 'tests/tools/test_android_validation.py'
+      - '.github/workflows/phase-b-android-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  runner-tests:
+    name: Runner contract and evidence gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/fork/requirements-android-validation.txt
+
+      - name: Install visual-hash dependency
+        run: python -m pip install -r tools/fork/requirements-android-validation.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests/tools -p 'test_android_validation.py' -v
+
+      - name: Validate the example scenario
+        run: python tools/fork/android_validation.py tools/fork/android-validation.example.json --validate-only

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gsdump-pipeline-compiler",
+  "package": "com.armsx2",
+  "launch_uri": "file:///storage/emulated/0/ArmadaSX2/validation/reference.gs",
+  "save_slot": null,
+  "warmup_seconds": 120,
+  "measure_seconds": 60,
+  "cooldown_seconds": 300,
+  "repetitions": 5,
+  "max_temperature_delta_c": 3.0,
+  "max_visual_hamming_distance": 8,
+  "expected_resolution": "1920x1080",
+  "arms": [
+    {
+      "id": "sync",
+      "settings": {
+        "PipelineCompiler.Mode": "off",
+        "PipelineCompiler.Workers": 1
+      },
+      "expected_driver": {
+        "activeDriverRegex": "Qualcomm|MesaTurnip"
+      },
+      "visual_reference": "reference-sync.png"
+    },
+    {
+      "id": "async",
+      "settings": {
+        "PipelineCompiler.Mode": "experimental",
+        "PipelineCompiler.Workers": 1
+      },
+      "expected_driver": {
+        "activeDriverRegex": "Qualcomm|MesaTurnip"
+      },
+      "visual_reference": "reference-async.png"
+    }
+  ]
+}
