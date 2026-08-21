@@ -142,3 +142,66 @@ Limitações conhecidas:
   o stutter que a experiência procura reduzir;
 - promoção para mais de um worker exige retirar a regra de serialização para um driver/versão
   específico somente depois de reprodução e teste em hardware.
+
+## Revisão de código — 2026-08-21 (F3 e F5)
+
+Duas correções em cima da implementação inicial, ambas achadas por leitura e nenhuma por medição.
+
+### F3 — o worker serial usava o cache PRINCIPAL
+
+A primeira versão entregava `g_vulkan_shader_cache->GetPipelineCache(true)` ao worker quando o gate
+serializava para um, e só criava caches privados a partir de dois. Isso era seguro **por
+coincidência**, não por construção: vale apenas porque todas as outras criações de pipeline
+(`CompilePostProcessing`, `CAS`, `FSR1`, `ImGui`, `Convert`, `Merge`, `Interlace`) acontecem no init
+do dispositivo, e porque o fallback síncrono de `GetTFXPipeline` é inalcançável enquanto o pool
+roda. `vkCreateGraphicsPipelines` exige sincronização externa do `pipelineCache`; bastava um
+post-process novo, um reload de shader ou um re-init do ImGui na thread GS para virar comportamento
+indefinido — do tipo que as validation layers pegam de forma intermitente e some do relato.
+
+Agora **todo** worker recebe cache privado, inclusive o serial, e a invariante deixa de existir em
+vez de ser documentada. A regra saiu da integração Vulkan e virou `ForkPipelineCompiler::PlanCaches`,
+função pura com teste.
+
+O custo dessa segurança seria começar frio e recompilar o que o principal já sabe — pagando em
+desempenho justamente na medição que a Fase A viabiliza. Por isso os caches privados nascem
+**semeados** com `VKShaderCache::GetPipelineCacheData()`; o driver valida o cabeçalho e descarta em
+silêncio um blob incompatível, então semear nunca é pior que não semear.
+
+### F5 — adoção nula envenenava o seletor para sempre
+
+`GetTFXPipeline` publicava em `m_tfx_pipelines` o que `WaitAndTake` devolvesse, inclusive zero. Mas
+zero não é veredito: significa falha real do driver **ou** cancelamento por teardown. Publicado, o
+seletor parava de desenhar pelo resto da sessão, sem nunca mais tentar. Agora uma adoção nula avisa
+no log e cai para o caminho síncrono logo abaixo — que é o que "fallback síncrono integral"
+significa: o experimento pode falhar, o desenho não.
+
+### Verificação
+
+| Verificação | Resultado |
+|---|---|
+| fila + regra de caches, ThreadSanitizer | 9/9 verdes |
+| teste novo contra o desenho ANTIGO | falha nas 3 asserções, como esperado de um teste de regressão |
+| estresse do padrão real (40 rodadas, Quiesce em voo, restart) | 5074 criadas / 5074 contabilizadas, zero vazamento, zero corrida |
+| `GSDeviceVK.cpp`, `VKShaderCache.cpp` | análise semântica limpa |
+| perfil de driver | 13/13 verdes |
+| `fork-diff.sh` | nenhuma mudança em núcleo protegido |
+
+### O que continua valendo
+
+Nenhuma conclusão de desempenho. Duas expectativas a fixar antes de medir:
+
+1. **No Adreno 740 + Turnip o gate resolve para UM worker.** A regra
+   `vk-android-shader-serialization` tem `min_android_sdk=1` com vendor e driver `Unknown`, logo casa
+   em todo Android Vulkan. `parallel=0` no log é estrutural, não medição — não leia como
+   "paralelismo não ajudou", ele não foi tentado.
+2. **A janela de sobreposição é o setup de um único draw.** `PrefetchTFXPipelines` roda dentro de
+   `DoRenderHW` e `GetTFXPipeline` vem poucas dezenas de linhas depois. Não há submissão
+   especulativa, então não se compila adiantado ao longo de vários draws. O ganho existe mas é
+   limitado por construção; um delta pequeno não refuta o desenho.
+
+### Pendente (F2), não corrigido aqui
+
+O flush periódico do cache de pipelines para de acontecer com o experimento ligado:
+`m_tfx_pipeline_compile_counter` só incrementa na cauda síncrona de `GetTFXPipeline`, inalcançável
+com o pool ativo. Sobra o flush de `onPause`. Com caches privados em todos os caminhos, um OOM-kill
+antes do próximo `Quiesce` perde tudo que os workers compilaram. Fica registrado como próximo passo.

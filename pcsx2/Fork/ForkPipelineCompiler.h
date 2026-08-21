@@ -57,6 +57,32 @@ namespace ForkPipelineCompiler
 		bool broken_multithreaded_compilation, u32 requested_workers);
 	const char* GateReasonToString(GateReason reason);
 
+	/// Como o pool trata VkPipelineCache para um gate já resolvido.
+	struct CachePlan
+	{
+		/// Quantos caches PRIVADOS criar. Sempre igual ao número de workers, inclusive quando o
+		/// gate serializa para um só.
+		u32 private_caches = 0;
+		/// Semear cada cache privado com o blob do cache principal.
+		bool seed_from_main = false;
+		/// Mesclar os privados no principal no Quiesce, depois do join.
+		bool merge_into_main = false;
+	};
+
+	/// Regra de propriedade dos caches, separada da integração Vulkan para poder ser testada.
+	///
+	/// O QUE ESTA FUNÇÃO EXISTE PARA IMPEDIR: a primeira versão entregava o cache PRINCIPAL ao
+	/// worker quando o gate serializava para um, e criava privados só a partir de dois. Aquilo
+	/// era seguro por coincidência — porque todas as outras criações de pipeline acontecem no
+	/// init do dispositivo e o fallback síncrono é inalcançável com o pool ativo — e não por
+	/// construção. `vkCreateGraphicsPipelines` exige sincronização externa do `pipelineCache`,
+	/// então qualquer criação preguiçosa futura na thread GS viraria comportamento indefinido.
+	///
+	/// Semear existe pelo motivo oposto: um cache privado nasce FRIO e recompilaria o que o
+	/// principal já sabe, fazendo a correção de segurança custar desempenho na exata medição que
+	/// ela viabiliza. `pInitialData` resolve, e um blob incompatível é descartado pelo driver.
+	CachePlan PlanCaches(const Gate& gate);
+
 	struct Stats
 	{
 		u64 requests = 0;

@@ -6702,9 +6702,11 @@ void GSDeviceVK::QuiesceAsyncPipelineCompiler()
 	}
 	m_tfx_pipeline_tasks.clear();
 
-	// Um worker serial usa o cache principal e portanto não deve mesclá-lo nem destruí-lo. Pools
-	// realmente paralelos usam caches privados, agora sem qualquer acesso concorrente.
-	if (m_tfx_worker_pipeline_caches.size() > 1)
+	// Todo cache aqui é privado do pool — nunca o principal —, então o tratamento é uniforme:
+	// mesclar no principal e destruir. A mescla é o que devolve ao disco tudo que os workers
+	// compilaram; sem ela o trabalho assíncrono morreria junto com o pool. Só acontece depois do
+	// join acima, que é a condição de sincronização externa que vkMergePipelineCaches exige.
+	if (!m_tfx_worker_pipeline_caches.empty())
 	{
 		if (g_vulkan_shader_cache)
 			g_vulkan_shader_cache->MergePipelineCaches(m_tfx_worker_pipeline_caches);
@@ -7219,44 +7221,50 @@ bool GSDeviceVK::EnsureAsyncPipelineCompiler()
 		return false;
 	}
 
-	// Android's current driver table marks multithreaded shader compilation as unsafe. With that
-	// bit set the single worker owns the main cache exclusively while the pool is alive: every TFX
-	// miss goes through it, and pause/flush first calls Quiesce. Drivers cleared for two workers get
-	// independent caches, because VkPipelineCache requires external host synchronization.
-	const bool serialized_on_main_cache = (gate.worker_count == 1);
+	// TODO worker gets a PRIVATE VkPipelineCache — including the single serial worker.
+	//
+	// A versão anterior entregava o cache PRINCIPAL ao worker serial, e isso funcionava por
+	// coincidência de duas coisas que ninguém escreveu nem testou: todas as outras criações de
+	// pipeline acontecem no init do dispositivo, e o fallback síncrono de GetTFXPipeline é
+	// inalcançável enquanto o pool roda. `vkCreateGraphicsPipelines` exige sincronização externa
+	// do `pipelineCache`, então bastava um post-process novo, um reload de shader ou um re-init
+	// do ImGui para virar comportamento indefinido — do tipo que as validation layers pegam de
+	// forma intermitente e some do relato do usuário. Cache privado elimina a invariante em vez
+	// de documentá-la.
+	//
+	// O custo dessa segurança seria começar FRIO e recompilar o que o cache principal já sabe —
+	// pagando em desempenho justamente na medição que a Fase A existe para viabilizar. Por isso
+	// os caches nascem SEMEADOS com o blob do principal. O driver valida o cabeçalho e descarta
+	// em silêncio um blob incompatível, então semear nunca é pior que não semear.
+	const ForkPipelineCompiler::CachePlan cache_plan = ForkPipelineCompiler::PlanCaches(gate);
 	m_tfx_worker_pipeline_caches.clear();
-	if (serialized_on_main_cache)
+	m_tfx_worker_pipeline_caches.resize(cache_plan.private_caches, VK_NULL_HANDLE);
+	const std::vector<u8> seed =
+		cache_plan.seed_from_main ? g_vulkan_shader_cache->GetPipelineCacheData() : std::vector<u8>();
+	const VkPipelineCacheCreateInfo create_info = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0,
+		seed.size(), seed.empty() ? nullptr : seed.data()};
+	for (VkPipelineCache& cache : m_tfx_worker_pipeline_caches)
 	{
-		m_tfx_worker_pipeline_caches.push_back(g_vulkan_shader_cache->GetPipelineCache(true));
-	}
-	else
-	{
-		m_tfx_worker_pipeline_caches.resize(gate.worker_count, VK_NULL_HANDLE);
-		const VkPipelineCacheCreateInfo create_info = {
-			VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0, 0, nullptr};
-		for (VkPipelineCache& cache : m_tfx_worker_pipeline_caches)
+		const VkResult res = vkCreatePipelineCache(m_device, &create_info, nullptr, &cache);
+		if (res != VK_SUCCESS)
 		{
-			const VkResult res = vkCreatePipelineCache(m_device, &create_info, nullptr, &cache);
-			if (res != VK_SUCCESS)
+			LOG_VULKAN_ERROR(res, "vkCreatePipelineCache() for async worker failed: ");
+			for (const VkPipelineCache created : m_tfx_worker_pipeline_caches)
 			{
-				LOG_VULKAN_ERROR(res, "vkCreatePipelineCache() for async worker failed: ");
-				for (const VkPipelineCache created : m_tfx_worker_pipeline_caches)
-				{
-					if (created != VK_NULL_HANDLE)
-						vkDestroyPipelineCache(m_device, created, nullptr);
-				}
-				m_tfx_worker_pipeline_caches.clear();
-				return false;
+				if (created != VK_NULL_HANDLE)
+					vkDestroyPipelineCache(m_device, created, nullptr);
 			}
+			m_tfx_worker_pipeline_caches.clear();
+			return false;
 		}
 	}
 
 	if (!m_tfx_pipeline_compiler.Start(gate.worker_count))
 	{
 		m_tfx_pipeline_compiler.CancelAndJoin();
-		if (!serialized_on_main_cache)
+		for (const VkPipelineCache cache : m_tfx_worker_pipeline_caches)
 		{
-			for (const VkPipelineCache cache : m_tfx_worker_pipeline_caches)
+			if (cache != VK_NULL_HANDLE)
 				vkDestroyPipelineCache(m_device, cache, nullptr);
 		}
 		m_tfx_worker_pipeline_caches.clear();
@@ -7356,11 +7364,26 @@ VkPipeline GSDeviceVK::GetTFXPipeline(const PipelineSelector& p)
 			const double wait_ms = Common::Timer::ConvertValueToMilliseconds(
 				Common::Timer::GetCurrentValue() - wait_start);
 			m_tfx_pipeline_tasks.erase(task_it);
-			NameTFXPipeline(p, pipeline);
-			m_tfx_pipelines.emplace(p, pipeline);
-			if (wait_ms >= 20.0)
-				Console.Warning("@@ANDROID_TFXWAIT@@ %.1f ms waiting for pending pipeline", wait_ms);
-			return pipeline;
+
+			// Adoção NULA não é veredito permanente, e tratá-la como veredito era o defeito:
+			// `WaitAndTake` devolve zero tanto para uma falha real do driver quanto para uma
+			// tarefa cancelada no teardown. Publicar esse zero em m_tfx_pipelines envenenava o
+			// seletor para o resto da sessão — todo draw com aquela combinação passaria a não
+			// desenhar nada, sem nunca mais tentar. Cair para o caminho síncrono logo abaixo é o
+			// que o "fallback síncrono integral" quer dizer: o experimento pode falhar, o
+			// desenho não.
+			if (pipeline == VK_NULL_HANDLE)
+			{
+				Console.Warning("@@FORK_PIPELINE_ASYNC@@ adocao vazia; recompilando de forma sincrona");
+			}
+			else
+			{
+				NameTFXPipeline(p, pipeline);
+				m_tfx_pipelines.emplace(p, pipeline);
+				if (wait_ms >= 20.0)
+					Console.Warning("@@ANDROID_TFXWAIT@@ %.1f ms waiting for pending pipeline", wait_ms);
+				return pipeline;
+			}
 		}
 	}
 

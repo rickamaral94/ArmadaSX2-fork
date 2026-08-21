@@ -38,6 +38,15 @@ namespace ForkPipelineCompiler
 		return "unknown";
 	}
 
+	CachePlan PlanCaches(const Gate& gate)
+	{
+		if (!gate.allowed || gate.worker_count == 0)
+			return {};
+
+		// Um cache por worker, sempre. Serializado ou paralelo, o principal fica com a thread GS.
+		return {gate.worker_count, true, true};
+	}
+
 	Queue::~Queue()
 	{
 		CancelAndJoin();

@@ -32,6 +32,17 @@ public:
 	/// na thread GS, sem acesso concorrente ao cache principal nem aos caches de origem.
 	bool MergePipelineCaches(std::span<const VkPipelineCache> source_caches);
 
+	/// Serializa o cache principal para semear caches privados de worker.
+	///
+	/// Sem isto, dar um cache privado a cada worker custaria caro: o worker começaria FRIO e
+	/// recompilaria do zero variantes que o cache principal já conhece — ou seja, a correção de
+	/// segurança pagaria com desempenho exatamente na medição que ela existe para viabilizar.
+	/// Semear resolve, porque `pInitialData` é lido uma vez na criação e o driver descarta em
+	/// silêncio um blob cujo cabeçalho não corresponda ao dispositivo.
+	///
+	/// Chamar somente na thread GS e somente enquanto nenhum worker existir.
+	std::vector<u8> GetPipelineCacheData() const;
+
 	/// Writes pipeline cache to file, saving all newly compiled pipelines.
 	/// Serialises the pipeline cache to disk. This is SYNCHRONOUS and runs on the GS thread, so it
 	/// is rate-limited: pass force=true only where a missed flush actually loses data (teardown).

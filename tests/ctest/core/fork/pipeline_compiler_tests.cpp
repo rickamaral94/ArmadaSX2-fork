@@ -174,3 +174,56 @@ TEST(ForkPipelineCompiler, ShutdownCanBeRestarted)
 		ForkPipelineCompiler::SubmitResult::Queued);
 	EXPECT_EQ(queue.WaitAndTake(41), ForkPipelineCompiler::Result{5});
 }
+
+// --- propriedade dos caches ------------------------------------------------------------------
+//
+// Este par de testes REPROVA o desenho anterior, e é por isso que existe. A primeira versão
+// entregava o cache PRINCIPAL ao worker quando o gate serializava para um, criando privados só a
+// partir de dois — e então não mesclava nada, porque não havia o que mesclar. Aquilo era seguro
+// por coincidência (todas as outras criações de pipeline são de init, e o fallback síncrono é
+// inalcançável com o pool ativo), não por construção, e `vkCreateGraphicsPipelines` exige
+// sincronização externa do pipelineCache.
+TEST(ForkPipelineCompiler, SerialGateStillGetsItsOwnPrivateCache)
+{
+	using ForkPipelineCompiler::CachePlan;
+	using ForkPipelineCompiler::Gate;
+	using ForkPipelineCompiler::GateReason;
+	using ForkPipelineCompiler::PlanCaches;
+	using ForkPipelineCompiler::ResolveGate;
+
+	const Gate serial = ResolveGate(true, true, false, true, 4);
+	ASSERT_TRUE(serial.allowed);
+	ASSERT_EQ(serial.worker_count, 1u);
+	ASSERT_EQ(serial.reason, GateReason::DriverSerialized);
+
+	const CachePlan plan = PlanCaches(serial);
+	// Um, não zero: o cache principal nunca é entregue a um worker.
+	EXPECT_EQ(plan.private_caches, 1u);
+	// Frio custaria recompilar o que o principal já sabe, na medição que a fase viabiliza.
+	EXPECT_TRUE(plan.seed_from_main);
+	// Sem mescla, tudo que o worker compilou morreria com o pool.
+	EXPECT_TRUE(plan.merge_into_main);
+}
+
+TEST(ForkPipelineCompiler, CachePlanMatchesWorkerCountAndIsEmptyWhenDenied)
+{
+	using ForkPipelineCompiler::CachePlan;
+	using ForkPipelineCompiler::Gate;
+	using ForkPipelineCompiler::PlanCaches;
+	using ForkPipelineCompiler::ResolveGate;
+
+	const Gate parallel = ResolveGate(true, true, false, false, 2);
+	ASSERT_TRUE(parallel.allowed);
+	EXPECT_EQ(PlanCaches(parallel).private_caches, parallel.worker_count);
+
+	// Gate negado não cria, não semeia e não mescla nada.
+	for (const Gate denied : {ResolveGate(false, true, false, false, 2),
+			 ResolveGate(true, false, false, false, 2), ResolveGate(true, true, true, false, 2)})
+	{
+		ASSERT_FALSE(denied.allowed);
+		const CachePlan plan = PlanCaches(denied);
+		EXPECT_EQ(plan.private_caches, 0u);
+		EXPECT_FALSE(plan.seed_from_main);
+		EXPECT_FALSE(plan.merge_into_main);
+	}
+}

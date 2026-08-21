@@ -439,6 +439,28 @@ bool VKShaderCache::MergePipelineCaches(std::span<const VkPipelineCache> source_
 	return true;
 }
 
+std::vector<u8> VKShaderCache::GetPipelineCacheData() const
+{
+	if (m_pipeline_cache == VK_NULL_HANDLE)
+		return {};
+
+	VkDevice device = GSDeviceVK::GetInstance()->GetDevice();
+	size_t data_size = 0;
+	VkResult res = vkGetPipelineCacheData(device, m_pipeline_cache, &data_size, nullptr);
+	if (res != VK_SUCCESS || data_size == 0)
+		return {};
+
+	std::vector<u8> data(data_size);
+	res = vkGetPipelineCacheData(device, m_pipeline_cache, &data_size, data.data());
+	if (res != VK_SUCCESS)
+		return {};
+
+	// O tamanho pode encolher entre as duas chamadas; o contrato do Vulkan é confiar no valor
+	// devolvido pela segunda, não no da primeira.
+	data.resize(data_size);
+	return data;
+}
+
 bool VKShaderCache::CreateNewShaderCache(const std::string& index_filename, const std::string& blob_filename)
 {
 	if (FileSystem::FileExists(index_filename.c_str()))
