@@ -27,9 +27,18 @@ O diagnóstico Vulkan também não exporta dois campos que a Fase B exige: `driv
 ### 2.1 Controle
 
 O host executa `tools/fork/android-validation.py` e conversa com um único aparelho por `adb`.
-O APK expõe um `BroadcastReceiver` Android-only protegido por `android.permission.DUMP`: somente o
-shell do `adb`/sistema pode usá-lo. O receiver não abre socket, não aceita arquivos e não fica no
-caminho por frame.
+O APK **da flavour `github`** expõe um `BroadcastReceiver` Android-only protegido por
+`android.permission.DUMP`: somente o shell do `adb`/sistema pode usá-lo. O receiver não abre socket,
+não aceita arquivos e não fica no caminho por frame.
+
+A restrição de flavour é parte do desenho, não detalhe de empacotamento. `DUMP` é
+`signature|privileged` e mantém aplicativos comuns fora, mas um receiver **exportado** que lê e
+escreve configurações do Fork e carrega savestates não tem por que existir num binário de loja — e a
+regra do projeto é que toda novidade nasce restrita. Por isso o Kotlin vive em
+`src/github/java/com/armsx2/fork/`, e não em `src/main/`: a flavour `play` nem sequer o compila.
+`build-play-aab.sh` verifica a ausência de `ValidationReceiver` no bundle, ao lado das verificações
+que já existiam para `MANAGE_EXTERNAL_STORAGE`, `REQUEST_INSTALL_PACKAGES` e `libarmsx2_lsfg.so` —
+porque um manifesto que não acompanhasse a mudança de pasta falharia em silêncio.
 
 Comandos permitidos são uma lista fechada:
 

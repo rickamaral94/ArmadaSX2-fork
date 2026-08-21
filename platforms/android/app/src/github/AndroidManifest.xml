@@ -8,10 +8,15 @@
     - REQUEST_INSTALL_PACKAGES lets the in-app updater install a downloaded
       APK; a self-updating app is a hard Play-policy violation (Play must own
       updates), so it can never ship in the AAB.
+    - A porta de validacao da Fase B (ValidationReceiver) e um receiver EXPORTADO que aceita
+      comandos de automacao: ler e escrever configuracoes do Fork e carregar savestates. A
+      permissao android.permission.DUMP e signature|privileged, entao na pratica so o shell do
+      adb alcanca — mas um receiver exportado que faz isso nao tem por que existir num binario
+      de loja, e a regra do proprio fork e que toda novidade nasce restrita. O codigo Kotlin
+      acompanha o manifesto: ele vive em src/github, entao a flavor play nem sequer o compila.
   The play flavor inherits the clean src/main manifest (no src/play manifest),
   so it can never pick these up; STORAGE_ALL_FILES / IN_APP_UPDATER (BuildConfig)
-  gate the runtime use, and build-play-aab.sh asserts both permissions are
-  absent from the bundle.
+  gate the runtime use, and build-play-aab.sh asserts these are absent from the bundle.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -25,6 +30,18 @@
     <!-- FileProvider that hands the downloaded update APK to the package installer. Github flavor
          only (merged into the main <application>); never present in the play build. -->
     <application>
+        <!-- Fase B: porta estritamente para o shell do adb/sistema. DUMP e uma permissao
+             signature|privileged; aplicativos comuns nao conseguem enviar estes comandos.
+             Github (sideload) apenas — ver o cabecalho deste arquivo. -->
+        <receiver
+            android:name=".fork.ValidationReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="${applicationId}.action.VALIDATION" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updateprovider"

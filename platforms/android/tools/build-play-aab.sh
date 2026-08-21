@@ -88,6 +88,13 @@ echo "-- REQUEST_INSTALL_PACKAGES must be ABSENT (self-updating violates Play po
 if unzip -p "$OUTPUT_AAB" base/manifest/AndroidManifest.xml | strings | grep -q "REQUEST_INSTALL_PACKAGES"; then
 	echo "  !! FATAL: REQUEST_INSTALL_PACKAGES present in play AAB (in-app updater leaked into the Play build)" >&2; exit 1
 else echo "  absent OK"; fi
+echo "-- ValidationReceiver must be ABSENT (Fase B automation port is github-flavour only) --"
+# Um receiver EXPORTADO que le/escreve configuracoes e carrega savestates. DUMP mantem
+# aplicativos comuns fora, mas isso nao tem por que existir num binario de loja: o codigo Kotlin
+# vive em src/github, e esta asercao e o que prova que o manifesto acompanhou a mudanca.
+if unzip -p "$OUTPUT_AAB" base/manifest/AndroidManifest.xml | strings | grep -q "ValidationReceiver"; then
+	echo "  !! FATAL: ValidationReceiver present in play AAB (Phase B validation port leaked into the Play build)" >&2; exit 1
+else echo "  absent OK"; fi
 echo "-- libarmsx2_lsfg.so must be ABSENT (frame generation is github-flavour only) --"
 if unzip -l "$OUTPUT_AAB" | grep -q "libarmsx2_lsfg.so"; then
 	echo "  !! FATAL: libarmsx2_lsfg.so present in play AAB (LSFG leaked into the Play build)" >&2; exit 1

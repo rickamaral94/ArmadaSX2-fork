@@ -124,17 +124,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Fase B: porta estritamente para o shell do adb/sistema. DUMP é uma permissão
-             signature|privileged; aplicativos comuns não conseguem enviar estes comandos. -->
-        <receiver
-            android:name=".fork.ValidationReceiver"
-            android:exported="true"
-            android:permission="android.permission.DUMP">
-            <intent-filter>
-                <action android:name="${applicationId}.action.VALIDATION" />
-            </intent-filter>
-        </receiver>
-
         <!--
             Discord Social SDK's OAuth landing activity. Declared here rather than inherited from
             the vendor .aar on purpose: that .aar's manifest also declares RECORD_AUDIO, three
