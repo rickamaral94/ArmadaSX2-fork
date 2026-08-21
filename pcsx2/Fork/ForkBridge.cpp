@@ -11,6 +11,8 @@
 #include "Fork/ForkGpuCapabilities.h"
 #include "Fork/ForkLsfgPackage.h"
 
+#include "common/StringUtil.h"
+
 #include "fmt/format.h"
 
 namespace
@@ -56,7 +58,8 @@ namespace
 		return fmt::format(
 			R"({{"ok":true,"probed":{},"outcome":"{}","reason":"{}","unexpected":{},)"
 			R"("activeDriver":"{}","driverName":"{}","driverInfo":"{}","mesa":"{}",)"
-			R"("vulkan":"{}","gpu":"{}","requested":"{}","sha256":"{}","error":"{}",)"
+			R"("driverID":{},"driverVersionRaw":{},"vendorID":{},"deviceID":{},)"
+			R"("pipelineCacheUUID":"{}","vulkan":"{}","gpu":"{}","requested":"{}","sha256":"{}","error":"{}",)"
 			R"("identityConfirmed":{}}})",
 			Boolean(identity.probed), ForkDriverIdentity::OutcomeToString(identity.outcome),
 			ForkBridge::EscapeJson(ForkDriverIdentity::OutcomeReason(identity.outcome)),
@@ -66,6 +69,9 @@ namespace
 			identity.mesa.known ? fmt::format("{}.{}.{}", identity.mesa.major, identity.mesa.minor,
 									  identity.mesa.patch)
 								: std::string(),
+			identity.driver_id, identity.driver_version_raw, identity.vendor_id, identity.device_id,
+			StringUtil::EncodeHex(identity.pipeline_cache_uuid.data(),
+				static_cast<int>(identity.pipeline_cache_uuid.size())),
 			ForkGpuCapabilities::FormatVulkanVersion(identity.vulkan_api_version),
 			ForkBridge::EscapeJson(identity.gpu_name), ForkBridge::EscapeJson(identity.requested_driver),
 			identity.package_sha256, ForkBridge::EscapeJson(identity.load_error),

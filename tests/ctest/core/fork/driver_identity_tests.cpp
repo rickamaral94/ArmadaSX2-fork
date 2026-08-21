@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Fork/ForkDriverIdentity.h"
+#include "Fork/ForkBridge.h"
 
 #include <gtest/gtest.h>
 
@@ -143,6 +144,11 @@ TEST(ForkDriverIdentity, PublishRecordsTheVerdictAndTheEvidence)
 	input.driver_info = "Mesa 25.2.0-devel (git-1a2b3c4)";
 	input.gpu_name = "Adreno (TM) 750";
 	input.vulkan_api_version = (1u << 22) | (3u << 12) | 281u;
+	input.driver_version_raw = 51267653;
+	input.driver_id = 18;
+	input.vendor_id = 0x5143;
+	input.device_id = 0x43050A01;
+	input.pipeline_cache_uuid.fill(0xAB);
 	input.driver_properties_available = true;
 	ForkDriverIdentity::Publish(input);
 
@@ -151,6 +157,11 @@ TEST(ForkDriverIdentity, PublishRecordsTheVerdictAndTheEvidence)
 	EXPECT_EQ(identity.outcome, LoadOutcome::CustomDriverActive);
 	EXPECT_TRUE(identity.mesa.known);
 	EXPECT_EQ(identity.mesa.major, 25u);
+	EXPECT_EQ(identity.driver_id, 18u);
+	EXPECT_EQ(identity.vendor_id, 0x5143u);
+	EXPECT_EQ(identity.device_id, 0x43050A01u);
+	EXPECT_TRUE(std::all_of(identity.pipeline_cache_uuid.begin(), identity.pipeline_cache_uuid.end(),
+		[](u8 value) { return value == 0xAB; }));
 	// O SHA-256 informado antes do renderer subir tem que sobreviver à publicação.
 	EXPECT_EQ(identity.package_sha256, "deadbeef");
 
@@ -158,6 +169,12 @@ TEST(ForkDriverIdentity, PublishRecordsTheVerdictAndTheEvidence)
 	EXPECT_NE(line.find("Mesa 25.2.0"), std::string::npos);
 	EXPECT_NE(line.find("1.3.281"), std::string::npos);
 	EXPECT_NE(line.find("deadbeef"), std::string::npos);
+
+	const std::string bridge = ForkBridge::Query("driver.status");
+	EXPECT_NE(bridge.find("\"driverID\":18"), std::string::npos);
+	EXPECT_NE(bridge.find("\"driverVersionRaw\":51267653"), std::string::npos);
+	EXPECT_NE(bridge.find("\"pipelineCacheUUID\":\"abababababababababababababababab\""),
+		std::string::npos);
 }
 
 // --- chave de cache de pipeline (Fase 4, item 3) ---

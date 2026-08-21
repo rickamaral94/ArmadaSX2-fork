@@ -172,6 +172,10 @@ void ForkDriverIdentity::Publish(const PublishInput& input)
 	identity.gpu_name = input.gpu_name;
 	identity.vulkan_api_version = input.vulkan_api_version;
 	identity.driver_version_raw = input.driver_version_raw;
+	identity.driver_id = input.driver_id;
+	identity.vendor_id = input.vendor_id;
+	identity.device_id = input.device_id;
+	identity.pipeline_cache_uuid = input.pipeline_cache_uuid;
 	identity.driver_properties_available = input.driver_properties_available;
 	identity.mesa = ParseMesaVersion(input.driver_info);
 	identity.outcome = EvaluateOutcome(
@@ -221,6 +225,8 @@ std::string ForkDriverIdentity::DescribeForLog()
 		line += fmt::format(" | info \"{}\"", identity.driver_info);
 
 	line += fmt::format(" | Vulkan {}", ForkGpuCapabilities::FormatVulkanVersion(identity.vulkan_api_version));
+	line += fmt::format(" | driverID {} versionRaw {} | vendor/device {:04x}/{:08x}",
+		identity.driver_id, identity.driver_version_raw, identity.vendor_id, identity.device_id);
 
 	if (!identity.gpu_name.empty())
 		line += fmt::format(" | GPU {}", identity.gpu_name);

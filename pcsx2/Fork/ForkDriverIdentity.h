@@ -7,6 +7,7 @@
 
 #include "common/Pcsx2Defs.h"
 
+#include <array>
 #include <span>
 #include <string>
 #include <string_view>
@@ -76,6 +77,10 @@ namespace ForkDriverIdentity
 
 		u32 vulkan_api_version = 0;
 		u32 driver_version_raw = 0;
+		u32 driver_id = 0;
+		u32 vendor_id = 0;
+		u32 device_id = 0;
+		std::array<u8, 16> pipeline_cache_uuid = {};
 		std::string gpu_name;
 
 		/// Falso quando VK_KHR_driver_properties não existe. Sem ele não dá para afirmar qual ICD
@@ -114,6 +119,10 @@ namespace ForkDriverIdentity
 		std::string gpu_name;
 		u32 vulkan_api_version = 0;
 		u32 driver_version_raw = 0;
+		u32 driver_id = 0;
+		u32 vendor_id = 0;
+		u32 device_id = 0;
+		std::array<u8, 16> pipeline_cache_uuid = {};
 		bool driver_properties_available = false;
 	};
 

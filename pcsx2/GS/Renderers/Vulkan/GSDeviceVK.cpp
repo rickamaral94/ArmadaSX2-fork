@@ -3628,9 +3628,14 @@ bool GSDeviceVK::CheckFeatures()
 		identity.gpu_name = m_device_properties.deviceName;
 		identity.vulkan_api_version = m_device_properties.apiVersion;
 		identity.driver_version_raw = m_device_properties.driverVersion;
+		identity.vendor_id = m_device_properties.vendorID;
+		identity.device_id = m_device_properties.deviceID;
+		std::copy_n(m_device_properties.pipelineCacheUUID, identity.pipeline_cache_uuid.size(),
+			identity.pipeline_cache_uuid.begin());
 		identity.driver_properties_available = m_optional_extensions.vk_khr_driver_properties;
 		if (m_optional_extensions.vk_khr_driver_properties)
 		{
+			identity.driver_id = static_cast<u32>(m_device_driver_properties.driverID);
 			identity.driver_name = m_device_driver_properties.driverName;
 			identity.driver_info = m_device_driver_properties.driverInfo;
 		}
