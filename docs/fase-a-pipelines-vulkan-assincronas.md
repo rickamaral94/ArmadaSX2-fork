@@ -53,8 +53,8 @@ negada pelo perfil ou indisponível, o caminho síncrono atual é usado integral
 
 - pool pequeno, configurável e limitado a dois workers;
 - tarefas com shaders relacionados usam o mesmo `group_id` e portanto a mesma fila/worker;
-- cada worker recebe seu próprio `VkPipelineCache`, eliminando a sincronização externa exigida
-  para acesso simultâneo a um único cache;
+- no gate serial, o único worker usa o cache principal exclusivamente até `join`; pools realmente
+  paralelos recebem um `VkPipelineCache` privado por worker, eliminando acesso simultâneo;
 - os caches dos workers só são mesclados ao cache principal depois de `join`, na thread GS;
 - `VkDevice`, layouts, render passes e módulos são imutáveis durante uma tarefa;
 - somente a thread GS publica ou destrói pipelines concluídas.
@@ -84,7 +84,7 @@ mantém o fallback síncrono.
 
 Os contadores não misturam FPS real com apresentado:
 
-- solicitações e hits de cache;
+- solicitações e hits do cache de seletores (o driver não expõe hit interno neste caminho);
 - tarefas enfileiradas e concluídas;
 - criações executadas com mais de um worker permitido;
 - esperas no ponto de uso e tempo total de espera;
@@ -107,3 +107,38 @@ dados de hardware exigidos na Fase B.
 
 Sem esse conjunto, a conclusão será somente “hipótese implementada para medição”, nunca
 “desempenho melhor”.
+
+## Relatório de implementação — 2026-08-21
+
+Estado: **experimento implementado, desligado por padrão; sem conclusão de desempenho**.
+
+Verificação local bruta:
+
+| Verificação | Resultado |
+|---|---:|
+| máquina de estados/fila, execução normal | 7/7 testes passaram, 14 ms |
+| máquina de estados/fila, ASan+UBSan | 7/7 passaram, 19 ms |
+| máquina de estados/fila, TSan | 7/7 passaram, 18 ms |
+| perfil de driver, incluindo gate Qualcomm/Turnip | 13/13 passaram |
+| sintaxe de `GSDeviceVK.cpp`, `ForkConfig.cpp` e fila | passou com GCC 13.3 |
+
+O LeakSanitizer não pôde inspecionar leaks neste container porque ele roda sob `ptrace`; ASan e
+UBSan foram repetidos com detecção de leaks desligada e passaram. O ambiente não possui `cmake`,
+portanto a compilação integral do APK e as suítes completas ficam a cargo dos dois gates da branch:
+`Fork · Android arm64 (debug APK)` e `Phase 0.5 ARM64 Correctness`.
+
+Hardware real e A/B: **não executados nesta etapa**. Aparelhos testados: nenhum. Números de p95,
+p99, 1% low, stutters, temperatura e consumo: indisponíveis. Por isso `PipelineCompiler.Mode`
+permanece `off`, e nenhum default foi alterado.
+
+Limitações conhecidas:
+
+- o Vulkan não informa hit/miss do `VkPipelineCache` neste caminho; `selector_hits` deve significar
+  apenas pipeline já pronta ou já enfileirada, nunca hit interno do driver;
+- o perfil Android atual aplica `SerializePipelineCreation`, então Qualcomm e Turnip usam um
+  worker. O trabalho pode sobrepor preparação do draw, mas chamadas ao driver não são paralelas;
+- progresso assíncrono é mesclado/persistido em pause, Surface recreation e teardown. Não há flush
+  periódico novo, pois introduzir uma serialização de cache no meio do jogo sem medição repetiria
+  o stutter que a experiência procura reduzir;
+- promoção para mais de um worker exige retirar a regra de serialização para um driver/versão
+  específico somente depois de reprodução e teste em hardware.

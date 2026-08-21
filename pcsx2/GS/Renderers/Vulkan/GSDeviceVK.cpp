@@ -7,6 +7,7 @@
 #include "GS/GSUtil.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #include "Fork/ForkDriverIdentity.h"
+#include "Fork/ForkConfig.h"
 #include "Fork/ForkDiagnostics.h"
 #include "Fork/ForkFrameGen.h"
 #include "Fork/ForkGpuCapabilities.h"
@@ -69,7 +70,26 @@ namespace
 #include <limits>
 #include <mutex>
 #include <sstream>
+#include <type_traits>
 #include <utility>
+
+template <typename T>
+static ForkPipelineCompiler::Result VkHandleToOpaque(T handle)
+{
+	if constexpr (std::is_pointer_v<T>)
+		return reinterpret_cast<ForkPipelineCompiler::Result>(handle);
+	else
+		return static_cast<ForkPipelineCompiler::Result>(handle);
+}
+
+template <typename T>
+static T OpaqueToVkHandle(ForkPipelineCompiler::Result handle)
+{
+	if constexpr (std::is_pointer_v<T>)
+		return reinterpret_cast<T>(handle);
+	else
+		return static_cast<T>(handle);
+}
 
 // Tweakables
 enum : u32
@@ -1561,6 +1581,16 @@ std::vector<std::string> GSDeviceVK::GetExtendedStats() const
 	lines.push_back(fmt::format(
 		"Suboptimal: {}, OutOfDate: {}", ps.suboptimal_count, ps.out_of_date_count));
 
+	if (m_tfx_pipeline_requests > 0)
+	{
+		const ForkPipelineCompiler::Stats async = m_tfx_pipeline_compiler.GetStats();
+		lines.push_back(fmt::format(
+			"TFX async: requested={} selector_hits={} queued={} done={} waits={} failures={} cancelled={} peak={} compile={:.1f}ms wait={:.1f}ms",
+			m_tfx_pipeline_requests, m_tfx_pipeline_selector_hits, async.queued, async.completed,
+			async.waits_at_use, async.failures, async.cancelled, async.peak_active,
+			static_cast<double>(async.compile_time_ns) / 1e6, static_cast<double>(async.wait_time_ns) / 1e6));
+	}
+
 	// Cadência da apresentação (FPS real x apresentado, frametime, 1% low, engasgos). As linhas
 	// acima medem o CUSTO das chamadas ao WSI; estas medem O QUE CHEGOU À TELA — perguntas
 	// diferentes, e a segunda é a que o relatório de compatibilidade precisa.
@@ -2907,6 +2937,8 @@ void GSDeviceVK::ResizeWindow(u32 new_window_width, u32 new_window_height, float
 		return;
 	}
 
+	QuiesceAsyncPipelineCompiler();
+
 	// make sure previous frames are presented
 	WaitForGPUIdle();
 
@@ -2927,6 +2959,7 @@ bool GSDeviceVK::SupportsExclusiveFullscreen() const
 
 void GSDeviceVK::DestroySurface()
 {
+	QuiesceAsyncPipelineCompiler();
 	WaitForGPUIdle();
 	m_swap_chain.reset();
 }
@@ -6657,8 +6690,51 @@ bool GSDeviceVK::DoFSR1Pass(
 	return true;
 }
 
+void GSDeviceVK::QuiesceAsyncPipelineCompiler()
+{
+	const bool was_running = m_tfx_pipeline_compiler.IsRunning();
+	const std::vector<ForkPipelineCompiler::Result> orphaned = m_tfx_pipeline_compiler.CancelAndJoin();
+	for (const ForkPipelineCompiler::Result result : orphaned)
+	{
+		const VkPipeline pipeline = OpaqueToVkHandle<VkPipeline>(result);
+		if (pipeline != VK_NULL_HANDLE)
+			vkDestroyPipeline(m_device, pipeline, nullptr);
+	}
+	m_tfx_pipeline_tasks.clear();
+
+	// Um worker serial usa o cache principal e portanto não deve mesclá-lo nem destruí-lo. Pools
+	// realmente paralelos usam caches privados, agora sem qualquer acesso concorrente.
+	if (m_tfx_worker_pipeline_caches.size() > 1)
+	{
+		if (g_vulkan_shader_cache)
+			g_vulkan_shader_cache->MergePipelineCaches(m_tfx_worker_pipeline_caches);
+		for (const VkPipelineCache cache : m_tfx_worker_pipeline_caches)
+		{
+			if (cache != VK_NULL_HANDLE)
+				vkDestroyPipelineCache(m_device, cache, nullptr);
+		}
+	}
+	m_tfx_worker_pipeline_caches.clear();
+
+	if (was_running)
+	{
+		const ForkPipelineCompiler::Stats stats = m_tfx_pipeline_compiler.GetStats();
+		Console.WriteLn(
+			"@@FORK_PIPELINE_ASYNC@@ stopped requests=%" PRIu64 " selector_hits=%" PRIu64
+			" queued=%" PRIu64 " completed=%" PRIu64 " parallel=%" PRIu64 " waits=%" PRIu64
+			" compile_ms=%.1f wait_ms=%.1f failures=%" PRIu64 " cancelled=%" PRIu64 " peak=%u",
+			m_tfx_pipeline_requests, m_tfx_pipeline_selector_hits, stats.queued, stats.completed,
+			stats.parallel_compiles, stats.waits_at_use, static_cast<double>(stats.compile_time_ns) / 1e6,
+			static_cast<double>(stats.wait_time_ns) / 1e6, stats.failures, stats.cancelled, stats.peak_active);
+	}
+}
+
 void GSDeviceVK::DestroyResources()
 {
+	// Primeiro ato do teardown: depois deste join nenhum worker pode voltar a tocar no VkDevice,
+	// nos módulos, layouts ou caches que começam a ser destruídos abaixo.
+	QuiesceAsyncPipelineCompiler();
+
 	if (m_tfx_ubo_descriptor_set != VK_NULL_HANDLE)
 		FreePersistentDescriptorSet(m_tfx_ubo_descriptor_set);
 
@@ -6915,8 +6991,26 @@ VkShaderModule GSDeviceVK::GetTFXFragmentShader(const GSHWDrawConfig::PSSelector
 	return mod;
 }
 
-VkPipeline GSDeviceVK::CreateTFXPipeline(const PipelineSelector& p)
+std::optional<GSDeviceVK::PreparedTFXPipeline> GSDeviceVK::PrepareTFXPipeline(const PipelineSelector& p)
 {
+	GSHWDrawConfig::PSSelector pps{p.ps};
+	if (!p.bs.IsEffective(p.cms))
+		pps.no_color1 = true;
+
+	PreparedTFXPipeline prepared;
+	prepared.selector = p;
+	prepared.vertex_shader = GetTFXVertexShader(p.vs);
+	prepared.fragment_shader = GetTFXFragmentShader(pps);
+	if (prepared.vertex_shader == VK_NULL_HANDLE || prepared.fragment_shader == VK_NULL_HANDLE)
+		return std::nullopt;
+
+	return prepared;
+}
+
+VkPipeline GSDeviceVK::CreateTFXPipeline(
+	const PreparedTFXPipeline& prepared, VkPipelineCache pipeline_cache)
+{
+	const PipelineSelector& p = prepared.selector;
 	static constexpr std::array<VkPrimitiveTopology, 3> topology_lookup = {{
 		VK_PRIMITIVE_TOPOLOGY_POINT_LIST, // Point
 		VK_PRIMITIVE_TOPOLOGY_LINE_LIST, // Line
@@ -6924,18 +7018,11 @@ VkPipeline GSDeviceVK::CreateTFXPipeline(const PipelineSelector& p)
 	}};
 
 	GSHWDrawConfig::BlendState pbs{p.bs};
-	GSHWDrawConfig::PSSelector pps{p.ps};
 	if (!p.bs.IsEffective(p.cms))
 	{
 		// disable blending when colours are masked
 		pbs = {};
-		pps.no_color1 = true;
 	}
-
-	VkShaderModule vs = GetTFXVertexShader(p.vs);
-	VkShaderModule fs = GetTFXFragmentShader(pps);
-	if (vs == VK_NULL_HANDLE || fs == VK_NULL_HANDLE)
-		return VK_NULL_HANDLE;
 
 	Vulkan::GraphicsPipelineBuilder gpb;
 	SetPipelineProvokingVertex(m_features, gpb);
@@ -6985,8 +7072,8 @@ VkPipeline GSDeviceVK::CreateTFXPipeline(const PipelineSelector& p)
 	gpb.AddDynamicState(VK_DYNAMIC_STATE_LINE_WIDTH);
 
 	// Shaders
-	gpb.SetVertexShader(vs);
-	gpb.SetFragmentShader(fs);
+	gpb.SetVertexShader(prepared.vertex_shader);
+	gpb.SetFragmentShader(prepared.fragment_shader);
 
 	// IA
 	if (p.vs.expand == GSHWDrawConfig::VSExpand::None)
@@ -7074,21 +7161,208 @@ VkPipeline GSDeviceVK::CreateTFXPipeline(const PipelineSelector& p)
 		m_optional_extensions.vk_ext_roaa_depth)
 		gpb.AddDepthStencilFlags(VK_PIPELINE_DEPTH_STENCIL_STATE_CREATE_RASTERIZATION_ORDER_ATTACHMENT_DEPTH_ACCESS_BIT_EXT);
 
-	VkPipeline pipeline = gpb.Create(m_device, g_vulkan_shader_cache->GetPipelineCache(true));
-	if (pipeline)
+	return gpb.Create(m_device, pipeline_cache);
+}
+
+void GSDeviceVK::NameTFXPipeline(const PipelineSelector& p, VkPipeline pipeline) const
+{
+	if (pipeline != VK_NULL_HANDLE)
 	{
 		Vulkan::SetObjectName(
 			m_device, pipeline, "TFX Pipeline %08X/%016" PRIX64 "_%016" PRIX64, p.vs.key, p.ps.key_hi, p.ps.key_lo);
 	}
+}
 
+VkPipeline GSDeviceVK::CreateTFXPipeline(const PipelineSelector& p)
+{
+	const std::optional<PreparedTFXPipeline> prepared = PrepareTFXPipeline(p);
+	if (!prepared.has_value())
+		return VK_NULL_HANDLE;
+
+	VkPipeline pipeline =
+		CreateTFXPipeline(*prepared, g_vulkan_shader_cache->GetPipelineCache(true));
+	NameTFXPipeline(p, pipeline);
 	return pipeline;
+}
+
+bool GSDeviceVK::EnsureAsyncPipelineCompiler()
+{
+	const bool enabled =
+		(ForkConfig::GetString(ForkConfig::Option::PipelineCompilerMode) == "experimental");
+	if (!enabled)
+	{
+		if (m_tfx_pipeline_compiler.IsRunning())
+			QuiesceAsyncPipelineCompiler();
+		return false;
+	}
+	if (m_tfx_pipeline_compiler.IsRunning())
+		return true;
+
+#ifdef __ANDROID__
+	constexpr bool supported_platform = true;
+#else
+	constexpr bool supported_platform = false;
+#endif
+	const MobileDriverProfile& profile = GetMobileDriverProfile();
+	const ForkPipelineCompiler::Gate gate = ForkPipelineCompiler::ResolveGate(enabled, supported_platform,
+		profile.conservative_fallback, profile.UsesWorkaround(DriverWorkaround::SerializePipelineCreation),
+		static_cast<u32>(std::max(1, ForkConfig::GetInt(ForkConfig::Option::PipelineCompilerWorkers))));
+
+	if (!gate.allowed)
+	{
+		if (enabled && !m_tfx_pipeline_gate_logged)
+		{
+			Console.Warning("@@FORK_PIPELINE_ASYNC@@ denied reason=%s driver='%s'",
+				ForkPipelineCompiler::GateReasonToString(gate.reason), profile.driver_name.c_str());
+			m_tfx_pipeline_gate_logged = true;
+		}
+		return false;
+	}
+
+	// Android's current driver table marks multithreaded shader compilation as unsafe. With that
+	// bit set the single worker owns the main cache exclusively while the pool is alive: every TFX
+	// miss goes through it, and pause/flush first calls Quiesce. Drivers cleared for two workers get
+	// independent caches, because VkPipelineCache requires external host synchronization.
+	const bool serialized_on_main_cache = (gate.worker_count == 1);
+	m_tfx_worker_pipeline_caches.clear();
+	if (serialized_on_main_cache)
+	{
+		m_tfx_worker_pipeline_caches.push_back(g_vulkan_shader_cache->GetPipelineCache(true));
+	}
+	else
+	{
+		m_tfx_worker_pipeline_caches.resize(gate.worker_count, VK_NULL_HANDLE);
+		const VkPipelineCacheCreateInfo create_info = {
+			VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0, 0, nullptr};
+		for (VkPipelineCache& cache : m_tfx_worker_pipeline_caches)
+		{
+			const VkResult res = vkCreatePipelineCache(m_device, &create_info, nullptr, &cache);
+			if (res != VK_SUCCESS)
+			{
+				LOG_VULKAN_ERROR(res, "vkCreatePipelineCache() for async worker failed: ");
+				for (const VkPipelineCache created : m_tfx_worker_pipeline_caches)
+				{
+					if (created != VK_NULL_HANDLE)
+						vkDestroyPipelineCache(m_device, created, nullptr);
+				}
+				m_tfx_worker_pipeline_caches.clear();
+				return false;
+			}
+		}
+	}
+
+	if (!m_tfx_pipeline_compiler.Start(gate.worker_count))
+	{
+		m_tfx_pipeline_compiler.CancelAndJoin();
+		if (!serialized_on_main_cache)
+		{
+			for (const VkPipelineCache cache : m_tfx_worker_pipeline_caches)
+				vkDestroyPipelineCache(m_device, cache, nullptr);
+		}
+		m_tfx_worker_pipeline_caches.clear();
+		Console.Warning("@@FORK_PIPELINE_ASYNC@@ worker startup failed; synchronous fallback active");
+		return false;
+	}
+
+	if (!m_tfx_pipeline_gate_logged)
+	{
+		Console.WriteLn("@@FORK_PIPELINE_ASYNC@@ enabled workers=%u gate=%s driver='%s'",
+			gate.worker_count, ForkPipelineCompiler::GateReasonToString(gate.reason), profile.driver_name.c_str());
+		m_tfx_pipeline_gate_logged = true;
+	}
+	return true;
+}
+
+bool GSDeviceVK::RequestAsyncTFXPipeline(const PipelineSelector& p)
+{
+	m_tfx_pipeline_requests++;
+	if (m_tfx_pipelines.find(p) != m_tfx_pipelines.end() || m_tfx_pipeline_tasks.find(p) != m_tfx_pipeline_tasks.end())
+	{
+		m_tfx_pipeline_selector_hits++;
+		return true;
+	}
+
+	if (!EnsureAsyncPipelineCompiler())
+		return false;
+
+	const std::optional<PreparedTFXPipeline> prepared = PrepareTFXPipeline(p);
+	if (!prepared.has_value())
+	{
+		m_tfx_pipelines.emplace(p, VK_NULL_HANDLE);
+		return true;
+	}
+
+	const ForkPipelineCompiler::TaskId task_id = m_next_tfx_pipeline_task++;
+	// VS-related variants stay on one worker/cache. This preserves locality for a draw's main,
+	// blend and alpha passes without imposing a global lock across unrelated shader families.
+	const u64 group_id = static_cast<u64>(p.vs.key);
+	const ForkPipelineCompiler::SubmitResult submitted = m_tfx_pipeline_compiler.Submit(
+		{task_id, group_id, [this, prepared = *prepared](u32 worker_index) {
+			const VkPipeline pipeline =
+				CreateTFXPipeline(prepared, m_tfx_worker_pipeline_caches[worker_index]);
+			return VkHandleToOpaque(pipeline);
+		}});
+	if (submitted != ForkPipelineCompiler::SubmitResult::Queued)
+		return false;
+
+	m_tfx_pipeline_tasks.emplace(p, task_id);
+	return true;
+}
+
+void GSDeviceVK::PrefetchTFXPipelines(const GSHWDrawConfig& config, const PipelineSelector& pipe)
+{
+	if (ForkConfig::GetString(ForkConfig::Option::PipelineCompilerMode) != "experimental")
+	{
+		if (m_tfx_pipeline_compiler.IsRunning())
+			QuiesceAsyncPipelineCompiler();
+		return;
+	}
+
+	RequestAsyncTFXPipeline(pipe);
+	if (config.blend_multi_pass.enable)
+	{
+		PipelineSelector blend_pipe = pipe;
+		blend_pipe.bs = config.blend_multi_pass.blend;
+		blend_pipe.ps.no_color1 = config.blend_multi_pass.no_color1;
+		blend_pipe.ps.blend_hw = config.blend_multi_pass.blend_hw;
+		blend_pipe.ps.dither = config.blend_multi_pass.dither;
+		RequestAsyncTFXPipeline(blend_pipe);
+	}
+	if (config.alpha_second_pass.enable)
+	{
+		PipelineSelector alpha_pipe = pipe;
+		alpha_pipe.ps = config.alpha_second_pass.ps;
+		alpha_pipe.cms = config.alpha_second_pass.colormask;
+		alpha_pipe.dss = config.alpha_second_pass.depth;
+		alpha_pipe.bs = config.blend;
+		RequestAsyncTFXPipeline(alpha_pipe);
+	}
 }
 
 VkPipeline GSDeviceVK::GetTFXPipeline(const PipelineSelector& p)
 {
-	const auto it = m_tfx_pipelines.find(p);
-	if (it != m_tfx_pipelines.end())
-		return it->second;
+	if (RequestAsyncTFXPipeline(p))
+	{
+		const auto ready_it = m_tfx_pipelines.find(p);
+		if (ready_it != m_tfx_pipelines.end())
+			return ready_it->second;
+
+		const auto task_it = m_tfx_pipeline_tasks.find(p);
+		if (task_it != m_tfx_pipeline_tasks.end())
+		{
+			const Common::Timer::Value wait_start = Common::Timer::GetCurrentValue();
+			const VkPipeline pipeline = OpaqueToVkHandle<VkPipeline>(
+				m_tfx_pipeline_compiler.WaitAndTake(task_it->second));
+			const double wait_ms = Common::Timer::ConvertValueToMilliseconds(
+				Common::Timer::GetCurrentValue() - wait_start);
+			m_tfx_pipeline_tasks.erase(task_it);
+			NameTFXPipeline(p, pipeline);
+			m_tfx_pipelines.emplace(p, pipeline);
+			if (wait_ms >= 20.0)
+				Console.Warning("@@ANDROID_TFXWAIT@@ %.1f ms waiting for pending pipeline", wait_ms);
+			return pipeline;
+		}
+	}
 
 	// A cache miss compiles SYNCHRONOUSLY on the GS thread, freezing the picture for as long as the
 	// driver takes. Normally invisible (a few ms, spread out), but fast-forward runs through content
@@ -8326,6 +8600,11 @@ void GSDeviceVK::DoRenderHW(GSHWDrawConfig& config)
 			}
 		}
 	}
+
+	// Neste ponto o seletor já incorporou os ajustes de render pass/feedback. Há trabalho de
+	// cópia, transição, attachment setup e upload antes do bind; antecipar aqui permite ao driver
+	// criar a pipeline correta em paralelo com esse trabalho, sem jamais desenhar com substituta.
+	PrefetchTFXPipelines(config, pipe);
 
 	if (draw_rt && ((config.require_one_barrier && (config.IsFeedbackLoopRT(config.ps) || config.IsFeedbackLoopRT(config.alpha_second_pass.ps)))) && !m_features.texture_barrier)
 	{

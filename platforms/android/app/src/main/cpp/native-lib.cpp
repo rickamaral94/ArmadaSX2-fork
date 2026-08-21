@@ -29,6 +29,7 @@
 #include "GS/GSPerfMon.h"
 #include "GS/GSUtil.h" // GSUtil::AndroidAutoPrefersVulkan (Auto renderer steering)
 #include "GS/Renderers/Common/GSDevice.h" // GSDevice::SetShaderChainParams (shader chain params)
+#include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #include "GS/Renderers/Vulkan/VKShaderCache.h"
 #include "GS/Renderers/Vulkan/GSLsfg.h" // LSFG availability query (JNI)
 #include "GSDumpReplayer.h"
@@ -2973,15 +2974,22 @@ Java_kr_co_iefriends_pcsx2_NativeApp_flushShaderCache(JNIEnv *env, jclass clazz)
             .count());
     constexpr s64 MIN_FLUSH_INTERVAL_SEC = 120;
     s64 last = s_last_flush_time.load(std::memory_order_acquire);
-    if (last != 0 && (now - last) < MIN_FLUSH_INTERVAL_SEC)
-        return;
-    // CAS so two rapid background events can't both slip through.
-    if (!s_last_flush_time.compare_exchange_strong(last, now, std::memory_order_acq_rel))
-        return;
-    Host::RunOnCPUThread([]() {
-        MTGS::RunOnGSThread([]() {
+    bool should_flush = (last == 0 || (now - last) >= MIN_FLUSH_INTERVAL_SEC);
+    // CAS so two rapid background events can't both request the expensive disk flush. Quiesce is
+    // still posted every time: pause must close the lifetime of any async pipeline worker even
+    // when persistence is rate-limited.
+    if (should_flush &&
+        !s_last_flush_time.compare_exchange_strong(last, now, std::memory_order_acq_rel))
+        should_flush = false;
+    Host::RunOnCPUThread([should_flush]() {
+        MTGS::RunOnGSThread([should_flush]() {
+            if (g_gs_device && g_gs_device->GetRenderAPI() == RenderAPI::Vulkan)
+                static_cast<GSDeviceVK*>(g_gs_device.get())->QuiesceAsyncPipelineCompiler();
             if (g_vulkan_shader_cache)
-                g_vulkan_shader_cache->FlushPipelineCache();
+            {
+                if (should_flush)
+                    g_vulkan_shader_cache->FlushPipelineCache();
+            }
         });
     });
 }

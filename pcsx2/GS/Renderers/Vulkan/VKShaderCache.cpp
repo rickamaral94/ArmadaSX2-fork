@@ -422,6 +422,23 @@ VkPipelineCache VKShaderCache::GetPipelineCache(bool set_dirty /*= true*/)
 	return m_pipeline_cache;
 }
 
+bool VKShaderCache::MergePipelineCaches(std::span<const VkPipelineCache> source_caches)
+{
+	if (m_pipeline_cache == VK_NULL_HANDLE || source_caches.empty())
+		return false;
+
+	const VkResult res = vkMergePipelineCaches(GSDeviceVK::GetInstance()->GetDevice(), m_pipeline_cache,
+		static_cast<u32>(source_caches.size()), source_caches.data());
+	if (res != VK_SUCCESS)
+	{
+		LOG_VULKAN_ERROR(res, "vkMergePipelineCaches() failed: ");
+		return false;
+	}
+
+	m_pipeline_cache_dirty = true;
+	return true;
+}
+
 bool VKShaderCache::CreateNewShaderCache(const std::string& index_filename, const std::string& blob_filename)
 {
 	if (FileSystem::FileExists(index_filename.c_str()))

@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -26,6 +27,10 @@ public:
 
 	/// Returns a handle to the pipeline cache. Set set_dirty to true if you are planning on writing to it externally.
 	VkPipelineCache GetPipelineCache(bool set_dirty = true);
+
+	/// Mescla caches privados somente depois que seus workers terminaram. A chamada deve ocorrer
+	/// na thread GS, sem acesso concorrente ao cache principal nem aos caches de origem.
+	bool MergePipelineCaches(std::span<const VkPipelineCache> source_caches);
 
 	/// Writes pipeline cache to file, saving all newly compiled pipelines.
 	/// Serialises the pipeline cache to disk. This is SYNCHRONOUS and runs on the GS thread, so it

@@ -9,6 +9,8 @@
 #include "GS/Renderers/Vulkan/VKLoader.h"
 #include "GS/Renderers/Vulkan/VKStreamBuffer.h"
 
+#include "Fork/ForkPipelineCompiler.h"
+
 #include "common/HashCombine.h"
 #include "common/ReadbackSpinManager.h"
 
@@ -19,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -540,6 +543,14 @@ private:
 		m_tfx_fragment_shaders;
 	std::unordered_map<PipelineSelector, VkPipeline, PipelineSelectorHash> m_tfx_pipelines;
 	u32 m_tfx_pipeline_compile_counter = 0;
+	ForkPipelineCompiler::Queue m_tfx_pipeline_compiler;
+	std::unordered_map<PipelineSelector, ForkPipelineCompiler::TaskId, PipelineSelectorHash>
+		m_tfx_pipeline_tasks;
+	std::vector<VkPipelineCache> m_tfx_worker_pipeline_caches;
+	ForkPipelineCompiler::TaskId m_next_tfx_pipeline_task = 1;
+	u64 m_tfx_pipeline_requests = 0;
+	u64 m_tfx_pipeline_selector_hits = 0;
+	bool m_tfx_pipeline_gate_logged = false;
 
 	VkRenderPass m_utility_color_render_pass_load = VK_NULL_HANDLE;
 	VkRenderPass m_utility_color_render_pass_clear = VK_NULL_HANDLE;
@@ -607,8 +618,20 @@ private:
 
 	VkShaderModule GetTFXVertexShader(GSHWDrawConfig::VSSelector sel);
 	VkShaderModule GetTFXFragmentShader(const GSHWDrawConfig::PSSelector& sel);
+	struct PreparedTFXPipeline
+	{
+		PipelineSelector selector;
+		VkShaderModule vertex_shader = VK_NULL_HANDLE;
+		VkShaderModule fragment_shader = VK_NULL_HANDLE;
+	};
+	std::optional<PreparedTFXPipeline> PrepareTFXPipeline(const PipelineSelector& p);
+	VkPipeline CreateTFXPipeline(const PreparedTFXPipeline& prepared, VkPipelineCache pipeline_cache);
 	VkPipeline CreateTFXPipeline(const PipelineSelector& p);
 	VkPipeline GetTFXPipeline(const PipelineSelector& p);
+	bool EnsureAsyncPipelineCompiler();
+	bool RequestAsyncTFXPipeline(const PipelineSelector& p);
+	void PrefetchTFXPipelines(const GSHWDrawConfig& config, const PipelineSelector& pipe);
+	void NameTFXPipeline(const PipelineSelector& p, VkPipeline pipeline) const;
 
 	VkShaderModule GetUtilityVertexShader(const std::string& source, const char* replace_main);
 	VkShaderModule GetUtilityFragmentShader(const std::string& source, const char* replace_main);
@@ -673,6 +696,8 @@ public:
 	void ResizeWindow(u32 new_window_width, u32 new_window_height, float new_window_scale) override;
 	bool SupportsExclusiveFullscreen() const override;
 	void DestroySurface() override;
+	/// Para onPause, troca/recriação de Surface e teardown. Só chamar na thread GS.
+	void QuiesceAsyncPipelineCompiler();
 	std::string GetDriverInfo() const override;
 
 	void SetVSyncMode(GSVSyncMode mode, bool allow_present_throttle) override;
