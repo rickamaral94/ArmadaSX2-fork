@@ -87,6 +87,19 @@ Cada execução grava dados brutos, sem apagar valores inconvenientes:
 - screenshot PNG, hash perceptual e distância para a imagem de referência obrigatória;
 - logcat bruto, incluindo `@@FORK_PIPELINE_ASYNC@@`.
 
+Sessões manuais feitas com o APK de qualificação `github/debug` também contêm uma linha
+`@@ANDROID_ENV@@` a cada dez segundos. A coleta é Android-only, roda em thread de prioridade
+baixa e não existe no caminho das builds de release. Ela registra:
+
+- estado térmico público do Android e *thermal headroom*, quando a API disponibilizar;
+- temperatura da bateria e todos os sensores térmicos legíveis em graus Celsius;
+- clock atual/máximo de cada política de CPU em kHz;
+- clock atual/máximo dos nós `devfreq` e do KGSL em Hz.
+
+Os campos usam `unavailable` quando SELinux ou o fabricante bloqueiam a leitura. Temperatura de
+bateria é identificada separadamente e não é tratada como temperatura do SoC. Cada valor de clock
+é uma amostra instantânea, não o pico ocorrido entre duas linhas.
+
 São gerados `manifest.json`, `runs.json`, `summary.json`, `summary.csv` e `report.md` em um diretório novo por
 sessão. Arquivos existentes nunca são sobrescritos.
 
