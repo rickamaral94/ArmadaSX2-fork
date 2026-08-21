@@ -394,7 +394,8 @@ static constexpr std::array<DriverRule, 28> s_driver_rules = {{
 		Bug(DriverBug::BrokenMultithreadedShaderCompilation), 0},
 	{"vk-android-shader-serialization", MobileGpuApi::Vulkan, RuntimeGpuProfile::Unknown,
 		MobileGpuDriver::Unknown, MobileGpuArchitecture::Unknown, 0, 0, 0, {}, {}, 1, 0, false,
-		Bug(DriverBug::BrokenMultithreadedShaderCompilation), 0},
+		Bug(DriverBug::BrokenMultithreadedShaderCompilation),
+		Workaround(DriverWorkaround::SerializePipelineCreation)},
 	{"vk-arm-proprietary", MobileGpuApi::Vulkan, RuntimeGpuProfile::Mali,
 		MobileGpuDriver::ArmProprietary, MobileGpuArchitecture::Unknown, 0, 0, 0, {}, {}, 0, 0, false,
 		Bug(DriverBug::BrokenPrimitiveRestart) | Bug(DriverBug::BrokenPushDescriptors) |

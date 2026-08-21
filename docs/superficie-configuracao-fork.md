@@ -72,8 +72,10 @@ não cresce: o próximo módulo do fork se registra em `ForkRuntime`, não em `V
 
 | Chave (`[Fork]`) | Tipo | Padrão | O que faz |
 |---|---|---|---|
-| `PresentationMetrics.Enabled` | bool | `false` | mede FPS real x apresentado, frametime, 1% low |
+| `PresentationMetrics.Enabled` | bool | `true` | mede FPS real x apresentado, frametime, 1% low |
 | `PresentationMetrics.Overlay` | bool | `false` | desenha a linha de cadência no OSD |
+| `PipelineCompiler.Mode` | string | `off` | criação assíncrona experimental de pipelines Vulkan |
+| `PipelineCompiler.Workers` | int | `1` | pool solicitado; o perfil pode reduzir e o teto interno é 2 |
 
 As duas são separadas de propósito: medir para o log e mostrar na tela são decisões diferentes, e o
 benchmark A/B da Fase 6 vai querer medir sem poluir a captura de tela.
@@ -84,6 +86,8 @@ Exemplo de INI:
 [Fork]
 PresentationMetrics.Enabled = true
 PresentationMetrics.Overlay = true
+PipelineCompiler.Mode = off
+PipelineCompiler.Workers = 1
 ```
 
 ## 6. Decisões que valem registrar
@@ -99,10 +103,10 @@ PresentationMetrics.Overlay = true
 
 ## 7. Verificação
 
-`tests/ctest/core/fork/fork_config_tests.cpp` — 9 casos: alinhamento tabela/enum, chave desconhecida
+`tests/ctest/core/fork/fork_config_tests.cpp` — 14 casos: alinhamento tabela/enum, chave desconhecida
 ignorada, padrões, leitura da seção, cada load partindo do padrão, valor inválido, round-trip de
-texto, observador disparando, e `SetAndSave` recusando valor inválido sem sujar o estado.
+texto, observador disparando, `SetAndSave` recusando valor inválido sem sujar o estado, seleção de
+driver e o default desligado do compilador assíncrono.
 
-Compilados e executados localmente: **9/9**. A partir de agora o gate da Fase 0.5 também compila e
-roda as suítes do fork na perna *candidate*, com critério de **zero falhas** — a regra diferencial
+O gate da Fase 0.5 compila e roda as suítes do fork na perna *candidate*, com critério de **zero falhas** — a regra diferencial
 existe para a suíte herdada do upstream, não para a que escrevemos hoje.

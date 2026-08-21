@@ -67,6 +67,12 @@ TEST_F(ForkConfigTest, DefaultsApplyWhenSettingsAreEmpty)
 	}
 }
 
+TEST_F(ForkConfigTest, AsyncPipelineCompilerIsExperimentalAndOffByDefault)
+{
+	EXPECT_EQ(ForkConfig::GetString(Option::PipelineCompilerMode), "off");
+	EXPECT_EQ(ForkConfig::GetInt(Option::PipelineCompilerWorkers), 1);
+}
+
 TEST_F(ForkConfigTest, ReadsValuesFromTheForkSection)
 {
 	MemorySettingsInterface si;

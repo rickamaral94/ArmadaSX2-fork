@@ -34,6 +34,29 @@ namespace ForkPipelineCompiler
 		NotRunning,
 	};
 
+	enum class GateReason : u8
+	{
+		Allowed,
+		Disabled,
+		UnsupportedPlatform,
+		UnknownDriver,
+		DriverSerialized,
+	};
+
+	struct Gate
+	{
+		bool allowed = false;
+		u32 worker_count = 0;
+		GateReason reason = GateReason::Disabled;
+	};
+
+	/// Gate puro: perfil conservador nega; defeito de compilação multithread reduz para um worker;
+	/// drivers conhecidos ficam limitados a um pool pequeno. `requested_workers` nunca é obedecido
+	/// sem passar por esta função.
+	Gate ResolveGate(bool enabled, bool supported_platform, bool conservative_driver,
+		bool broken_multithreaded_compilation, u32 requested_workers);
+	const char* GateReasonToString(GateReason reason);
+
 	struct Stats
 	{
 		u64 requests = 0;

@@ -9,6 +9,35 @@
 
 namespace ForkPipelineCompiler
 {
+	Gate ResolveGate(bool enabled, bool supported_platform, bool conservative_driver,
+		bool broken_multithreaded_compilation, u32 requested_workers)
+	{
+		if (!enabled)
+			return {false, 0, GateReason::Disabled};
+		if (!supported_platform)
+			return {false, 0, GateReason::UnsupportedPlatform};
+		if (conservative_driver)
+			return {false, 0, GateReason::UnknownDriver};
+
+		if (broken_multithreaded_compilation)
+			return {true, 1, GateReason::DriverSerialized};
+
+		return {true, std::clamp(requested_workers, 1u, 2u), GateReason::Allowed};
+	}
+
+	const char* GateReasonToString(GateReason reason)
+	{
+		switch (reason)
+		{
+			case GateReason::Allowed: return "allowed";
+			case GateReason::Disabled: return "disabled";
+			case GateReason::UnsupportedPlatform: return "unsupported-platform";
+			case GateReason::UnknownDriver: return "unknown-driver";
+			case GateReason::DriverSerialized: return "driver-serialized";
+		}
+		return "unknown";
+	}
+
 	Queue::~Queue()
 	{
 		CancelAndJoin();
@@ -27,18 +56,11 @@ namespace ForkPipelineCompiler
 		m_worker_queues.resize(worker_count);
 		m_accepting = true;
 
-		try
-		{
-			m_workers.reserve(worker_count);
-			for (u32 i = 0; i < worker_count; i++)
-				m_workers.emplace_back(&Queue::WorkerMain, this, i);
-		}
-		catch (...)
-		{
-			m_accepting = false;
-			m_work_cv.notify_all();
-			return false;
-		}
+		// O projeto compila sem exceções. std::thread é usado da mesma forma pelos demais workers
+		// do núcleo; reserve evita realocar handles depois que as threads começam.
+		m_workers.reserve(worker_count);
+		for (u32 i = 0; i < worker_count; i++)
+			m_workers.emplace_back(&Queue::WorkerMain, this, i);
 
 		return true;
 	}
@@ -196,15 +218,7 @@ namespace ForkPipelineCompiler
 			}
 
 			const auto compile_start = std::chrono::steady_clock::now();
-			Result result = 0;
-			try
-			{
-				result = compile(worker_index);
-			}
-			catch (...)
-			{
-				result = 0;
-			}
+			const Result result = compile(worker_index);
 			const u64 compile_ns = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - compile_start).count());
 

@@ -66,13 +66,15 @@ constexpr u32 kImaginationDriverId = 7; // VK_DRIVER_ID_IMAGINATION_PROPRIETARY
 constexpr u32 kAdrenoVendorId = 0x5143u;
 constexpr u32 kImaginationVendorId = 0x1010u;
 
-GpuProfileSelection ResolveAdrenoVK(const char* device_name, u32 driver_id, u32 packed_version)
+GpuProfileSelection ResolveAdrenoVK(
+	const char* device_name, u32 driver_id, u32 packed_version, u32 android_sdk = 0)
 {
 	MobileDriverContext context;
 	context.api = MobileGpuApi::Vulkan;
 	context.vendor_id = kAdrenoVendorId;
 	context.driver_id = driver_id;
 	context.driver_version = packed_version;
+	context.android_sdk = android_sdk;
 	context.driver_name = (driver_id == kMesaTurnipDriverId) ? "turnip" : "Qualcomm driver";
 	return GpuProfileDetector::Resolve("auto", std::string_view(), device_name, context);
 }
@@ -80,6 +82,11 @@ GpuProfileSelection ResolveAdrenoVK(const char* device_name, u32 driver_id, u32 
 bool EmulatesColorWriteMask(const GpuProfileSelection& sel)
 {
 	return sel.driver.UsesWorkaround(DriverWorkaround::EmulateColorWriteMask);
+}
+
+bool SerializesPipelineCreation(const GpuProfileSelection& sel)
+{
+	return sel.driver.UsesWorkaround(DriverWorkaround::SerializePipelineCreation);
 }
 } // namespace
 
@@ -181,6 +188,14 @@ TEST(GSGpuDriverProfile, TurnipNeverEmulatesColorWriteMaskDespiteItsLowVersionNu
 		ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2))));
 	EXPECT_FALSE(EmulatesColorWriteMask(
 		ResolveAdrenoVK("Turnip Adreno (TM) 650", kMesaTurnipDriverId, PackVulkanVersion(26, 2, 99))));
+}
+
+TEST(GSGpuDriverProfile, AndroidVulkanSerializesExperimentalPipelineCreation)
+{
+	EXPECT_TRUE(SerializesPipelineCreation(
+		ResolveAdrenoVK("Adreno (TM) 740", kQualcommDriverId, PackVulkanVersion(512, 780, 0), 35)));
+	EXPECT_TRUE(SerializesPipelineCreation(
+		ResolveAdrenoVK("Turnip Adreno (TM) 740", kMesaTurnipDriverId, PackVulkanVersion(26, 1, 2), 35)));
 }
 
 // --- push descriptors ---------------------------------------------------------------------------

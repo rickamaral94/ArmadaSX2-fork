@@ -144,7 +144,8 @@ enum class DriverBug : u8
 //     RewriteBooleanNegation, ScalarizeVectorBitwiseAnd, StoreBitwiseNegationInTemporary,
 //     UseRenderTargetCopyForFeedback, RewriteUniformIndexing,
 //     UseDescriptorSets e DisableProvokingVertex (GSDeviceVK::ProcessDeviceExtensions),
-//     PreferCoherentReadback (GSDownloadTextureVK::Create).
+//     PreferCoherentReadback (GSDownloadTextureVK::Create),
+//     SerializePipelineCreation (GSDeviceVK::EnsureAsyncPipelineCompiler).
 //
 //   APLICADO EM OUTRO LUGAR — o renderer FAZ o trabalho, mas decide por conta própria, com
 //   condição própria, sem ler o bit. Aqui o bit é um espelho que pode estar defasado da realidade:
@@ -184,6 +185,8 @@ enum class DriverWorkaround : u8
 	RewriteUniformIndexing,
 	ForceFifoPresent,
 	AlignSwapchainWidthTo32,
+	/// Mantém criação de pipelines fora da thread GS, mas impede chamadas simultâneas ao driver.
+	SerializePipelineCreation,
 	Count,
 };
 

@@ -103,6 +103,13 @@ namespace ForkConfig
 		/// Quantas vezes a carência pode dobrar quando o engate seguinte também fracassa.
 		FrameGenMaxCooldownDoublings,
 
+		// --- criação assíncrona de pipelines Vulkan (Fase A) ---
+
+		/// `off` (padrão) ou `experimental`. Nunca é promovido por auto-detecção sem A/B real.
+		PipelineCompilerMode,
+		/// Pool solicitado. O gate de driver pode reduzir este valor, inclusive para um worker.
+		PipelineCompilerWorkers,
+
 		// --- diagnóstico de sessão (Fase 8.1) ---
 
 		/// Escreve o bloco `@@FORK@@` no log em intervalos regulares.

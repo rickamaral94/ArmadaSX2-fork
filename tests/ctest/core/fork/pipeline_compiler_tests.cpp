@@ -12,6 +12,33 @@
 
 using namespace std::chrono_literals;
 
+TEST(ForkPipelineCompiler, CapabilityGateIsConservativeAndBounded)
+{
+	using ForkPipelineCompiler::GateReason;
+
+	auto gate = ForkPipelineCompiler::ResolveGate(false, true, false, false, 2);
+	EXPECT_FALSE(gate.allowed);
+	EXPECT_EQ(gate.reason, GateReason::Disabled);
+
+	gate = ForkPipelineCompiler::ResolveGate(true, false, false, false, 2);
+	EXPECT_FALSE(gate.allowed);
+	EXPECT_EQ(gate.reason, GateReason::UnsupportedPlatform);
+
+	gate = ForkPipelineCompiler::ResolveGate(true, true, true, false, 2);
+	EXPECT_FALSE(gate.allowed);
+	EXPECT_EQ(gate.reason, GateReason::UnknownDriver);
+
+	gate = ForkPipelineCompiler::ResolveGate(true, true, false, true, 2);
+	EXPECT_TRUE(gate.allowed);
+	EXPECT_EQ(gate.worker_count, 1u);
+	EXPECT_EQ(gate.reason, GateReason::DriverSerialized);
+
+	gate = ForkPipelineCompiler::ResolveGate(true, true, false, false, 99);
+	EXPECT_TRUE(gate.allowed);
+	EXPECT_EQ(gate.worker_count, 2u);
+	EXPECT_EQ(gate.reason, GateReason::Allowed);
+}
+
 TEST(ForkPipelineCompiler, StateTransitionsAndTake)
 {
 	ForkPipelineCompiler::Queue queue;
@@ -31,6 +58,9 @@ TEST(ForkPipelineCompiler, StateTransitionsAndTake)
 	entered.get_future().wait();
 	EXPECT_EQ(queue.GetState(7), ForkPipelineCompiler::State::Pending);
 	release.set_value();
+	for (u32 i = 0; i < 1000 && queue.GetState(7) == ForkPipelineCompiler::State::Pending; i++)
+		std::this_thread::sleep_for(1ms);
+	EXPECT_EQ(queue.GetState(7), ForkPipelineCompiler::State::Ready);
 	EXPECT_EQ(queue.WaitAndTake(7), ForkPipelineCompiler::Result{0x1234});
 	EXPECT_EQ(queue.GetState(7), ForkPipelineCompiler::State::Missing);
 
@@ -68,6 +98,9 @@ TEST(ForkPipelineCompiler, FailureIsObservableAndRemovable)
 	ASSERT_EQ(queue.Submit({17, 0, [](u32) { return ForkPipelineCompiler::Result{0}; }}),
 		ForkPipelineCompiler::SubmitResult::Queued);
 
+	for (u32 i = 0; i < 1000 && queue.GetState(17) == ForkPipelineCompiler::State::Pending; i++)
+		std::this_thread::sleep_for(1ms);
+	EXPECT_EQ(queue.GetState(17), ForkPipelineCompiler::State::Failed);
 	EXPECT_EQ(queue.WaitAndTake(17), ForkPipelineCompiler::Result{0});
 	EXPECT_EQ(queue.GetState(17), ForkPipelineCompiler::State::Missing);
 	EXPECT_EQ(queue.GetStats().failures, 1u);
