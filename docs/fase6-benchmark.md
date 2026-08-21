@@ -98,9 +98,12 @@ JSON com o mesmo conteúdo, para ferramentas.
   sessão, percentis expondo um pico de 120 ms que a média esconde, e a sessão inerte antes de
   `BeginSession` e depois de `EndSession`.
 
-## 7. O que falta
+## 7. Execução em hardware
 
-O framework mede; **quem executa o protocolo é humano com hardware**. O roteiro está em
-[docs/jogos-canario.md](jogos-canario.md): três execuções do mesmo trecho, mediana, 5 minutos de
-descanso térmico entre elas. Sem dispositivo, o que existe aqui é a garantia de que os números,
-quando vierem, serão comparáveis — e que os inválidos virão marcados.
+A Fase B acrescentou `tools/fork/android_validation.py`: o host conduz pelo `adb` cinco ou mais
+execuções por braço em ordem AB/BA, separa warm-up da janela medida, registra ambiente/temperatura
+e aplica gates de driver, shader compilation e imagem. O roteiro e a matriz ficam em
+[docs/fase-b-validacao-android.md](fase-b-validacao-android.md).
+
+O runner tornar o protocolo repetível não substitui os aparelhos. Sem os bundles reais da matriz,
+os números continuam pendentes e nenhum default pode mudar.

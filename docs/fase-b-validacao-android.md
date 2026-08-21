@@ -81,13 +81,13 @@ Cada execução grava dados brutos, sem apagar valores inconvenientes:
   pipeline cache;
 - temperatura e clocks disponíveis antes/depois; ausência de permissão é registrada como
   `unavailable`, nunca convertida em zero;
-- resolução, versão do APK e SHA-256 da configuração resolvida;
+- resolução, versão do APK, commit embutido no binário e SHA-256 da configuração resolvida;
 - FPS real e apresentado em campos separados, p95, p99, 1% low, stutters, erros de present e
   compilação de shaders;
-- screenshot PNG, hash perceptual e distância para a referência, quando configurada;
+- screenshot PNG, hash perceptual e distância para a imagem de referência obrigatória;
 - logcat bruto, incluindo `@@FORK_PIPELINE_ASYNC@@`.
 
-São gerados `manifest.json`, `runs.json`, `summary.csv` e `report.md` em um diretório novo por
+São gerados `manifest.json`, `runs.json`, `summary.json`, `summary.csv` e `report.md` em um diretório novo por
 sessão. Arquivos existentes nunca são sobrescritos.
 
 ### 2.4 Gates
@@ -123,3 +123,22 @@ que os bundles dos aparelhos reais atendam aos gates acima.
   autônomo; GS dumps são o caminho determinístico preferido para regressão gráfica.
 - pHash detecta diferença, não prova correção. Uma diferença exige inspeção da imagem e reprodução.
 - Nenhum default muda nesta fase.
+
+## 5. Uso do runner
+
+No host, com o APK `github` instalado e um único aparelho autorizado no `adb`:
+
+```bash
+python3 -m pip install -r tools/fork/requirements-android-validation.txt
+python3 tools/fork/android_validation.py meu-cenario.json --serial SERIAL_ADB
+```
+
+Antes de ocupar o aparelho por horas, valide apenas o contrato e veja a ordem AB/BA:
+
+```bash
+python3 tools/fork/android_validation.py meu-cenario.json --validate-only
+```
+
+O runner abre o app, restaura as opções `[Fork]` originais no `finally` e mantém um
+`runs.partial.json` após cada execução. Assim uma desconexão ou interrupção não transforma horas de
+teste em evidência perdida — mas a sessão incompleta continua não publicável.

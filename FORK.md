@@ -61,6 +61,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 | `gpu_capabilities` | `pcsx2/Fork/ForkGpuCapabilities.*` + `com.armsx2.fork` | **feito** (Fase 3) |
 | `fork_config` | `pcsx2/Fork/` + `com.armsx2.fork` | **feito** (infraestrutura) |
 | `presentation_metrics` | `pcsx2/GS/Renderers/Common/GSPresentationMetrics.*` | **feito** (Fase 2) |
+| `android_validation_runner` | `tools/fork/android_validation.py` + receiver Android protegido | **feito** (infraestrutura da Fase B; matriz real pendente) |
 | `frame_generation` | `pcsx2/Fork/ForkFrameGen.*` | **régua feita** (Fase 7); backend na 8 |
 | `frame_interpolation` | `pcsx2/GS/Renderers/Vulkan/FrameGen/backends/` | Fase 8 |
 
@@ -76,6 +77,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 5 — driver Vulkan por jogo](docs/fase5-driver-por-jogo.md)
 - [Fase 6 — framework de benchmark A/B](docs/fase6-benchmark.md)
 - [Fase 7 — esqueleto de Frame Generation](docs/fase7-frame-generation-esqueleto.md)
+- [Fase B — validação Android em hardware real](docs/fase-b-validacao-android.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 
 ## Licença

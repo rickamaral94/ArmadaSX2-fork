@@ -40,7 +40,8 @@ FG (7, 8, 9), 60 fps para FG (5, 6, 11, 12, 18), HUD (8, 9), depth (16).
 
 ## 2. Protocolo de execução
 
-Cada rodada = **3 execuções** do mesmo trecho, resultado reportado como mediana.
+Cada cenário A/B = **no mínimo 5 execuções por braço**, em ordem alternada AB/BA, com resultado
+reportado como mediana. Menos que isso é diagnóstico exploratório, não evidência publicável.
 
 1. **Trecho fixo de 60 s** por jogo, a partir de um save state versionado pelo testador
    (não do começo do jogo — carregamento poluiria a medição).
@@ -55,6 +56,13 @@ Cada rodada = **3 execuções** do mesmo trecho, resultado reportado como median
 4. Comparação de imagem: GS dump do mesmo trecho antes/depois, comparado quadro a quadro.
    `pcsx2-gsrunner` (já na árvore) reproduz dumps de forma determinística — é a única comparação
    que não depende de reflexo humano.
+5. Registrar SoC, GPU, Android, kernel, page size, resolução, temperatura, clocks quando
+   disponíveis, `driverID`, `driverName`, versão completa, UUID do pipeline cache, commit do APK e
+   hash da configuração resolvida.
+
+`tools/fork/android_validation.py` automatiza essa ordem, separa warm-up e medição, captura os
+dados acima e recusa publicar uma sessão inválida. O runner inicia tanto jogos quanto GS dumps por
+URI; nenhum conteúdo de teste é distribuído pelo projeto.
 
 ## 3. Regra de decisão
 
