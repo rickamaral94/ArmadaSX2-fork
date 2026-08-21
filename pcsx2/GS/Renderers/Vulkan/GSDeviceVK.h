@@ -542,7 +542,16 @@ private:
 	std::unordered_map<GSHWDrawConfig::PSSelector, VkShaderModule, GSHWDrawConfig::PSSelectorHash>
 		m_tfx_fragment_shaders;
 	std::unordered_map<PipelineSelector, VkPipeline, PipelineSelectorHash> m_tfx_pipelines;
+	/// Orçamento COMPARTILHADO entre a compilação síncrona e a adoção assíncrona: as duas contam
+	/// para a mesma persistência periódica, senão ligar o experimento desliga a gravação.
+#ifdef __ANDROID__
+	static constexpr u32 PIPELINE_CACHE_FLUSH_THRESHOLD = 256;
+#else
+	static constexpr u32 PIPELINE_CACHE_FLUSH_THRESHOLD = 32;
+#endif
 	u32 m_tfx_pipeline_compile_counter = 0;
+	/// Marcado no ponto de uso, consumido no fim do quadro. Ver PersistAsyncPipelineWork.
+	bool m_tfx_pipeline_persist_pending = false;
 	ForkPipelineCompiler::Queue m_tfx_pipeline_compiler;
 	std::unordered_map<PipelineSelector, ForkPipelineCompiler::TaskId, PipelineSelectorHash>
 		m_tfx_pipeline_tasks;
@@ -697,7 +706,10 @@ public:
 	bool SupportsExclusiveFullscreen() const override;
 	void DestroySurface() override;
 	/// Para onPause, troca/recriação de Surface e teardown. Só chamar na thread GS.
-	void QuiesceAsyncPipelineCompiler();
+	void QuiesceAsyncPipelineCompiler(const char* reason = "stopped");
+	/// Mescla e grava o trabalho dos workers sem esperar por um teardown. Ver o corpo: a mescla
+	/// exige que o pool esteja parado, então isto para o pool e deixa o próximo draw reabri-lo.
+	void PersistAsyncPipelineWork();
 	std::string GetDriverInfo() const override;
 
 	void SetVSyncMode(GSVSyncMode mode, bool allow_present_throttle) override;

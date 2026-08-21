@@ -3277,6 +3277,14 @@ void GSDeviceVK::EndPresent()
 	MoveToNextCommandBuffer();
 
 	InvalidateCachedState();
+
+	// Fim do quadro: o ponto barato para mesclar e gravar o que os workers compilaram. Ver
+	// PersistAsyncPipelineWork para por que a mescla exige o pool parado.
+	if (m_tfx_pipeline_persist_pending)
+	{
+		m_tfx_pipeline_persist_pending = false;
+		PersistAsyncPipelineWork();
+	}
 }
 
 bool GSDeviceVK::IsPresenting() const
@@ -6690,7 +6698,7 @@ bool GSDeviceVK::DoFSR1Pass(
 	return true;
 }
 
-void GSDeviceVK::QuiesceAsyncPipelineCompiler()
+void GSDeviceVK::QuiesceAsyncPipelineCompiler(const char* reason)
 {
 	const bool was_running = m_tfx_pipeline_compiler.IsRunning();
 	const std::vector<ForkPipelineCompiler::Result> orphaned = m_tfx_pipeline_compiler.CancelAndJoin();
@@ -6721,14 +6729,46 @@ void GSDeviceVK::QuiesceAsyncPipelineCompiler()
 	if (was_running)
 	{
 		const ForkPipelineCompiler::Stats stats = m_tfx_pipeline_compiler.GetStats();
+		// `reason` separa parada por teardown de ciclo de persistência. Sem isso o log mostraria
+		// "stopped" a cada 256 adoções, sem "enabled" correspondente — e um leitor concluiria que
+		// o experimento vive caindo. Os contadores são acumulados e sobrevivem ao restart.
 		Console.WriteLn(
-			"@@FORK_PIPELINE_ASYNC@@ stopped requests=%" PRIu64 " selector_hits=%" PRIu64
+			"@@FORK_PIPELINE_ASYNC@@ %s requests=%" PRIu64 " selector_hits=%" PRIu64
 			" queued=%" PRIu64 " completed=%" PRIu64 " parallel=%" PRIu64 " waits=%" PRIu64
 			" compile_ms=%.1f wait_ms=%.1f failures=%" PRIu64 " cancelled=%" PRIu64 " peak=%u",
-			m_tfx_pipeline_requests, m_tfx_pipeline_selector_hits, stats.queued, stats.completed,
+			reason, m_tfx_pipeline_requests, m_tfx_pipeline_selector_hits, stats.queued, stats.completed,
 			stats.parallel_compiles, stats.waits_at_use, static_cast<double>(stats.compile_time_ns) / 1e6,
 			static_cast<double>(stats.wait_time_ns) / 1e6, stats.failures, stats.cancelled, stats.peak_active);
 	}
+}
+
+void GSDeviceVK::PersistAsyncPipelineWork()
+{
+	if (!m_tfx_pipeline_compiler.IsRunning())
+		return;
+
+	// POR QUE ISTO PRECISA PARAR O POOL. `vkMergePipelineCaches` lê os caches de origem enquanto
+	// `vkCreateGraphicsPipelines` escreve neles, e o Vulkan exige sincronização externa do
+	// `pipelineCache` em ambos. Não existe, portanto, mescla segura com worker em execução: o
+	// único ponto de sincronização disponível é o join. Quiesce já faz exatamente a sequência
+	// certa — join, mescla os privados no principal, destrói os privados —, então esta função é a
+	// mesma sequência acionada por orçamento em vez de por teardown.
+	//
+	// O QUE CUSTA, dito por inteiro: o join espera a compilação em curso terminar, e as tarefas
+	// enfileiradas mas não iniciadas são descartadas junto com as prontas ainda não adotadas.
+	// Esse trabalho é recompilado depois. É limitado (no máximo os workers em voo mais a fila
+	// curta) e acontece uma vez a cada PIPELINE_CACHE_FLUSH_THRESHOLD adoções, então fica bem
+	// abaixo de 2% do total — barato perto de perder a sessão inteira num OOM-kill.
+	//
+	// O pool NÃO é reiniciado aqui de propósito: o próximo RequestAsyncTFXPipeline chama
+	// EnsureAsyncPipelineCompiler, que o recria com caches re-semeados a partir do principal já
+	// mesclado. Reiniciar agora só adiantaria o custo para dentro deste quadro.
+	QuiesceAsyncPipelineCompiler("persist");
+
+	// A gravação em si continua governada por VKShaderCache: intervalo mínimo de 120 s e pulo
+	// quando o tamanho não mudou. Chamar aqui não força disco a cada ciclo.
+	if (g_vulkan_shader_cache)
+		g_vulkan_shader_cache->FlushPipelineCache();
 }
 
 void GSDeviceVK::DestroyResources()
@@ -7382,6 +7422,22 @@ VkPipeline GSDeviceVK::GetTFXPipeline(const PipelineSelector& p)
 				m_tfx_pipelines.emplace(p, pipeline);
 				if (wait_ms >= 20.0)
 					Console.Warning("@@ANDROID_TFXWAIT@@ %.1f ms waiting for pending pipeline", wait_ms);
+
+				// Uma pipeline compilada por worker conta para o MESMO orçamento de persistência
+				// que uma compilada aqui. Sem isto o contador só andava na cauda síncrona — que é
+				// inalcançável enquanto o pool roda —, então ligar o experimento desligava, sem
+				// dizer nada, a gravação periódica que existe justamente para um OOM-kill do
+				// Android não levar embora o trabalho da sessão.
+				//
+				// Marcado aqui, EXECUTADO no fim do quadro. Persistir no meio de um draw pararia
+				// o pool e o próximo passe do mesmo draw (blend, alpha) teria de reabri-lo e
+				// esperar a compilação inteira — trocando um engasgo raro por um engasgo raro
+				// pior. O limite do quadro não tem passe seguinte para atrapalhar.
+				if (++m_tfx_pipeline_compile_counter >= PIPELINE_CACHE_FLUSH_THRESHOLD)
+				{
+					m_tfx_pipeline_compile_counter = 0;
+					m_tfx_pipeline_persist_pending = true;
+				}
 				return pipeline;
 			}
 		}
@@ -7408,11 +7464,6 @@ VkPipeline GSDeviceVK::GetTFXPipeline(const PipelineSelector& p)
 	// the last onPause flush. Android gets a larger threshold because the log
 	// showed repeated synchronous disk writes during normal gameplay in heavy
 	// scenes; onPause still performs a final flush.
-#ifdef __ANDROID__
-	static constexpr u32 PIPELINE_CACHE_FLUSH_THRESHOLD = 256;
-#else
-	static constexpr u32 PIPELINE_CACHE_FLUSH_THRESHOLD = 32;
-#endif
 	if (g_vulkan_shader_cache && ++m_tfx_pipeline_compile_counter >= PIPELINE_CACHE_FLUSH_THRESHOLD)
 	{
 		m_tfx_pipeline_compile_counter = 0;

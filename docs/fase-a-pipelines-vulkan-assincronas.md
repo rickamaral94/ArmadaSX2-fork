@@ -199,9 +199,52 @@ Nenhuma conclusão de desempenho. Duas expectativas a fixar antes de medir:
    especulativa, então não se compila adiantado ao longo de vários draws. O ganho existe mas é
    limitado por construção; um delta pequeno não refuta o desenho.
 
-### Pendente (F2), não corrigido aqui
+### F2 — ligar o experimento desligava a gravação periódica
 
-O flush periódico do cache de pipelines para de acontecer com o experimento ligado:
-`m_tfx_pipeline_compile_counter` só incrementa na cauda síncrona de `GetTFXPipeline`, inalcançável
-com o pool ativo. Sobra o flush de `onPause`. Com caches privados em todos os caminhos, um OOM-kill
-antes do próximo `Quiesce` perde tudo que os workers compilaram. Fica registrado como próximo passo.
+`m_tfx_pipeline_compile_counter` só incrementava na cauda síncrona de `GetTFXPipeline`, que é
+inalcançável enquanto o pool roda. Ou seja: ligar a Fase A desligava, em silêncio, a persistência
+periódica que existe justamente para um OOM-kill do Android não levar embora o trabalho da sessão —
+sobrava apenas o flush de `onPause`. Depois do F3 isso piorou, porque agora **todo** caminho usa
+cache privado: sem mescla, o que os workers compilaram morre com o pool.
+
+Correção em três partes:
+
+1. **Orçamento compartilhado.** `PIPELINE_CACHE_FLUSH_THRESHOLD` saiu de dentro da função e virou
+   constante da classe. Uma pipeline adotada de um worker conta igual a uma compilada na thread GS.
+
+2. **Ciclo de persistência.** `PersistAsyncPipelineWork()` mescla os caches privados no principal e
+   grava. Ele **para o pool**, e isso não é escolha de conveniência: `vkMergePipelineCaches` lê os
+   caches de origem enquanto `vkCreateGraphicsPipelines` escreve neles, e o Vulkan exige
+   sincronização externa do `pipelineCache` nos dois. Não existe mescla segura com worker em
+   execução — o join é o único ponto de sincronização disponível. `Quiesce` já fazia exatamente a
+   sequência certa, então o ciclo é a mesma sequência acionada por orçamento em vez de por teardown.
+   O pool volta preguiçosamente no próximo draw, com caches re-semeados do principal já mesclado.
+
+3. **No limite do quadro, não no meio do draw.** O ponto de uso apenas MARCA; `EndPresent` executa.
+   Persistir no meio de um draw pararia o pool e o passe seguinte do mesmo draw (blend, alpha) teria
+   de reabri-lo e esperar a compilação inteira — trocaria um engasgo raro por um engasgo raro pior.
+
+O custo, dito por inteiro: o join espera a compilação em curso, e as tarefas enfileiradas mas não
+iniciadas são descartadas junto com as prontas ainda não adotadas — esse trabalho é recompilado
+depois. É limitado (os workers em voo mais uma fila curta) e acontece uma vez a cada 256 adoções no
+Android, então fica bem abaixo de 2% do total. Barato perto de perder a sessão inteira.
+
+A gravação em si continua governada pelo `VKShaderCache`: intervalo mínimo de 120 s e pulo quando o
+tamanho não mudou. O ciclo não força disco.
+
+E o log passou a distinguir os dois motivos de parada (`stopped` x `persist`). Sem isso apareceria
+"stopped" a cada 256 adoções sem "enabled" correspondente, e um leitor concluiria que o experimento
+vive caindo. Os contadores são acumulados e sobrevivem ao restart.
+
+### Verificação do F2
+
+| Verificação | Resultado |
+|---|---|
+| fila + regra de caches, ThreadSanitizer | 9/9 verdes |
+| estresse do padrão real | 5114 criadas / 5114 contabilizadas, zero vazamento |
+| `GSDeviceVK.cpp` com `-Wall -Wformat=2` | limpo (a linha de log ganhou argumento novo) |
+| `fork-diff.sh` | nenhuma mudança em núcleo protegido |
+
+Não é testável em unidade sem dispositivo Vulkan: o ciclo vive no `GSDeviceVK`. Fica coberto pelo
+protocolo de hardware da Fase B, e o sinal a procurar no log é uma linha `persist` seguida de
+`Writing N bytes` do `VKShaderCache` durante a sessão, e não só no `onPause`.
