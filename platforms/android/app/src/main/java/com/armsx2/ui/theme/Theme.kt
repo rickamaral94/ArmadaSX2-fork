@@ -49,10 +49,18 @@ object ThemePreferences {
 
     fun load() {
         // Name-matched rather than hand-enumerated, so adding a colour needs no change here.
-        // Anything unrecognised — including the legacy "Dark" — resolves to Blue, which is
-        // exactly what "Dark" used to render as.
+        //
+        // O destino do desconhecido — inclusive o "Dark" legado — era Blue, com a justificativa
+        // de que "é exatamente o que Dark renderizava". Isso valia enquanto Blue e o esquema
+        // PADRÃO eram o mesmo objeto. Agora Blue é o azul de origem de verdade, então mandar o
+        // "Dark" legado para lá entregaria azul a quem pediu escuro — e num app cuja marca é roxa.
+        //
+        // Passa a cair em System, que é o padrão declarado logo acima e o que mais se aproxima da
+        // intenção. A troca não é sem custo e vale dizer qual é: quem tinha "Dark" e está com o
+        // aparelho em modo claro passa a ver o tema claro em vez de escuro. É um caso de migração
+        // de uma preferência que este fork nunca escreveu, e o usuário reescolhe em dois toques.
         val stored = MainActivityRuntime.prefs.getString(PreferenceKey, ThemeMode.System.name)
-        mode.value = ThemeMode.entries.firstOrNull { it.name == stored } ?: ThemeMode.Blue
+        mode.value = ThemeMode.entries.firstOrNull { it.name == stored } ?: ThemeMode.System
         loadCustomColor()
         loadOledBase()
     }
@@ -299,14 +307,14 @@ object LauncherOrientationPreferences {
 }
 
 private val NightScheme = darkColorScheme(
-    primary = ArmadaRedBright,
-    onPrimary = Color(0xFF33100B),
-    primaryContainer = Color(0xFF6F2118),
-    onPrimaryContainer = Color(0xFFFFDAD4),
-    secondary = ArmadaCrimson,
-    onSecondary = Color(0xFF3A0A1B),
-    secondaryContainer = Color(0xFF6A1533),
-    onSecondaryContainer = Color(0xFFFFD9E2),
+    primary = ArmadaPurpleLight,
+    onPrimary = Color(0xFF2A1A4D),
+    primaryContainer = Color(0xFF452C7A),
+    onPrimaryContainer = Color(0xFFE7DDFF),
+    secondary = ArmadaOrchid,
+    onSecondary = Color(0xFF3D0F49),
+    secondaryContainer = Color(0xFF5B2569),
+    onSecondaryContainer = Color(0xFFF7D9FF),
     tertiary = ArmadaBronze,
     background = NightBackground,
     onBackground = NightText,
@@ -322,15 +330,18 @@ private val NightScheme = darkColorScheme(
 )
 
 private val DayScheme = lightColorScheme(
-    primary = Color(0xFFB3261E),
+    // A constante da marca, e não um literal próximo dela: 8,16:1 com texto branco por cima e
+    // 7,56:1 contra o fundo do tema claro. O esquema anterior tinha um literal aqui e a constante
+    // ficava só na documentação, dizendo ser "a base do tema claro" sem ser usada por ele.
+    primary = ArmadaPurple,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFDAD4),
-    onPrimaryContainer = Color(0xFF410100),
-    secondary = Color(0xFF9C3355),
+    primaryContainer = Color(0xFFE7DDFF),
+    onPrimaryContainer = Color(0xFF1E0B47),
+    secondary = Color(0xFF7B3E8F),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFD9E2),
-    onSecondaryContainer = Color(0xFF3E0018),
-    tertiary = Color(0xFF8A5A22),
+    secondaryContainer = Color(0xFFF7D9FF),
+    onSecondaryContainer = Color(0xFF33013E),
+    tertiary = Color(0xFF7C551F),
     background = DayBackground,
     onBackground = DayText,
     surface = DaySurface,
@@ -339,15 +350,47 @@ private val DayScheme = lightColorScheme(
     onSurfaceVariant = DayTextMuted,
     outline = DayOutline,
     outlineVariant = DayOutline,
-    // Mais magenta que o primário pelo mesmo motivo do tema escuro: numa marca vermelha, um erro
-    // pintado de vermelho-marca deixa de ser aviso.
-    error = Color(0xFFC2185B),
+    // Vermelho franco, pelo mesmo motivo do tema escuro — e repare na ironia: 0xFFB3261E era o
+    // PRIMÁRIO deste esquema enquanto a marca era vermelha. O tom não saiu do app, mudou de
+    // função. Com a marca em roxo ele não disputa mais nada, e erro volta a parecer erro.
+    error = Color(0xFFB3261E),
+    scrim = Color.Black,
+    surfaceTint = Color.Transparent,
+)
+
+/**
+ * O esquema escuro ORIGINAL do ARMSX2, preservado inteiro.
+ *
+ * Antes isto não existia: ThemeMode.Blue apontava para NightScheme, o que funcionava só enquanto
+ * o padrão era azul. Quando o padrão virou vermelho — e agora roxo — a opção "Blue" passou a
+ * entregar a cor da marca. Copiar o esquema para cá é o que faz o rótulo voltar a ser verdade.
+ */
+private val BlueScheme = darkColorScheme(
+    primary = LegacyBlue,
+    onPrimary = Color(0xFF07101F),
+    primaryContainer = Color(0xFF183B73),
+    onPrimaryContainer = Color(0xFFD9E7FF),
+    secondary = LegacyCyan,
+    onSecondary = Color(0xFF001F25),
+    secondaryContainer = Color(0xFF123944),
+    onSecondaryContainer = Color(0xFFB9F3FF),
+    tertiary = LegacyViolet,
+    background = LegacyBlueBackground,
+    onBackground = LegacyBlueText,
+    surface = LegacyBlueSurface,
+    onSurface = LegacyBlueText,
+    surfaceVariant = LegacyBlueSurfaceRaised,
+    onSurfaceVariant = LegacyBlueTextMuted,
+    outline = LegacyBlueOutline,
+    outlineVariant = LegacyBlueOutline,
+    error = LegacyBlueDanger,
     scrim = Color.Black,
     surfaceTint = Color.Transparent,
 )
 
 // Neutral dark schemes derived from Night — same accents, but black/neutral-grey backgrounds and
-// selection highlights instead of Night's blue-tinted ones (users asked for a black, not-blue UI).
+// selection highlights instead of Night's own hue-tinted ones (users asked for a black,
+// not-coloured UI).
 // Black = a slightly-lifted neutral dark; Oled = true #000000 for OLED panels (deepest black, less
 // power). Only surfaces/containers/outlines change; the primary accent stays for contrast/usability.
 private val BlackScheme = NightScheme.copy(
@@ -381,7 +424,7 @@ private val OledScheme = NightScheme.copy(
  * Deliberately does NOT touch the primary, secondary or container roles — those are small chips
  * where the
  * selected hue is exactly what the user asked to keep. ThemeMode.Oled remains the neutral
- * (blue-accent) preset for anyone who wants the old all-grey look.
+ * preset — the brand accent on all-grey — for anyone who wants the old look.
  */
 /** Is this a DARK scheme? Checked by luminance rather than by ThemeMode, because a light scheme
  *  can arrive from several modes (Light, System-in-light, and MaterialYou's dynamicLight, which is
@@ -401,8 +444,8 @@ private fun ColorScheme.withOledBase(): ColorScheme = copy(
 /**
  * A hue-tinted dark scheme, built from Night the same way Black/Oled are.
  *
- * Night IS the blue theme, so a colour variant is "Night with a different hue": the accent
- * changes AND the surfaces carry the same gentle tint of that hue, rather than leaving blue
+ * Night carries the brand hue, so a colour variant is "Night with a different hue": the accent
+ * changes AND the surfaces carry the same gentle tint of that hue, rather than leaving purple
  * chrome under a pink accent. Only colour-bearing roles are overridden — text, error and scrim
  * stay inherited so contrast behaviour is identical across every hue.
  */
@@ -483,7 +526,7 @@ private const val DefaultCustomColor: Int = 0xFF6FE3F5.toInt()
  * the space are simply unreachable.
  *
  * The surfaces take the same hue at low saturation, matching how the hand-tuned palettes are
- * built — otherwise you get a pink accent sitting on blue chrome.
+ * built — otherwise you get a pink accent sitting on purple chrome.
  */
 private fun hueScheme(hue: Float, sat: Float, value: Float): ColorScheme {
     fun shade(s: Float, v: Float) =
@@ -531,7 +574,7 @@ fun Armsx2Theme(content: @Composable () -> Unit) {
             isSystemInDarkTheme() -> dynamicDarkColorScheme(context)
             else -> dynamicLightColorScheme(context)
         }
-        ThemeMode.Blue -> NightScheme
+        ThemeMode.Blue -> BlueScheme
         ThemeMode.Light -> DayScheme
         ThemeMode.Black -> BlackScheme
         ThemeMode.Oled -> OledScheme

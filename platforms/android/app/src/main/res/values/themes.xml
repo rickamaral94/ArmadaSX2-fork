@@ -21,10 +21,10 @@
     </style>
 
     <style name="Theme.ARMSX2.Boot.Light" parent="Theme.ARMSX2.Boot">
-        <item name="android:windowBackground">#FFFDF6F4</item>
+        <item name="android:windowBackground">#FFF8F5FD</item>
     </style>
 
     <style name="Theme.ARMSX2.Boot.Dark" parent="Theme.ARMSX2.Boot">
-        <item name="android:windowBackground">#FF1A0C0A</item>
+        <item name="android:windowBackground">#FF120B1F</item>
     </style>
 </resources>

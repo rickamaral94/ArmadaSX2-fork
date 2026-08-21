@@ -5,14 +5,15 @@
   Os `purple_*`/`teal_*` eram o gabarito do Android Studio e nunca foram a marca de nada. Ficam,
   com os mesmos nomes, porque `Theme.ArmadaSX2` os referencia e renomear recurso não muda pixel
   nenhum — mas os VALORES passam a ser os da identidade, para não haver um lampejo de outra cor
-  antes da primeira composição.
+  antes da primeira composição. Com a marca em roxo, os nomes voltaram a descrever o conteúdo por
+  acidente; não conte com isso, conte com os valores.
 -->
 <resources>
-    <color name="purple_200">#FFFF8B7D</color>
-    <color name="purple_500">#FFE1483B</color>
-    <color name="purple_700">#FF8C2318</color>
-    <color name="teal_200">#FFD65A7E</color>
-    <color name="teal_700">#FF9C3355</color>
+    <color name="purple_200">#FFB9A3E8</color>
+    <color name="purple_500">#FF5B3E96</color>
+    <color name="purple_700">#FF3C2568</color>
+    <color name="teal_200">#FFC07BD4</color>
+    <color name="teal_700">#FF7B3E8F</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

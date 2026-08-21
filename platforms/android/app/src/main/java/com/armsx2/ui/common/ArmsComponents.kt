@@ -69,8 +69,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.armsx2.R
-import com.armsx2.ui.theme.ArmadaRed
-import com.armsx2.ui.theme.ArmadaCrimson
 import com.armsx2.ui.settings.controllerFocusable
 
 @Composable

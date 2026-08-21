@@ -21,16 +21,16 @@
 
     <!-- Galão da frente, o mais claro: é o que o olho pega primeiro num ícone pequeno. -->
     <path
-        android:fillColor="#FFB9AC"
+        android:fillColor="#E4D9FA"
         android:pathData="M11,19 L24,6 L37,19 L32,19 L24,11 L16,19 Z" />
 
-    <!-- Galão do meio, no vermelho de marca clareado. -->
+    <!-- Galão do meio, no roxo de marca clareado. -->
     <path
-        android:fillColor="#FF8B7D"
+        android:fillColor="#C0A9EE"
         android:pathData="M9,32 L24,17 L39,32 L33.5,32 L24,22.5 L14.5,32 Z" />
 
-    <!-- Galão de trás, no vermelho de marca cheio: ancora a composição na base. -->
+    <!-- Galão de trás, no roxo de marca, o tom mais fechado da rampa: ancora a composição na base. -->
     <path
-        android:fillColor="#E1483B"
+        android:fillColor="#8B6BD4"
         android:pathData="M7,45 L24,28 L41,45 L35,45 L24,34 L13,45 Z" />
 </vector>

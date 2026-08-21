@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bordô profundo, no mesmo eixo do fundo do tema escuro (NightBackground), para o ícone e o
-     app não parecerem de projetos diferentes quando ficam lado a lado na tela inicial. -->
+<!-- Quase-preto arroxeado, no mesmo eixo do fundo do tema escuro (NightBackground), para o ícone e
+     o app não parecerem de projetos diferentes quando ficam lado a lado na tela inicial.
+
+     O topo do gradiente é o ponto crítico do desenho: é ali que o galão mais fechado da marca tem
+     menos contraste. #4A2E86 é o limite em que os três galões ainda se separam do fundo — clarear
+     mais funde o de trás com a base do ícone. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="315"
-        android:startColor="#1A0C0A"
-        android:centerColor="#33100B"
-        android:endColor="#5C1E15" />
+        android:startColor="#120B1F"
+        android:centerColor="#231544"
+        android:endColor="#4A2E86" />
 </shape>
