@@ -1468,13 +1468,20 @@ private:
     bool m_audio_pause_suppressed = false;
 };
 
+// A linha carrega o estágio de RASTERIZAÇÃO e o de APRESENTAÇÃO, e o segundo grupo foi acrescentado
+// depois de uma sessão inteira ser perdida por falta dele. O log dizia `af=0` e nada sobre upscaler,
+// FSR, FXAA ou nitidez; o FSR só aparecia por uma linha solta em outro lugar e o FXAA não aparecia
+// de forma alguma. Resultado: sete consultas ao código para descobrir o que estava ligado, e uma
+// conclusão errada pelo caminho. Num fork cujo objetivo inclui qualidade de imagem, não dá para
+// julgar imagem sem saber o que estava ativo — então tudo que muda o pixel final entra aqui.
 static void LogAndroidGSSettings(const char* reason)
 {
     Console.WriteLnFmt(
         "@@ANDROID_GS_SETTINGS@@ reason={} renderer={} ir={:.2f} "
         "mipmap={} blend={} filter={} preloading={} tv={} shade={} "
         "sb={}/{}/{}/{} userhacks={} af={} tri={} hpo={} atfl={} "
-        "limit24={} texrt={} native_scaling={} bilinear={}",
+        "limit24={} texrt={} native_scaling={} bilinear={} "
+        "| upscaler={} fsr_sharp={} cas={} cas_sharp={} fxaa={} dither={} shaderchain={}",
         reason,
         static_cast<int>(EmuConfig.GS.Renderer),
         EmuConfig.GS.UpscaleMultiplier,
@@ -1496,7 +1503,14 @@ static void LogAndroidGSSettings(const char* reason)
         static_cast<int>(EmuConfig.GS.UserHacks_Limit24BitDepth),
         static_cast<int>(EmuConfig.GS.UserHacks_TextureInsideRt),
         static_cast<int>(EmuConfig.GS.UserHacks_NativeScaling),
-        static_cast<int>(EmuConfig.GS.UserHacks_BilinearHack));
+        static_cast<int>(EmuConfig.GS.UserHacks_BilinearHack),
+        static_cast<int>(EmuConfig.GS.Upscaler),
+        static_cast<unsigned>(EmuConfig.GS.FSR_Sharpness),
+        static_cast<int>(EmuConfig.GS.CASMode),
+        static_cast<unsigned>(EmuConfig.GS.CAS_Sharpness),
+        +EmuConfig.GS.FXAA,
+        static_cast<unsigned>(EmuConfig.GS.Dithering),
+        +EmuConfig.GS.ShaderChainEnabled);
 }
 
 // Runs `mutate` (the caller's EmuConfig.GS edit) and the resulting GS-thread reconfigure together
