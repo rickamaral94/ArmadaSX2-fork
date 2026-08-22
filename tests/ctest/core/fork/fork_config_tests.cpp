@@ -67,9 +67,15 @@ TEST_F(ForkConfigTest, DefaultsApplyWhenSettingsAreEmpty)
 	}
 }
 
-TEST_F(ForkConfigTest, AsyncPipelineCompilerIsExperimentalAndOffByDefault)
+// Decisão do mantenedor: o experimento passa a nascer LIGADO. A ressalva do projeto fica
+// registrada porque continua verdadeira — não há uma medição em aparelho sequer, e a regra diz que
+// nada vira global sem A/B. O que reduz o risco é que todo caminho de falha volta ao síncrono: gate
+// de driver nega em perfil conservador, Submit que não enfileira cai no caminho antigo, adoção nula
+// recompila de forma síncrona, e Quiesce roda antes de qualquer teardown. O pior caso é gastar duas
+// threads sem ganho, não desenhar errado.
+TEST_F(ForkConfigTest, AsyncPipelineCompilerDefaultsToExperimental)
 {
-	EXPECT_EQ(ForkConfig::GetString(Option::PipelineCompilerMode), "off");
+	EXPECT_EQ(ForkConfig::GetString(Option::PipelineCompilerMode), "experimental");
 	EXPECT_EQ(ForkConfig::GetInt(Option::PipelineCompilerWorkers), 1);
 }
 

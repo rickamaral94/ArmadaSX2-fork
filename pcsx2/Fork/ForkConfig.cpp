@@ -68,7 +68,7 @@ namespace
 			"Quadros de carência após desengatar. Ligar e desligar duas vezes por segundo é pior que ficar desligado."},
 		{Option::FrameGenMaxCooldownDoublings, "FrameGen.MaxCooldownDoublings", Type::Int, false, 5, 0.0f, "",
 			"Quantas vezes a carência dobra a cada engate fracassado. Carência fixa espaça o pulso; dobrar o extingue."},
-		{Option::PipelineCompilerMode, "PipelineCompiler.Mode", Type::String, false, 0, 0.0f, "off",
+		{Option::PipelineCompilerMode, "PipelineCompiler.Mode", Type::String, false, 0, 0.0f, "experimental",
 			"Criação assíncrona de pipelines Vulkan: off ou experimental."},
 		{Option::PipelineCompilerWorkers, "PipelineCompiler.Workers", Type::Int, false, 1, 0.0f, "",
 			"Workers solicitados para pipelines Vulkan; limitado pelo perfil do driver e pelo teto interno."},
