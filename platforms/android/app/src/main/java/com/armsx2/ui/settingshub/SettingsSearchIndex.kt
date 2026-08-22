@@ -91,6 +91,7 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("renderer.section.captures", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.gsDump.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.gsDumpSeq.label", true, SettingsCategory.Graphics),
+    SettingsSearchEntry("renderer.gsDumpSeq.length.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.loadTexturePacks.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.asyncTextureLoading.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.precacheTexturePacks.label", true, SettingsCategory.Graphics),

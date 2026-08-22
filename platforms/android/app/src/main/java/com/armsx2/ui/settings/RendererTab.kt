@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.core.content.edit
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -480,8 +481,26 @@ fun RendererTab(state: MutableState<Settings>) {
             GsDumpCaptureRow(
                 "renderer.gsDump.label", "renderer.gsDump.description", "renderer.gsDump.queued", 1)
             SettingsDivider()
+            // Guardado nas prefs do app, não em Settings: é o argumento de um botão, não algo que
+            // o núcleo lê, e não faz sentido como override por jogo.
+            val seqFrames = remember {
+                mutableStateOf(
+                    MainActivityRuntime.prefs.getInt(GS_DUMP_SEQUENCE_PREF, GS_DUMP_SEQUENCE_DEFAULT))
+            }
+            SegmentedRow(
+                label = str("renderer.gsDumpSeq.length.label"),
+                options = GS_DUMP_SEQUENCE_CHOICES.map { "$it" },
+                selectedIndex = GS_DUMP_SEQUENCE_CHOICES.indexOf(seqFrames.value).coerceAtLeast(0),
+                description = str("renderer.gsDumpSeq.length.description"),
+                onChange = {
+                    val chosen = GS_DUMP_SEQUENCE_CHOICES[it]
+                    seqFrames.value = chosen
+                    MainActivityRuntime.prefs.edit { putInt(GS_DUMP_SEQUENCE_PREF, chosen) }
+                },
+            )
+            SettingsDivider()
             GsDumpCaptureRow("renderer.gsDumpSeq.label", "renderer.gsDumpSeq.description",
-                "renderer.gsDumpSeq.queued", GS_DUMP_SEQUENCE_FRAMES)
+                "renderer.gsDumpSeq.queued", seqFrames.value)
         }
         SettingsDivider()
         CollapsibleSection(str("renderer.section.texturePacks")) {
@@ -1020,7 +1039,20 @@ private fun clearShaderCache(cacheDir: File): Int {
  * O tamanho do arquivo NÃO depende da resolução interna: um dump é o fluxo de comandos do GS, não
  * pixels. É exatamente por isso que ele serve para comparar upscale e ajuste de renderer.
  */
-private const val GS_DUMP_SEQUENCE_FRAMES = 600
+/** Durações oferecidas para a captura de sequência, em frames.
+ *
+ * Existe como escolha, e não como constante, porque 600 frames (10 s a 60 Hz) produziu uma pasta
+ * de 4 GB — grande demais para sair do aparelho. O default é 120: 2 s da mesma cena já bastam
+ * para um A/B de renderer, já que a comparação é frame a frame sobre o MESMO fluxo, e uma janela
+ * curta não fica menos determinística que uma longa.
+ *
+ * A duração é o único fator que dá para mexer aqui. Trocar Zstandard por LZMA encolheria o
+ * arquivo perto de um terço e custaria compressão pesada de CPU DURANTE a captura — num aparelho
+ * que já aparece com a CPU em 99% nas cenas difíceis, isso deformaria justamente a cena que se
+ * quer registrar. Duração corta 5x sem tocar no que está sendo medido. */
+private val GS_DUMP_SEQUENCE_CHOICES = listOf(60, 120, 300, 600)
+private const val GS_DUMP_SEQUENCE_PREF = "gs.dumpSequenceFrames"
+private const val GS_DUMP_SEQUENCE_DEFAULT = 120
 
 /**
  * Uma linha de captura de GS dump. Duas existem porque são dois trabalhos diferentes, não duas
@@ -1039,7 +1071,11 @@ private fun GsDumpCaptureRow(labelKey: String, descriptionKey: String, queuedKey
                     Toast.makeText(context, I18n.get("renderer.gsDump.startGameFirst"), Toast.LENGTH_LONG).show()
                 } else {
                     runCatching { NativeApp.captureGsDump(frames) }
-                    Toast.makeText(context, I18n.get(queuedKey), Toast.LENGTH_LONG).show()
+                    // replace, não format: %d só existe na string da sequência, e format()
+                    // estoura em qualquer tradução que traga um % solto ("100%", "50 %").
+                    // replace não tem esse risco e deixa a string de um frame intacta.
+                    val msg = I18n.get(queuedKey).replace("%d", frames.toString())
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             }
             .padding(horizontal = 6.dp, vertical = 5.dp),
