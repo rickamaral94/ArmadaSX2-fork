@@ -58,6 +58,24 @@ s16 GSLookupMoveHandlerFunctionId(const std::string_view name);
 
 bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem,
 	GSVSyncMode vsync_mode, bool allow_present_throttle);
+
+#ifdef __ANDROID__
+/// Emite a linha @@ANDROID_GS_SETTINGS@@ a partir de `cfg`.
+///
+/// Existe porque a linha original so era emitida pelo commit vindo do Android e so sabia ler
+/// `EmuConfig.GS`. Tudo que o nucleo aplica sozinho ficava invisivel: numa sessao real os fixes
+/// do GameDB (halfPixelOffset, nativeScaling) chegaram 1,8 s DEPOIS da ultima linha de boot, que
+/// por isso registrou `hpo=0 native_scaling=0` quando o valor efetivo ja era outro; e o FSR rodou
+/// com a linha dizendo `upscaler=0`. Um log de configuracao que atrasa em relacao a configuracao
+/// nao e observabilidade, e armadilha — ja produziu duas analises erradas.
+///
+/// Por isso a funcao recebe a struct em vez de ler uma global: o lado Android passa `EmuConfig.GS`
+/// (o que a UI mandou) e o lado GS passa `GSConfig` (o que o renderizador de fato usa). As duas
+/// linhas usam o MESMO formato, entao divergencia entre elas aparece num diff visual do log em vez
+/// de precisar ser deduzida. O `reason` diz qual e qual: os do lado GS vem prefixados por "gs:".
+void GSLogAndroidSettings(const char* reason, const Pcsx2Config::GSOptions& cfg);
+#endif
+
 bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_renderer,
 	std::optional<const Pcsx2Config::GSOptions*> old_config);
 void GSreset(bool hardware_reset);

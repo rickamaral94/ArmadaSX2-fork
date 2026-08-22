@@ -463,8 +463,65 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 	if (!capture_filename.empty())
 		g_gs_renderer->BeginCapture(std::move(capture_filename), capture_size);
 
+#ifdef __ANDROID__
+	// Trocar de API/renderizador nao passa por GSopen. Sem esta linha, a unica mudanca de
+	// configuracao capaz de recriar o device inteiro seria justamente a invisivel.
+	GSLogAndroidSettings("gs:reopen", GSConfig);
+#endif
+
 	return true;
 }
+
+#ifdef __ANDROID__
+void GSLogAndroidSettings(const char* reason, const Pcsx2Config::GSOptions& cfg)
+{
+	// A linha carrega o estagio de RASTERIZACAO e o de APRESENTACAO. O segundo grupo entrou
+	// depois de uma sessao inteira ser perdida por falta dele: o log dizia `af=0` e nada sobre
+	// upscaler, FSR, FXAA ou nitidez, o FSR so aparecia por uma linha solta em outro lugar e o
+	// FXAA nao aparecia de forma alguma — sete consultas ao codigo e uma conclusao errada pelo
+	// caminho. Num fork cujo objetivo inclui qualidade de imagem, nao da para julgar imagem sem
+	// saber o que estava ativo, entao tudo que muda o pixel final entra aqui.
+	//
+	// Um unico ponto de formato para os dois chamadores (EmuConfig pelo Android, GSConfig por
+	// aqui): duas copias desta lista divergiriam na primeira vez que alguem acrescentasse um
+	// campo so de um lado.
+	Console.WriteLnFmt(
+		"@@ANDROID_GS_SETTINGS@@ reason={} renderer={} ir={:.2f} "
+		"mipmap={} blend={} filter={} preloading={} tv={} shade={} "
+		"sb={}/{}/{}/{} userhacks={} af={} tri={} hpo={} atfl={} "
+		"limit24={} texrt={} native_scaling={} bilinear={} "
+		"| upscaler={} fsr_sharp={} cas={} cas_sharp={} fxaa={} dither={} shaderchain={}",
+		reason,
+		static_cast<int>(cfg.Renderer),
+		cfg.UpscaleMultiplier,
+		+cfg.HWMipmap,
+		static_cast<int>(cfg.AccurateBlendingUnit),
+		static_cast<int>(cfg.TextureFiltering),
+		static_cast<int>(cfg.TexturePreloading),
+		+cfg.TVShader,
+		+cfg.ShadeBoost,
+		+cfg.ShadeBoost_Brightness,
+		+cfg.ShadeBoost_Contrast,
+		+cfg.ShadeBoost_Saturation,
+		+cfg.ShadeBoost_Gamma,
+		+cfg.ManualUserHacks,
+		static_cast<unsigned>(cfg.MaxAnisotropy),
+		static_cast<int>(cfg.TriFilter),
+		static_cast<int>(cfg.UserHacks_HalfPixelOffset),
+		static_cast<int>(cfg.UserHacks_AutoFlush),
+		static_cast<int>(cfg.UserHacks_Limit24BitDepth),
+		static_cast<int>(cfg.UserHacks_TextureInsideRt),
+		static_cast<int>(cfg.UserHacks_NativeScaling),
+		static_cast<int>(cfg.UserHacks_BilinearHack),
+		static_cast<int>(cfg.Upscaler),
+		static_cast<unsigned>(cfg.FSR_Sharpness),
+		static_cast<int>(cfg.CASMode),
+		static_cast<unsigned>(cfg.CAS_Sharpness),
+		+cfg.FXAA,
+		static_cast<unsigned>(cfg.Dithering),
+		+cfg.ShaderChainEnabled);
+}
+#endif
 
 bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem,
 	GSVSyncMode vsync_mode, bool allow_present_throttle)
@@ -493,6 +550,12 @@ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* b
 			            Pcsx2Config::GSOptions::GetRendererName(GSConfig.Renderer)));
 		return false;
 	}
+
+#ifdef __ANDROID__
+	// Depois de OpenGSRenderer e de ApplyAndroidGameDBOverrides: e o primeiro instante em que
+	// GSConfig contem tudo que o renderizador vai usar neste boot.
+	GSLogAndroidSettings("gs:open", GSConfig);
+#endif
 
 	return true;
 }
@@ -1033,7 +1096,14 @@ void GSUpdateConfig(const Pcsx2Config::GSOptions& new_config)
 	Pcsx2Config::GSOptions old_config(std::move(GSConfig));
 	GSConfig = new_config;
 	if (!g_gs_renderer)
+	{
+#ifdef __ANDROID__
+		// GSConfig ja mudou mesmo sem renderizador; um retorno silencioso aqui deixaria um
+		// buraco exatamente do tipo que esta funcao existe para fechar.
+		GSLogAndroidSettings("gs:update-norenderer", GSConfig);
+#endif
 		return;
+	}
 
 	// GV7-2: everything below mutates renderer/device state the back thread may
 	// be reading mid-draw (settings, ImGui font textures, TC purges). The front
@@ -1165,6 +1235,13 @@ void GSUpdateConfig(const Pcsx2Config::GSOptions& new_config)
 		if (!g_gs_device->SetGPUPipelineStatisticsEnabled(GSConfig.OsdShowGPUStats))
 			GSConfig.OsdShowGPUStats = false;
 	}
+
+#ifdef __ANDROID__
+	// No fim da funcao, nao no inicio: os blocos acima ainda corrigem GSConfig (OsdShowGPU e
+	// OsdShowGPUStats voltam a false quando o device recusa), entao logar antes registraria um
+	// valor que nunca valeu.
+	GSLogAndroidSettings("gs:update", GSConfig);
+#endif
 }
 
 void GSSetSoftwareRendering(bool software_renderer, GSInterlaceMode new_interlace)

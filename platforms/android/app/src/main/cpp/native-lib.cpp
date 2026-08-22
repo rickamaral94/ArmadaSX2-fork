@@ -1468,49 +1468,14 @@ private:
     bool m_audio_pause_suppressed = false;
 };
 
-// A linha carrega o estágio de RASTERIZAÇÃO e o de APRESENTAÇÃO, e o segundo grupo foi acrescentado
-// depois de uma sessão inteira ser perdida por falta dele. O log dizia `af=0` e nada sobre upscaler,
-// FSR, FXAA ou nitidez; o FSR só aparecia por uma linha solta em outro lugar e o FXAA não aparecia
-// de forma alguma. Resultado: sete consultas ao código para descobrir o que estava ligado, e uma
-// conclusão errada pelo caminho. Num fork cujo objetivo inclui qualidade de imagem, não dá para
-// julgar imagem sem saber o que estava ativo — então tudo que muda o pixel final entra aqui.
+// O formato da linha vive em GS.cpp (GSLogAndroidSettings) desde que o lado GS passou a emitir
+// a mesma linha; o histórico de por que ela cobre também o estágio de apresentação está lá.
 static void LogAndroidGSSettings(const char* reason)
 {
-    Console.WriteLnFmt(
-        "@@ANDROID_GS_SETTINGS@@ reason={} renderer={} ir={:.2f} "
-        "mipmap={} blend={} filter={} preloading={} tv={} shade={} "
-        "sb={}/{}/{}/{} userhacks={} af={} tri={} hpo={} atfl={} "
-        "limit24={} texrt={} native_scaling={} bilinear={} "
-        "| upscaler={} fsr_sharp={} cas={} cas_sharp={} fxaa={} dither={} shaderchain={}",
-        reason,
-        static_cast<int>(EmuConfig.GS.Renderer),
-        EmuConfig.GS.UpscaleMultiplier,
-        +EmuConfig.GS.HWMipmap,
-        static_cast<int>(EmuConfig.GS.AccurateBlendingUnit),
-        static_cast<int>(EmuConfig.GS.TextureFiltering),
-        static_cast<int>(EmuConfig.GS.TexturePreloading),
-        +EmuConfig.GS.TVShader,
-        +EmuConfig.GS.ShadeBoost,
-        +EmuConfig.GS.ShadeBoost_Brightness,
-        +EmuConfig.GS.ShadeBoost_Contrast,
-        +EmuConfig.GS.ShadeBoost_Saturation,
-        +EmuConfig.GS.ShadeBoost_Gamma,
-        +EmuConfig.GS.ManualUserHacks,
-        static_cast<unsigned>(EmuConfig.GS.MaxAnisotropy),
-        static_cast<int>(EmuConfig.GS.TriFilter),
-        static_cast<int>(EmuConfig.GS.UserHacks_HalfPixelOffset),
-        static_cast<int>(EmuConfig.GS.UserHacks_AutoFlush),
-        static_cast<int>(EmuConfig.GS.UserHacks_Limit24BitDepth),
-        static_cast<int>(EmuConfig.GS.UserHacks_TextureInsideRt),
-        static_cast<int>(EmuConfig.GS.UserHacks_NativeScaling),
-        static_cast<int>(EmuConfig.GS.UserHacks_BilinearHack),
-        static_cast<int>(EmuConfig.GS.Upscaler),
-        static_cast<unsigned>(EmuConfig.GS.FSR_Sharpness),
-        static_cast<int>(EmuConfig.GS.CASMode),
-        static_cast<unsigned>(EmuConfig.GS.CAS_Sharpness),
-        +EmuConfig.GS.FXAA,
-        static_cast<unsigned>(EmuConfig.GS.Dithering),
-        +EmuConfig.GS.ShaderChainEnabled);
+    // O formato mora em GS.cpp e e compartilhado com o lado GS. Aqui passa-se EmuConfig.GS
+    // de proposito: esta linha registra o que a UI acabou de mandar, e a de "gs:" registra o
+    // que o renderizador recebeu. As duas juntas e que mostram divergencia.
+    GSLogAndroidSettings(reason, EmuConfig.GS);
 }
 
 // Runs `mutate` (the caller's EmuConfig.GS edit) and the resulting GS-thread reconfigure together
