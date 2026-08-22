@@ -498,7 +498,10 @@ fun RendererTab(state: MutableState<Settings>) {
             SettingsDivider()
             TexturePackImportRow()
             SettingsDivider()
-            GsDumpCaptureRow()
+            GsDumpCaptureRow(
+                "renderer.gsDump.label", "renderer.gsDump.description", "renderer.gsDump.queued", 1)
+            GsDumpCaptureRow("renderer.gsDumpSeq.label", "renderer.gsDumpSeq.description",
+                "renderer.gsDumpSeq.queued", GS_DUMP_SEQUENCE_FRAMES)
             SettingsDivider()
             ToggleRow(
                 str("renderer.dumpReplaceableTextures.label"),
@@ -993,8 +996,30 @@ private fun clearShaderCache(cacheDir: File): Int {
     return removed
 }
 
+/**
+ * Quantos quadros a captura de SEQUÊNCIA grava.
+ *
+ * 600 quadros são 20 s a 30 fps e 10 s a 60 — pelo menos uma janela inteira de diagnóstico do fork,
+ * que é de 10 s. Basta para um trecho representativo; um dump determinístico não precisa de muitas
+ * amostras no sentido estatístico, porque a repetição é idêntica toda vez e o percentil passa a ser
+ * propriedade da cena, não do ruído de amostragem. O que precisa é a cena ser a pesada.
+ *
+ * Contagem FIXA, e não o modo "grava até mandar parar" que o atalho GSDumpMultiFrame usa:
+ * `GSQueueSnapshot` para sozinho ao atingir a contagem, então ninguém esquece a gravação ligada
+ * enchendo o armazenamento, e dois dumps do mesmo trecho saem com o mesmo tamanho — que é parte do
+ * que os torna comparáveis.
+ *
+ * O tamanho do arquivo NÃO depende da resolução interna: um dump é o fluxo de comandos do GS, não
+ * pixels. É exatamente por isso que ele serve para comparar upscale e ajuste de renderer.
+ */
+private const val GS_DUMP_SEQUENCE_FRAMES = 600
+
+/**
+ * Uma linha de captura de GS dump. Duas existem porque são dois trabalhos diferentes, não duas
+ * durações do mesmo: um quadro é para relatar um defeito visual, a sequência é para medir.
+ */
 @Composable
-private fun GsDumpCaptureRow() {
+private fun GsDumpCaptureRow(labelKey: String, descriptionKey: String, queuedKey: String, frames: Int) {
     val context = LocalContext.current
     Box(
         Modifier
@@ -1005,8 +1030,8 @@ private fun GsDumpCaptureRow() {
                 if (MainActivityRuntime.eState.value == com.armsx2.EmuState.STOPPED) {
                     Toast.makeText(context, I18n.get("renderer.gsDump.startGameFirst"), Toast.LENGTH_LONG).show()
                 } else {
-                    runCatching { NativeApp.captureGsDump(1) }
-                    Toast.makeText(context, I18n.get("renderer.gsDump.queued"), Toast.LENGTH_LONG).show()
+                    runCatching { NativeApp.captureGsDump(frames) }
+                    Toast.makeText(context, I18n.get(queuedKey), Toast.LENGTH_LONG).show()
                 }
             }
             .padding(horizontal = 6.dp, vertical = 5.dp),
@@ -1014,14 +1039,14 @@ private fun GsDumpCaptureRow() {
     ) {
         Column {
             Text(
-                str("renderer.gsDump.label"),
+                str(labelKey),
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                str("renderer.gsDump.description"),
+                str(descriptionKey),
                 color = Colors.pasx2_blue,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
