@@ -10,8 +10,13 @@ disputa é real: os concorrentes são recentes, a tradução para ARM é jovem, 
 direito.
 
 Então o objetivo operacional é: **no Odin 2 e em aparelhos da mesma classe, rodar mais jogos, mais
-rápido e com menos variação de quadro do que qualquer outro emulador de PS2 para Android** — e ter
-o número que prove isso.
+rápido, com menos variação de quadro e com imagem melhor do que qualquer outro emulador de PS2 para
+Android** — e ter o número que prove isso.
+
+Qualidade de imagem entra como objetivo de primeira classe, não como enfeite. E ela **puxa contra**
+desempenho na margem: mais resolução, mais precisão de blending e mais filtragem custam quadros. A
+resposta madura não é um padrão de compromisso, é **duas faixas medidas** — Qualidade e Desempenho —
+com o aparelho e o jogo escolhendo. Ver a Trilha E.
 
 ---
 
@@ -96,6 +101,64 @@ Sobram três candidatos, nenhum com medição:
 
 ---
 
+## Trilha E — qualidade de imagem
+
+### O que quase todo mundo erra
+
+**Qualidade de imagem no PS2 é, antes de tudo, um problema de correção — não de filtragem.**
+
+O PS2 rasteriza a ~512x448 com quirks próprios: arredondamento de coordenada de textura, meio-pixel
+de offset, alinhamento de sprite. Em resolução nativa esses quirks são invisíveis porque o hardware
+real também os tinha. **Ao subir a resolução interna, eles viram defeito visível**: costuras entre
+sprites, frestas em cenários, HUD desalinhado, linhas no chão.
+
+É exatamente por isso que o GameDB carrega `halfPixelOffset`, `nativeScaling`, `roundSprite` e
+`alignSprite` — e a etapa 3 contou **248 `halfPixelOffset` e 241 `nativeScaling`** aplicados em
+massa nas nossas sessões. Ou seja: subir resolução **sem** a correção certa por jogo deixa a imagem
+objetivamente pior, não melhor.
+
+Consequência prática: **o banco de correções por jogo É o banco de qualidade de imagem.** Investir
+nele rende mais pixel bom do que subir o multiplicador.
+
+### As alavancas, em ordem de retorno visual
+
+1. **Precisão de blending** (`blend=1` Basic hoje). Níveis acima emulam mais modos de blend em vez
+   de aproximar. Em jogos com transparência complexa — sombra, névoa, água — Basic não deixa a
+   imagem borrada, deixa **errada**. É a maior alavanca de fidelidade que temos desligada, e a que
+   mais custa. Candidata número um da faixa Qualidade.
+2. **Filtragem anisotrópica** (`af=0` hoje). Em superfície angulada — chão, que é metade da tela em
+   SotC — é ganho visível e relativamente barato em GPU moderna.
+3. **Cadeia de shaders RetroArch.** Verificado no código: **o backend Vulkan implementa
+   `DoApplyShaderChain` via librashader**, e Vulkan é o nosso renderer no Android. Isso abre o
+   ecossistema `.slangp` inteiro — CRT, escaladores, NTSC, cadeias de nitidez. O upstream acabou de
+   trazer, no sync, um baixador da coleção RetroArch dentro do app (feito para iOS, mas o mecanismo
+   do núcleo é agnóstico de renderer). **Nenhum emulador de PS2 para Android oferece isso.**
+4. **Substituição de textura / packs HD** (`loadTextureReplacements=false`). Maior mudança visual
+   possível, e a mais cara em memória. Opt-in por jogo.
+5. **Pós-processamento**: FSR1, CAS, FXAA. O FSR aqui é duplo: qualidade *e* desempenho, porque
+   permite renderizar em resolução menor e recuperar nitidez na apresentação.
+
+### Por que isto reforça a Etapa 0 em vez de competir com ela
+
+Hoje "melhor qualidade de imagem" **não tem medição nenhuma** — é opinião sobre print.
+
+GS dumps resolvem isso melhor para imagem do que para desempenho: quadro determinístico, imagem de
+referência, comparação perceptual. Passa a ser possível dizer *"este ajuste mudou 12 dos 40 quadros
+de referência, e aqui estão eles"* em vez de *"achei que ficou melhor"*. E pega regressão visual —
+que é o risco real do `CoalesceRenderPasses`.
+
+**A Etapa 0 vale o dobro agora.**
+
+### Faixas
+
+- **Qualidade** — blending alto, anisotrópico, resolução alta com as correções por jogo certas,
+  cadeia de shaders opcional. Alvo: os jogos que cabem.
+- **Desempenho** — o conjunto atual, que já está afinado.
+
+Ambas medidas, ambas por jogo, nenhuma imposta.
+
+---
+
 ## Trilha C — compatibilidade
 
 Compatibilidade aqui vem quase toda do GameDB, que já aplica em massa e sozinho. O que falta não é
@@ -146,7 +209,8 @@ O padrão a procurar é esse mesmo: **estado que parece ativo e não é**. Candi
 
 1. **Etapa 0 (GS dumps + CI)** — destrava tudo. Sem medição determinística, as trilhas A e B
    produzem opinião.
-2. **Trilha B** — retorno rápido, risco contido, e já temos os candidatos nomeados.
+2. **Trilhas B e E juntas** — são o mesmo experimento visto de dois lados: cada ajuste tem um
+   número de desempenho e um veredito de imagem. Medir separado seria medir duas vezes.
 3. **Trilha A** — o ganho maior e mais duradouro, e o mais caro. Só depois de saber medir.
 4. **Trilhas C e D** — contínuas, em paralelo.
 
