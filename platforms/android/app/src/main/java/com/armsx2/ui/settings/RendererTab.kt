@@ -471,6 +471,19 @@ fun RendererTab(state: MutableState<Settings>) {
             OverlayArtSection()
         }
         SettingsDivider()
+        // GS captures live in their OWN section, not at the bottom of Texture Packs where they
+        // started: nobody goes looking for a renderer trace under "Texture Packs", and the rows
+        // were invisible until you expanded a section about something else. Same mistake the
+        // Overlay Artwork comment above records. They are tools, not settings — no tier, no
+        // apply(); they only write files into the snaps folder.
+        CollapsibleSection(str("renderer.section.captures"), initiallyExpanded = true) {
+            GsDumpCaptureRow(
+                "renderer.gsDump.label", "renderer.gsDump.description", "renderer.gsDump.queued", 1)
+            SettingsDivider()
+            GsDumpCaptureRow("renderer.gsDumpSeq.label", "renderer.gsDumpSeq.description",
+                "renderer.gsDumpSeq.queued", GS_DUMP_SEQUENCE_FRAMES)
+        }
+        SettingsDivider()
         CollapsibleSection(str("renderer.section.texturePacks")) {
             ToggleRow(
                 str("renderer.loadTexturePacks.label"),
@@ -497,11 +510,6 @@ fun RendererTab(state: MutableState<Settings>) {
             }
             SettingsDivider()
             TexturePackImportRow()
-            SettingsDivider()
-            GsDumpCaptureRow(
-                "renderer.gsDump.label", "renderer.gsDump.description", "renderer.gsDump.queued", 1)
-            GsDumpCaptureRow("renderer.gsDumpSeq.label", "renderer.gsDumpSeq.description",
-                "renderer.gsDumpSeq.queued", GS_DUMP_SEQUENCE_FRAMES)
             SettingsDivider()
             ToggleRow(
                 str("renderer.dumpReplaceableTextures.label"),

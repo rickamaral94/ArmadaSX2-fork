@@ -1361,6 +1361,7 @@ val EN: Map<String, String> = mapOf(
     "renderer.rov.description" to "Vulkan only. On mobile GPUs this enables tile-native ordered depth feedback: the renderer reads the depth buffer in-tile instead of copying it out, so depth-writing alpha-test passes fold into one pass and depth-feedback draws keep hardware blending. Needs a driver that advertises ordered depth access (many don't — then it has no effect). Off = the well-tested depth-copy path, so nothing is lost. Restart the game to apply on mobile. No effect on OpenGL.",
     "renderer.rov.label" to "Rasterizer Ordered View (ROV)",
     "renderer.saturation.label" to "Saturation",
+    "renderer.section.captures" to "GS Captures (diagnostics)",
     "renderer.section.blendingAdvanced" to "Blending & Advanced",
     "renderer.section.displayEffects" to "Display Effects",
     "renderer.section.displayResolution" to "Display & Resolution",
