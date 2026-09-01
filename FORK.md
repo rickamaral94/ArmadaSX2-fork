@@ -77,9 +77,16 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 6 — framework de benchmark A/B](docs/fase6-benchmark.md)
 - [Fase 7 — esqueleto de Frame Generation](docs/fase7-frame-generation-esqueleto.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
+- [Extensões Qualcomm no Turnip — o que dá para usar no Adreno 740](docs/qualcomm-turnip-extensoes.md)
 
 ## Licença
 
 GPL-3.0, herdada de PCSX2/ARMSX2. Todo o código deste fork é publicado integralmente.
 Componentes de terceiros mantêm suas licenças originais (ex.: `libadrenotools`, BSD-2-Clause,
 vendored em `platforms/android/app/src/main/cpp/3rdparty/adrenotools`).
+
+`bin/resources/shaders/vulkan/sgsr1.glsl` é derivado do Snapdragon Game Super Resolution 1
+(Copyright (c) 2025, Qualcomm Innovation Center, Inc., BSD-3-Clause), portado de
+`sgsr/v1/include/glsl/sgsr1_shader_mobile.frag` de github.com/SnapdragonStudios/snapdragon-gsr.
+O aviso de copyright e o identificador de licença estão preservados no cabeçalho do arquivo, como
+a licença exige.
