@@ -48,8 +48,6 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Calendar
-import java.util.TimeZone
 
 /**
  * In-app updater — GitHub sideload flavor ONLY. Renders a "Check for updates" panel in the About
@@ -63,8 +61,18 @@ import java.util.TimeZone
  * user to a stable — comparison is by the numeric versionCode magnitude, not the version string.
  */
 
-private const val LATEST_URL = "https://api.github.com/repos/ARMSX2/ARMSX2/releases/latest"
-private const val RELEASES_URL = "https://api.github.com/repos/ARMSX2/ARMSX2/releases?per_page=20"
+// O NOSSO repositorio. Apontava para ARMSX2/ARMSX2, e o resultado era o pior tipo de bug de
+// atualizador: a aba de App anunciava "atualizacao disponivel" que era OUTRO APLICATIVO. Mesmo
+// que o usuario aceitasse, a instalacao falharia por assinatura diferente — e se nao falhasse
+// seria pior ainda, porque substituiria o Armada pelo ARMSX2 sem que ninguem pedisse.
+private const val RELEASES_URL =
+    "https://api.github.com/repos/rickamaral94/ArmadaSX2-fork/releases?per_page=20"
+// Chave preservada de quando o canal se chamava "nightly": renomea-la descartaria a escolha
+// ja gravada de quem mexeu no interruptor. O DEFAULT muda para true porque o Armada publica
+// exclusivamente alphas — com ele em false o atualizador responderia "voce esta atualizado"
+// para sempre, que e verdade e e inutil.
+private const val PREF_PRERELEASE = "update.includeNightly"
+private const val PREF_PRERELEASE_DEFAULT = true
 private const val NIGHTLY_VC_THRESHOLD = 1_000_000  // stable VCs are ~1300; nightly = Unix seconds.
 
 private sealed interface UpdateState {
@@ -129,7 +137,7 @@ fun UpdaterEntry() {
                 scope.launch {
                     state = UpdateState.Checking
                     state = checkForUpdate(
-                        MainActivityRuntime.prefs.getBoolean("update.includeNightly", false),
+                        MainActivityRuntime.prefs.getBoolean(PREF_PRERELEASE, PREF_PRERELEASE_DEFAULT),
                         checkFailedPrefix,
                     )
                 }
@@ -154,9 +162,9 @@ fun UpdaterEntry() {
                 },
             )
 
-            // Opt-in: also consider nightly (pre-release) builds when checking (default off).
+            // Ligado por padrao: todo release do Armada e alpha (pre-release).
             var includeNightly by remember {
-                mutableStateOf(MainActivityRuntime.prefs.getBoolean("update.includeNightly", false))
+                mutableStateOf(MainActivityRuntime.prefs.getBoolean(PREF_PRERELEASE, PREF_PRERELEASE_DEFAULT))
             }
             SettingSwitchRow(
                 title = str("update.includeNightly"),
@@ -164,7 +172,7 @@ fun UpdaterEntry() {
                 checked = includeNightly,
                 onCheckedChange = {
                     includeNightly = it
-                    MainActivityRuntime.prefs.edit().putBoolean("update.includeNightly", it).apply()
+                    MainActivityRuntime.prefs.edit().putBoolean(PREF_PRERELEASE, it).apply()
                 },
             )
         }
@@ -205,7 +213,7 @@ fun UpdaterEntry() {
  * Boot-time auto-check (github flavor only). Mounted once at the app root; when the "check on
  * launch" toggle is on, it runs a single silent GitHub check on start and pops the update prompt
  * ONLY if a newer release exists — no "up to date" popup, no noise on every boot. Reuses the exact
- * check/download/install path as the manual button. Nightly-safe via checkForUpdate's VC guard.
+ * check/download/install path as the manual button.
  */
 @Composable
 fun AutoUpdateGate() {
@@ -217,7 +225,7 @@ fun AutoUpdateGate() {
     LaunchedEffect(Unit) {
         if (MainActivityRuntime.prefs.getBoolean("update.checkOnLaunch", false)) {
             val result = checkForUpdate(
-                MainActivityRuntime.prefs.getBoolean("update.includeNightly", false),
+                MainActivityRuntime.prefs.getBoolean(PREF_PRERELEASE, PREF_PRERELEASE_DEFAULT),
                 checkFailedPrefix,
             )
             if (result is UpdateState.Available) state = result  // stay silent on up-to-date / errors
@@ -238,6 +246,16 @@ fun AutoUpdateGate() {
             text = {
                 when (val cur = state) {
                     is UpdateState.Available -> Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                        // Antes das notas, nao depois: o aviso muda a decisao de tocar em
+                        // "baixar e instalar", e ninguem rola um changelog inteiro antes de
+                        // decidir. Enquanto a keystore de release nao existir, TODA atualizacao
+                        // deste fork exige desinstalar, e desinstalar apaga os memory cards.
+                        Text(
+                            str("update.signatureWarning"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(8.dp))
                         Text(cur.notes.ifBlank { str("update.notesUnavailable") }, style = MaterialTheme.typography.bodySmall)
                     }
                     is UpdateState.Downloading -> Column {
@@ -270,46 +288,55 @@ fun AutoUpdateGate() {
     }
 }
 
-private suspend fun checkForUpdate(includeNightly: Boolean, checkFailedPrefix: String): UpdateState = withContext(Dispatchers.IO) {
+/**
+ * A release mais nova do nosso repositorio que sirva neste aparelho, ou UpToDate.
+ *
+ * Reescrito por causa de tres incompatibilidades com o formato de release do Armada; a troca da
+ * URL sozinha teria deixado o atualizador quebrado nos dois canais, so que em silencio:
+ *
+ *  1. `releases/latest` do GitHub IGNORA pre-releases. Todo release do Armada e alpha, portanto
+ *     pre-release, entao aquele endpoint responde 404 aqui — o canal estavel mostraria erro de
+ *     rede, nao "voce esta atualizado". A lista e a unica fonte que enxerga o que publicamos.
+ *  2. O caminho antigo classificava qualquer pre-release como nightly e comparava por DATA no
+ *     formato `nightly-YYYYMMDD`. As nossas tags sao versionadas (`v0.19.0-alpha.19`), entao a
+ *     data extraida era sempre 0 e nenhuma release jamais seria oferecida.
+ *  3. A ordem da lista do GitHub e por data de criacao, nao por versao. Um release republicado
+ *     fora de ordem enganaria um "pega o primeiro". Aqui varremos tudo e ficamos com a MAIOR
+ *     versao, que e a pergunta que realmente importa.
+ *
+ * O interruptor continua sendo o mesmo do usuario: com ele desligado, so releases estaveis; o
+ * Armada ainda nao publicou nenhuma, e nesse caso a resposta correta e UpToDate, nao erro.
+ */
+private suspend fun checkForUpdate(includePrerelease: Boolean, checkFailedPrefix: String): UpdateState = withContext(Dispatchers.IO) {
     try {
-        if (!includeNightly) {
-            // Stable channel. A nightly build (VC = Unix seconds) is always ahead of any stable, so
-            // never prompt it — and never offer it a stable (that would be a versionCode downgrade).
-            if (BuildConfig.VERSION_CODE > NIGHTLY_VC_THRESHOLD) return@withContext UpdateState.UpToDate
-            val obj = JSONObject(httpGet(LATEST_URL))
-            val apkUrl = apkAssetForThisDevice(obj) ?: return@withContext UpdateState.UpToDate
-            val tag = obj.getString("tag_name")
-            return@withContext if (isNewer(tag, BuildConfig.VERSION_NAME))
-                UpdateState.Available(tag, obj.optString("body", ""), apkUrl)
-            else UpdateState.UpToDate
-        }
+        // Um build nightly (versionCode = segundos de epoch) esta sempre a frente de qualquer
+        // release publicada; oferecer uma seria rebaixar o versionCode, que o instalador do
+        // sistema recusa. Guarda mantida embora nenhum workflow do fork gere nightly hoje.
+        if (BuildConfig.VERSION_CODE > NIGHTLY_VC_THRESHOLD) return@withContext UpdateState.UpToDate
 
-        // Nightly channel: GitHub returns releases newest-first, so offer the first genuinely-newer
-        // one that has an APK. Nightlies are pre-releases tagged nightly-YYYYMMDD; stables are vX.Y.Z.
-        // Compare nightlies by day (the installed nightly's build day comes from its VC = Unix seconds);
-        // compare stables by version name. A nightly install is never offered a stable — that's a
-        // versionCode downgrade the system installer rejects anyway (reinstall stable manually).
         val arr = JSONArray(httpGet(RELEASES_URL))
-        val installedIsNightly = BuildConfig.VERSION_CODE > NIGHTLY_VC_THRESHOLD
-        val installedDay = if (installedIsNightly) epochSecToYyyymmdd(BuildConfig.VERSION_CODE.toLong()) else 0
+        var best: UpdateState.Available? = null
+        var bestTag: String? = null
         for (i in 0 until arr.length()) {
             val rel = arr.getJSONObject(i)
             if (rel.optBoolean("draft", false)) continue
-            val apkUrl = apkAssetForThisDevice(rel) ?: continue
+            if (!includePrerelease && rel.optBoolean("prerelease", false)) continue
             val tag = rel.getString("tag_name")
-            val isNightlyRel = rel.optBoolean("prerelease", false) || tag.startsWith("nightly-", ignoreCase = true)
-            val newer = if (isNightlyRel) {
-                nightlyTagDay(tag) > installedDay  // stable install => installedDay 0 => any nightly is newer
-            } else {
-                !installedIsNightly && isNewer(tag, BuildConfig.VERSION_NAME)
+            if (!isNewer(tag, BuildConfig.VERSION_NAME)) continue
+            // So depois de saber que e mais nova: um release sem APK para este aparelho nao pode
+            // eliminar os outros candidatos da lista.
+            val apkUrl = apkAssetForThisDevice(rel) ?: continue
+            if (bestTag == null || isNewer(tag, bestTag!!)) {
+                bestTag = tag
+                best = UpdateState.Available(tag, rel.optString("body", ""), apkUrl)
             }
-            if (newer) return@withContext UpdateState.Available(tag, rel.optString("body", ""), apkUrl)
         }
-        UpdateState.UpToDate
+        best ?: UpdateState.UpToDate
     } catch (e: Exception) {
         UpdateState.Error("$checkFailedPrefix: ${e.message}")
     }
 }
+
 
 // Release tier markers. A release carries four APKs and their names are the only thing
 // distinguishing them, so these are a contract with build-release-targets.sh:
@@ -396,16 +423,6 @@ private fun apkAssetForThisDevice(release: JSONObject): String? {
     }
 }
 
-/** "nightly-YYYYMMDD" -> YYYYMMDD as an int (0 if the tag isn't a dated nightly). */
-private fun nightlyTagDay(tag: String): Int =
-    Regex("nightly-(\\d{8})", RegexOption.IGNORE_CASE).find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-
-/** Unix-epoch seconds (a nightly build's versionCode) -> UTC YYYYMMDD int, matching the nightly tag. */
-private fun epochSecToYyyymmdd(epochSec: Long): Int {
-    val c = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = epochSec * 1000L }
-    return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
-}
-
 /** Semantic-version compare of the release tag vs the installed versionName. Non-numeric suffixes
  *  (e.g. the "2.6.4.3.r" tag) are dropped — only the leading dotted integers matter. */
 private fun isNewer(remoteTag: String, installed: String): Boolean {
@@ -425,7 +442,7 @@ private fun httpGet(url: String): String {
         conn.connectTimeout = 10_000
         conn.readTimeout = 15_000
         conn.setRequestProperty("Accept", "application/vnd.github+json")
-        conn.setRequestProperty("User-Agent", "ARMSX2-Updater")
+        conn.setRequestProperty("User-Agent", "ArmadaSX2-Updater")
         conn.inputStream.bufferedReader().use { it.readText() }
     } finally {
         conn.disconnect()
@@ -436,12 +453,12 @@ private suspend fun downloadAndInstall(context: Context, info: UpdateState.Avail
     val apk = withContext(Dispatchers.IO) {
         val dir = File(context.externalCacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }  // keep only the current download
-        val out = File(dir, "armsx2-update.apk")
+        val out = File(dir, "armadasx2-update.apk")
         val conn = URL(info.apkUrl).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 10_000
             conn.readTimeout = 30_000
-            conn.setRequestProperty("User-Agent", "ARMSX2-Updater")
+            conn.setRequestProperty("User-Agent", "ArmadaSX2-Updater")
             val total = conn.contentLengthLong
             var read = 0L
             var lastPct = -1
