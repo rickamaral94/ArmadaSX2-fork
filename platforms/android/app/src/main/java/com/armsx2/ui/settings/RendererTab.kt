@@ -400,14 +400,19 @@ fun RendererTab(state: MutableState<Settings>) {
                 apply(s.copy(fxaa = it))
             }
             SettingsDivider()
+            // Escolha, não dois interruptores: o Upscaler do núcleo é um enum exclusivo, e dois
+            // toggles deixariam o usuário "ligar" os dois e ver só um valer. De quebra, a
+            // comparação FSR1 x SGSR1 vira um toque, que é o A/B que queremos que seja fácil.
+            // A ordem casa com o enum GSUpscaler; MetalFX (1) não aparece porque é só macOS.
+            val upscalerChoices = listOf(Settings.UPSCALER_OFF, Settings.UPSCALER_FSR1, Settings.UPSCALER_SGSR1)
             val fsr1On = s.upscaler == Settings.UPSCALER_FSR1
-            ToggleRow(
-                str("renderer.fsr1.label"),
-                fsr1On,
-                description = str("renderer.fsr1.description"),
-            ) {
-                apply(s.copy(upscaler = if (it) Settings.UPSCALER_FSR1 else Settings.UPSCALER_OFF))
-            }
+            SegmentedRow(
+                label = str("renderer.upscaler.label"),
+                options = listOf(str("renderer.upscaler.off"), "FSR 1", "SGSR 1"),
+                selectedIndex = upscalerChoices.indexOf(s.upscaler).coerceAtLeast(0),
+                description = str("renderer.upscaler.description"),
+                onChange = { apply(s.copy(upscaler = upscalerChoices[it])) },
+            )
             if (fsr1On) {
                 SettingsDivider()
                 IntSliderRow(
@@ -421,8 +426,10 @@ fun RendererTab(state: MutableState<Settings>) {
             }
             // FSR's second pass IS RCAS, a contrast-adaptive sharpener, so the core runs one or
             // the other and never both. Showing CAS while FSR is on would offer a slider that
-            // does nothing.
-            if (!fsr1On) {
+            // does nothing. SGSR1 is in the same else-if chain in GSRenderer for the same reason —
+            // its edge-direction delta IS the sharpen — so it hides CAS too.
+            val upscalerSharpens = fsr1On || s.upscaler == Settings.UPSCALER_SGSR1
+            if (!upscalerSharpens) {
                 SettingsDivider()
                 SegmentedRow(
                     label = str("renderer.cas.label"),

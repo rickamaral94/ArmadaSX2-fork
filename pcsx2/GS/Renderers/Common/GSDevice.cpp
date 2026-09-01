@@ -293,7 +293,7 @@ GSDevice::GSDevice()
 GSDevice::~GSDevice()
 {
 	// should've been cleaned up in Destroy()
-	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas && !m_mfx_output && !m_fsr1_easu && !m_fsr1_output);
+	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas && !m_mfx_output && !m_fsr1_easu && !m_fsr1_output && !m_sgsr1_output);
 }
 
 GSVector2i GSDevice::GetPresentationSize() const
@@ -1230,6 +1230,7 @@ void GSDevice::ClearCurrent()
 	delete m_mfx_output;
 	delete m_fsr1_easu;
 	delete m_fsr1_output;
+	delete m_sgsr1_output;
 
 	m_merge = nullptr;
 	m_weavebob = nullptr;
@@ -1240,6 +1241,7 @@ void GSDevice::ClearCurrent()
 	m_mfx_output = nullptr;
 	m_fsr1_easu = nullptr;
 	m_fsr1_output = nullptr;
+	m_sgsr1_output = nullptr;
 }
 
 void GSDevice::Merge(GSTexture* sTex[3], GSVector4* sRect, GSVector4* dRect, const GSVector2i& fs, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c)
@@ -1678,6 +1680,70 @@ void GSDevice::FSR1Upscale(GSTexture*& tex, GSVector4i& src_rect, GSVector4& src
 	}
 
 	tex = m_fsr1_output;
+	src_rect = GSVector4i(0, 0, dst_width, dst_height);
+	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+void GSDevice::SGSR1Upscale(GSTexture*& tex, GSVector4i& src_rect, GSVector4& src_uv, const GSVector4& draw_rect)
+{
+	FlushDeferredDraws();
+	const int dst_width = static_cast<int>(std::ceil(draw_rect.z - draw_rect.x));
+	const int dst_height = static_cast<int>(std::ceil(draw_rect.w - draw_rect.y));
+	if (dst_width <= 0 || dst_height <= 0)
+		return;
+
+	// Anchored here for the same reason FSR1's line is anchored inside its own function: an
+	// identical-looking line elsewhere made a working pass look dead once already.
+	static int s_logged_w = 0, s_logged_h = 0;
+	if (s_logged_w != dst_width || s_logged_h != dst_height)
+	{
+		s_logged_w = dst_width;
+		s_logged_h = dst_height;
+		Console.WriteLnFmt("@@ANDROID_SGSR1@@ upscaling {}x{} -> {}x{}",
+			src_rect.width(), src_rect.height(), dst_width, dst_height);
+	}
+
+	GSTexture* src_tex = tex;
+
+	// ONE target, not two. FSR1 needs a second because RCAS reads EASU's whole output back;
+	// SGSR1 is a single pass whose sharpening is folded into the same filter, so the source can
+	// be read and the destination written in one dispatch.
+	if (!m_sgsr1_output || m_sgsr1_output->GetWidth() != dst_width || m_sgsr1_output->GetHeight() != dst_height)
+	{
+		delete m_sgsr1_output;
+		m_sgsr1_output = CreateSurface(GSTexture::ShaderWriteTexture, dst_width, dst_height, 1, GSTexture::Format::Color);
+		if (!m_sgsr1_output)
+		{
+			Console.Error("Failed to allocate SGSR1 output texture.");
+			return;
+		}
+	}
+
+	// Three vec4s, laid out to match sgsr1.glsl's push_constant block. Bit-cast rather than
+	// converted: the block is declared as floats and uvec, and the array is the untyped transport.
+	std::array<u32, NUM_SGSR1_CONSTANTS> consts = {};
+	const float src_w = static_cast<float>(src_tex->GetWidth());
+	const float src_h = static_cast<float>(src_tex->GetHeight());
+	const float viewport[4] = {1.0f / src_w, 1.0f / src_h, src_w, src_h};
+	// The DISPLAYED sub-rect, which is what maps to the whole output. Handing the shader the full
+	// texture instead would pull whatever sits beside the frame into the edges — the same
+	// distinction FsrEasuConOffset exists to express for FSR1.
+	const float rect[4] = {static_cast<float>(src_rect.x), static_cast<float>(src_rect.y),
+		static_cast<float>(src_rect.width()), static_cast<float>(src_rect.height())};
+	std::memcpy(&consts[0], viewport, sizeof(viewport));
+	std::memcpy(&consts[4], rect, sizeof(rect));
+	consts[8] = static_cast<u32>(dst_width);
+	consts[9] = static_cast<u32>(dst_height);
+
+	if (!DoSGSR1(src_tex, m_sgsr1_output, consts))
+	{
+		// Leave the textures intact on failure: the caller presents `tex` either way, so bailing
+		// out here is a plain bilinear present rather than a black frame.
+		Console.Warning("Applying SGSR1 failed.");
+		return;
+	}
+
+	tex = m_sgsr1_output;
 	src_rect = GSVector4i(0, 0, dst_width, dst_height);
 	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
 }

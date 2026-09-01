@@ -1095,6 +1095,29 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 					fsr1_log_once = true;
 				}
 			}
+			// Sits in the same else-if chain as FSR1, not beside it: SGSR1's filter already
+			// sharpens (the edge-direction delta IS the sharpen), so letting CAS run afterwards
+			// would sharpen twice — the identical reason FSR1 consumes CAS's branch.
+			else if (GSConfig.Upscaler == GSUpscaler::SGSR1)
+			{
+				static bool sgsr1_log_once = false;
+				if (g_gs_device->Features().sgsr1)
+				{
+					const int draw_w = static_cast<int>(std::ceil(draw_rect.z - draw_rect.x));
+					const int draw_h = static_cast<int>(std::ceil(draw_rect.w - draw_rect.y));
+					// Upscale only. SGSR1 is an upsampler; run at or above the display size it
+					// would sharpen a downscale, which is not what the setting promises.
+					if (current->GetWidth() < draw_w && current->GetHeight() < draw_h)
+						g_gs_device->SGSR1Upscale(current, src_rect, src_uv, draw_rect);
+				}
+				else if (!sgsr1_log_once)
+				{
+					Host::AddIconOSDMessage("SGSR1Unsupported", ICON_FA_TRIANGLE_EXCLAMATION,
+						TRANSLATE_SV("GS", "Snapdragon GSR 1 is not available, your graphics driver does not support the required functionality."),
+						10.0f);
+					sgsr1_log_once = true;
+				}
+			}
 			else if (GSConfig.CASMode != GSCASMode::Disabled)
 			{
 				static bool cas_log_once = false;

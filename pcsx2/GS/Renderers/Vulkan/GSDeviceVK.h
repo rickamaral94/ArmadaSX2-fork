@@ -578,6 +578,13 @@ private:
 	VkDescriptorSetLayout m_fsr1_ds_layout = VK_NULL_HANDLE;
 	VkPipelineLayout m_fsr1_pipeline_layout = VK_NULL_HANDLE;
 	std::array<VkPipeline, NUM_FSR1_PIPELINES> m_fsr1_pipelines = {};
+
+	// SGSR1 is one pass, so one pipeline and no array. It gets its OWN layouts rather than
+	// borrowing FSR1's: the two push different constant sizes (48 vs 80 bytes), and sharing a
+	// layout would make the smaller push leave the tail undefined.
+	VkDescriptorSetLayout m_sgsr1_ds_layout = VK_NULL_HANDLE;
+	VkPipelineLayout m_sgsr1_pipeline_layout = VK_NULL_HANDLE;
+	VkPipeline m_sgsr1_pipeline = VK_NULL_HANDLE;
 	VkPipeline m_imgui_pipeline = VK_NULL_HANDLE;
 
 	GSHWDrawConfig::VSConstantBuffer m_vs_cb_cache;
@@ -620,6 +627,7 @@ private:
 	bool DoFSR1RCAS(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_FSR1_CONSTANTS>& constants) final;
 	/// Shared body of the two above: same layout, same push range, different pipeline and
 	/// different input-side synchronisation.
+	bool DoSGSR1(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_SGSR1_CONSTANTS>& constants) override;
 	bool DoFSR1Pass(
 		GSTexture* sTex, GSTexture* dTex, bool easu_pass, const std::array<u32, NUM_FSR1_CONSTANTS>& constants);
 
@@ -660,6 +668,7 @@ private:
 	bool CompilePostProcessingPipelines();
 	bool CompileCASPipelines();
 	bool CompileFSR1Pipelines();
+	bool CompileSGSR1Pipeline();
 
 	bool CompileImGuiPipeline();
 	void RenderImGui();
