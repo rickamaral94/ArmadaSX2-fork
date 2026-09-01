@@ -122,6 +122,9 @@ namespace ForkDiagnostics
 		bool ee_cycle_skip_changed = false;
 		float upscale_multiplier = 1.0f;
 		int blending_level = 0;
+		/// True only for the fork-owned clean-room ATR preset. This is context, not contamination:
+		/// an A/B with the preset enabled remains valid, but the log must say which side it measured.
+		bool atr_enabled = false;
 	};
 
 	std::string FormatHygieneLine(const Hygiene& hygiene);

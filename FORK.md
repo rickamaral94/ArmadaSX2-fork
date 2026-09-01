@@ -63,6 +63,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 | `presentation_metrics` | `pcsx2/GS/Renderers/Common/GSPresentationMetrics.*` | **feito** (Fase 2) |
 | `frame_generation` | `pcsx2/Fork/ForkFrameGen.*` | **régua feita** (Fase 7); backend na 8 |
 | `frame_interpolation` | `pcsx2/GS/Renderers/Vulkan/FrameGen/backends/` | Fase 8 |
+| `temporal_reconstruction` | `assets/shaders/amaral-temporal-reconstruction/` | **prévia NR-0**, desligada por padrão |
 
 ## Documentação
 
@@ -77,6 +78,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 6 — framework de benchmark A/B](docs/fase6-benchmark.md)
 - [Fase 7 — esqueleto de Frame Generation](docs/fase7-frame-generation-esqueleto.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
+- [NR-0 — reconstrução temporal clean-room para Adreno 740](docs/fase-neural-rendering-a740.md)
 
 ## Licença
 

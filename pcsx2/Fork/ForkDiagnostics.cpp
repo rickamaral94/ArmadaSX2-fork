@@ -176,8 +176,8 @@ std::string ForkDiagnostics::FormatHygieneLine(const Hygiene& hygiene)
 	if (hygiene.ee_cycle_skip_changed)
 		problems.push_back("EECycleSkip!=0(muda o tempo emulado)");
 
-	const std::string context =
-		fmt::format(" | upscale={:.2f}x blend={}", hygiene.upscale_multiplier, hygiene.blending_level);
+	const std::string context = fmt::format(" | upscale={:.2f}x blend={} atr={}",
+		hygiene.upscale_multiplier, hygiene.blending_level, hygiene.atr_enabled ? "on" : "off");
 
 	if (problems.empty())
 		return fmt::format("{} hygiene   limpo{}", PREFIX, context);

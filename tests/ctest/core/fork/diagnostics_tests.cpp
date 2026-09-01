@@ -195,6 +195,13 @@ TEST(ForkDiagnostics, ContaminatedMeasurementsAnnounceThemselves)
 	EXPECT_FALSE(Contains(ok, "CONTAMINADA"));
 	// O contexto sai nos dois casos: um número sem saber o upscale é ininterpretável.
 	EXPECT_TRUE(Contains(ok, "upscale=2.75x"));
+	EXPECT_TRUE(Contains(ok, "atr=off"));
+
+	clean.atr_enabled = true;
+	const std::string atr = ForkDiagnostics::FormatHygieneLine(clean);
+	EXPECT_TRUE(Contains(atr, "limpo"));
+	EXPECT_TRUE(Contains(atr, "atr=on"));
+	EXPECT_FALSE(Contains(atr, "CONTAMINADA"));
 
 	ForkDiagnostics::Hygiene dirty = clean;
 	dirty.dumping_textures = true;

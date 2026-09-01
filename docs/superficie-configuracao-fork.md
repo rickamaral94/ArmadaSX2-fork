@@ -64,6 +64,7 @@ Resultado: a superfície funciona ponta a ponta — UI Android grava, núcleo l�
 | `pcsx2/VMManager.cpp` | +1 include, +1 chamada em `LoadSettings` |
 | `pcsx2/CMakeLists.txt` | +4 linhas (fontes) |
 | `pcsx2/ImGui/ImGuiOverlays.cpp` | a linha de overlay passa a ler a opção do fork |
+| `platforms/android/.../runtime/MainActivityRuntime.kt` | +1 cópia idempotente da árvore `assets/shaders` para o diretório já varrido pelo seletor |
 
 Uma linha em `VMManager` é o **único** ponto de contato com o carregamento de configuração, e ele
 não cresce: o próximo módulo do fork se registra em `ForkRuntime`, não em `VMManager`.

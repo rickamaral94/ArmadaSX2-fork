@@ -1,0 +1,12 @@
+shaders = 2
+
+shader0 = "shaders/atr-spatial.slang"
+filter_linear0 = true
+wrap_mode0 = clamp_to_edge
+scale_type0 = viewport
+scale0 = 1.0
+alias0 = ATRSpatial
+
+shader1 = "shaders/atr-temporal.slang"
+filter_linear1 = true
+wrap_mode1 = clamp_to_edge
