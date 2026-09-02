@@ -881,7 +881,7 @@ object SecondScreen {
             // dereferences null and takes the process down. The panel ticks whether or not a game
             // is running, so calling it unconditionally crashed the app the moment the panel
             // appeared. runCatching is no help here: a SIGSEGV is not a Throwable.
-            // ...e só quando algum dos tres tiles que leem raItems estiver de fato no painel.
+            // ...e só quando algum dos tres tiles de RetroAchievements estiver de fato no painel.
             // GetAchievementsAsJSON serializa a lista INTEIRA do jogo, atravessa o JNI como
             // UTF-8 e ainda e parseada aqui — duas vezes por segundo, na thread de UI, com a
             // emulacao rodando. Quem nao usa RetroAchievements pagava esse custo do mesmo
@@ -889,30 +889,15 @@ object SecondScreen {
             // tick para os tres tiles juntos, que e o motivo de trackAchievements ter saido
             // de dentro do tile de Achievements.
             //
-            // O estado de RetroAchievements pertence a UM jogo, e sao tres campos, nao um:
-            // [raItems], [seenUnlocked] e [lastUnlock]. Sem uma identidade de jogo os tres
-            // atravessavam a troca, e cada um errava de um jeito:
+            // O estado de RetroAchievements pertence a UM jogo, e sao tres campos que ja
+            // atravessaram a troca e erraram cada um de um jeito. A regra que os cobre vive em
+            // [AchievementSessionState], fora da View, porque reproduzir esses erros a mao exigia
+            // dois jogos, um tile especifico colocado e a ordem certa de troca — e como classe
+            // pura cada um deles virou um teste de meia duzia de linhas.
             //
-            //   * raItems — com a guarda de tiles acima, trocar de jogo sem nenhum tile de RA
-            //     colocado nao limpava nada; um tile adicionado na sessao seguinte exibia as
-            //     conquistas do jogo ANTERIOR ate o proximo tick com tile;
-            //   * seenUnlocked — os ids do jogo A entravam na sessao do B. Como sao globalmente
-            //     unicos, NENHUM id de B estava no conjunto, entao `fresh` vinha cheio e a regua
-            //     de "so anuncia o que e novidade" anunciava uma conquista JA desbloqueada de B
-            //     como se tivesse acabado de cair. A protecao `seenUnlocked.isNotEmpty()` so
-            //     cobre o primeiro jogo da sessao;
-            //   * lastUnlock — o tile de ultimo desbloqueio continuava mostrando o titulo do
-            //     jogo A enquanto se jogava B, ate B desbloquear algo.
-            //
-            // Os dois ultimos ja erravam antes da guarda de tiles. Mesma chave que o tile de
-            // capa usa para decidir se recarrega a arte, pelo mesmo motivo.
+            // Mesma chave que o tile de capa usa para decidir se recarrega a arte.
             val raKey = if (inGame) MainActivityRuntime.currentGame.value?.let { it.serial ?: it.title } else null
-            if (raKey != raGameKey) {
-                raGameKey = raKey
-                raItems = emptyList()
-                seenUnlocked = emptySet()
-                lastUnlock = null
-            }
+            ra.onGame(raKey)
             if (raKey != null && tileViews.keys.any { it in RA_TILES }) {
                 runCatching { trackAchievements() }
             }
@@ -978,7 +963,7 @@ object SecondScreen {
                     SecondScreenTile.COVER -> { updateCover(); null }
                     SecondScreenTile.RA_POINTS -> raPoints()
                     SecondScreenTile.RA_RECENT ->
-                        I18n.get(tile.labelKey) + "\n" + (lastUnlock ?: "—")
+                        I18n.get(tile.labelKey) + "\n" + (ra.lastUnlock ?: "—")
                     // RetroAchievements' own description of where you are in the game. It is the
                     // one line that says something a number cannot.
                     SecondScreenTile.RICH_PRESENCE ->
@@ -1029,9 +1014,9 @@ object SecondScreen {
          * Three tiles read this now, and each used to parse the JSON for itself -- so placing all
          * three meant three parses of the same string every tick, for identical results.
          */
-        private var raItems: List<com.armsx2.ui.achievements.AchievementItem> = emptyList()
+        private val ra = com.armsx2.ui.achievements.AchievementSessionState()
 
-        /** Os tiles que leem [raItems]. Nenhum deles no painel, nenhuma consulta por tick. */
+        /** Os tiles alimentados por [ra]. Nenhum deles no painel, nenhuma consulta por tick. */
         private val RA_TILES = setOf(
             SecondScreenTile.ACHIEVEMENTS,
             SecondScreenTile.RA_POINTS,
@@ -1039,7 +1024,7 @@ object SecondScreen {
         )
 
         /**
-         * Refresh [raItems] and note any new unlock.
+         * Consulta o lado nativo e entrega o snapshot a [ra], que decide o que e novidade.
          *
          * Chamada UMA vez por tick para os tres tiles de [RA_TILES] juntos. Vivia dentro do
          * construtor de texto do tile de Achievements, e por isso o tile de ultimo desbloqueio
@@ -1050,23 +1035,15 @@ object SecondScreen {
          */
         private fun trackAchievements() {
             val json = runCatching { NativeApp.getAchievementsJSON() }.getOrDefault("")
-            raItems = runCatching { com.armsx2.ui.achievements.parseAchievementItems(json) }
+            val itens = runCatching { com.armsx2.ui.achievements.parseAchievementItems(json) }
                 .getOrDefault(emptyList())
-            if (raItems.isEmpty()) return
-            val ids = raItems.filter { it.unlocked }.map { it.id }.toSet()
-            val fresh = ids - seenUnlocked
-            // The first poll of a session seeds the set without announcing: everything already
-            // unlocked is not news.
-            if (seenUnlocked.isNotEmpty() && fresh.isNotEmpty())
-                lastUnlock = raItems.firstOrNull { it.id in fresh }?.title
-            seenUnlocked = ids
+            ra.onSnapshot(itens)
         }
 
         /** Earned / total points, which is the figure RA itself leads with. */
         private fun raPoints(): String {
-            if (raItems.isEmpty()) return I18n.get("secondScreen.tile.raPoints") + "\n—"
-            val earned = raItems.filter { it.unlocked }.sumOf { it.points }
-            return I18n.get("secondScreen.tile.raPoints") + "\n$earned/${raItems.sumOf { it.points }}"
+            val (ganhos, total) = ra.points() ?: return I18n.get("secondScreen.tile.raPoints") + "\n—"
+            return I18n.get("secondScreen.tile.raPoints") + "\n$ganhos/$total"
         }
 
         /**
@@ -1087,18 +1064,14 @@ object SecondScreen {
          * you are playing in and your progress in it, so that is what it says.
          */
         private fun achievementSummary(): String {
-            if (raItems.isEmpty()) return I18n.get("secondScreen.tile.achievements") + "\n—"
+            val (desbloqueadas, total) = ra.counts()
+                ?: return I18n.get("secondScreen.tile.achievements") + "\n—"
             val hardcore = runCatching { NativeApp.isHardcorePersisted() }.getOrDefault(false)
             val mode = if (hardcore) "🏆 " + I18n.get("secondScreen.ra.hardcore")
             else "🎖 " + I18n.get("secondScreen.ra.casual")
-            return mode + "\n" + raItems.count { it.unlocked } + "/" + raItems.size
+            return mode + "\n" + desbloqueadas + "/" + total
         }
 
-        /** Session-only: which achievement ids were already unlocked when we last looked. */
-        /** Jogo a que [raItems], [seenUnlocked] e [lastUnlock] se referem; null fora de jogo. */
-        private var raGameKey: String? = null
-        private var seenUnlocked: Set<Int> = emptySet()
-        private var lastUnlock: String? = null
 
         private fun aspectLabel(value: Int): String = when (value) {
             0 -> I18n.get("setup.aspect.stretch")
