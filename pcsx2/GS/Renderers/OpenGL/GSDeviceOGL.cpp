@@ -861,7 +861,7 @@ bool GSDeviceOGL::CheckFeatures()
 	SetMobileDriverProfile(profile_selection.driver);
 	SetMediaTekSoC(profile_selection.is_mediatek_soc);
 	Console.WriteLn("GL: GPU profile override='%s' resolved='%s' driver='%s' version=%u.%u.%u.%u "
-					"rules=%u bugs=%016llx workarounds=%016llx.",
+					"rules=%u(%s) bugs=%016llx workarounds=%016llx.",
 		GpuProfileDetector::OverrideToConfigString(profile_selection.override_mode),
 		GpuProfileDetector::RuntimeProfileToString(profile_selection.runtime_profile),
 		GpuProfileDetector::DriverToString(profile_selection.driver.driver),
@@ -870,6 +870,7 @@ bool GSDeviceOGL::CheckFeatures()
 		static_cast<unsigned>(profile_selection.driver.version.patch),
 		static_cast<unsigned>(profile_selection.driver.version.build),
 		static_cast<unsigned>(profile_selection.driver.matched_rule_count),
+		profile_selection.driver.MatchedRulesString().c_str(),
 		static_cast<unsigned long long>(profile_selection.driver.bugs),
 		static_cast<unsigned long long>(profile_selection.driver.workarounds));
 	DevCon.WriteLn("GL: GPU profile hints: %s", profile_selection.hints.c_str());

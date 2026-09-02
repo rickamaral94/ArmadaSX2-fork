@@ -3,6 +3,8 @@
 
 #include "Fork/ForkGpuCapabilities.h"
 
+#include "GS/Renderers/Common/GSGPUProfile.h"
+
 #include <gtest/gtest.h>
 
 using ForkGpuCapabilities::EvaluateTurnipSupport;
@@ -140,4 +142,46 @@ TEST(ForkGpuCapabilities, UnprobedIsNotTheSameAsUnsupported)
 		EXPECT_EQ(caps.turnip, TurnipSupport::Unknown);
 		EXPECT_FALSE(ForkGpuCapabilities::IsTurnipCapable());
 	}
+}
+
+// MatchedRulesString: a Etapa 1 do desenho em docs/regras-driver-com-validade.md. A contagem
+// sozinha nunca respondeu "qual regra"; estes testes prendem o formato que passa a responder.
+TEST(MobileDriverProfileRules, NothingMatchedReadsAsADash)
+{
+	MobileDriverProfile p;
+	EXPECT_EQ(p.MatchedRulesString(), "-");
+}
+
+TEST(MobileDriverProfileRules, OneRuleIsNamed)
+{
+	MobileDriverProfile p;
+	p.matched_rule_count = 1;
+	p.matched_rule_ids[0] = "vk-turnip-attachment-self-read";
+	EXPECT_EQ(p.MatchedRulesString(), "vk-turnip-attachment-self-read");
+}
+
+TEST(MobileDriverProfileRules, SeveralRulesKeepTableOrder)
+{
+	MobileDriverProfile p;
+	p.matched_rule_count = 3;
+	p.matched_rule_ids[0] = "a";
+	p.matched_rule_ids[1] = "b";
+	p.matched_rule_ids[2] = "c";
+	EXPECT_EQ(p.MatchedRulesString(), "a,b,c");
+}
+
+TEST(MobileDriverProfileRules, OverflowKeepsTheCountExactAndSaysItTruncated)
+{
+	// O caso que importa nao e a lista, e a HONESTIDADE dela: se um dia a tabela casar mais
+	// regras do que o vetor guarda, a contagem tem de continuar certa e o leitor tem de saber
+	// que esta vendo uma lista parcial, em vez de concluir que o resto nao existe.
+	MobileDriverProfile p;
+	p.matched_rule_count = MobileDriverProfile::MAX_TRACKED_RULES + 3;
+	for (u32 i = 0; i < MobileDriverProfile::MAX_TRACKED_RULES; i++)
+		p.matched_rule_ids[i] = "r";
+
+	const std::string out = p.MatchedRulesString();
+	EXPECT_NE(out.find("+3"), std::string::npos) << out;
+	EXPECT_EQ(p.TrackedRuleCount(), MobileDriverProfile::MAX_TRACKED_RULES);
+	EXPECT_EQ(p.matched_rule_count, MobileDriverProfile::MAX_TRACKED_RULES + 3);
 }

@@ -245,6 +245,9 @@ TEST(ForkDiagnostics, TheIdentityLineCarriesTheDriverCost)
     profile.driver.bugs = 0x300;
     profile.driver.workarounds = 0x40;
     profile.driver.matched_rule_count = 1;
+    // O id, nao so a contagem: `rules=1` sozinho obriga quem le o log a reproduzir o casamento
+    // da tabela de cabeca para saber QUAL regra esta ativa.
+    profile.driver.matched_rule_ids[0] = "vk-turnip-attachment-self-read";
 
     // Vulkan 1.4.359, empacotado como a spec manda (major<<22 | minor<<12 | patch).
     ForkGpuCapabilities::Publish(profile, (1u << 22) | (4u << 12) | 359u);
@@ -253,7 +256,7 @@ TEST(ForkDiagnostics, TheIdentityLineCarriesTheDriverCost)
     EXPECT_TRUE(Contains(line, "vk=1.4.359")) << line;
     EXPECT_TRUE(Contains(line, "bugs=0x300")) << line;
     EXPECT_TRUE(Contains(line, "workarounds=0x40")) << line;
-    EXPECT_TRUE(Contains(line, "rules=1")) << line;
+    EXPECT_TRUE(Contains(line, "rules=1(vk-turnip-attachment-self-read)")) << line;
 }
 
 // ---------------------------------------------------------------------------------------------

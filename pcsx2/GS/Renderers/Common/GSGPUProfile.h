@@ -5,6 +5,7 @@
 
 #include "common/Pcsx2Defs.h"
 
+#include <array>
 #include <string>
 #include <string_view>
 
@@ -228,6 +229,32 @@ struct MobileDriverProfile
 	u64 bugs = 0;
 	u64 workarounds = 0;
 	u32 matched_rule_count = 0;
+	/// Ids das regras que casaram, na ordem da tabela.
+	///
+	/// Existe porque a contagem sozinha nao responde a pergunta que se faz na pratica. Com
+	/// `rules=1` no log nao ha caminho nenhum para descobrir QUAL regra esta ativa — a unica
+	/// saida e ler as 28 entradas de GSGPUDriverProfile.cpp a mao e reproduzir o casamento de
+	/// cabeca, que foi exatamente o que custou para achar a vk-turnip-attachment-self-read
+	/// desligando o framebuffer fetch de um Adreno 740.
+	///
+	/// Ponteiros crus, e sao seguros: os ids sao literais de string da tabela estatica, entao
+	/// vivem tanto quanto o programa. Nao copiar para std::string aqui e deliberado — este
+	/// struct e copiado por valor no caminho de abertura do device.
+	static constexpr u32 MAX_TRACKED_RULES = 8;
+	std::array<const char*, MAX_TRACKED_RULES> matched_rule_ids = {};
+
+	/// Quantos ids cabem em `matched_rule_ids`. Menor que `matched_rule_count` quando mais
+	/// regras casaram do que o vetor comporta; a CONTAGEM continua exata nesse caso, e so a
+	/// lista fica truncada.
+	constexpr u32 TrackedRuleCount() const
+	{
+		return (matched_rule_count < MAX_TRACKED_RULES) ? matched_rule_count : MAX_TRACKED_RULES;
+	}
+
+	/// Ids separados por virgula, "-" quando nada casou, com "+N" no fim se a lista truncou.
+	/// Um unico formatador para os tres pontos que imprimem isto (Vulkan, GL e a linha
+	/// @@FORK@@ identity), porque tres copias divergiriam no primeiro campo acrescentado.
+	std::string MatchedRulesString() const;
 	DriverProfileConfidence confidence = DriverProfileConfidence::Unknown;
 	/// True when nothing in the table matched and the safe defaults are in force.
 	bool conservative_fallback = true;

@@ -96,6 +96,7 @@ void ForkGpuCapabilities::Publish(const GpuProfileSelection& profile, u32 vulkan
 	caps.driver_bugs = profile.driver.bugs;
 	caps.driver_workarounds = profile.driver.workarounds;
 	caps.driver_matched_rules = profile.driver.matched_rule_count;
+	caps.driver_matched_rule_ids = profile.driver.MatchedRulesString();
 	caps.vulkan_api_version = vulkan_api_version;
 	caps.android_sdk = ReadAndroidSdk();
 	caps.turnip = EvaluateTurnipSupport(caps.vendor, caps.architecture, caps.android_sdk, IsAndroidBuild());

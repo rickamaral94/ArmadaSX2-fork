@@ -3727,7 +3727,7 @@ bool GSDeviceVK::CheckFeatures()
 	}
 #endif
 	Console.WriteLn("VK: GPU profile override='%s' resolved='%s' driver='%s' version=%u.%u.%u "
-					"raw=%08x rules=%u bugs=%016llx workarounds=%016llx.",
+					"raw=%08x rules=%u(%s) bugs=%016llx workarounds=%016llx.",
 		GpuProfileDetector::OverrideToConfigString(mobile_profile.override_mode),
 		GpuProfileDetector::RuntimeProfileToString(mobile_profile.runtime_profile),
 		GpuProfileDetector::DriverToString(mobile_profile.driver.driver),
@@ -3736,6 +3736,7 @@ bool GSDeviceVK::CheckFeatures()
 		static_cast<unsigned>(mobile_profile.driver.version.patch),
 		static_cast<unsigned>(mobile_profile.driver.version.raw),
 		static_cast<unsigned>(mobile_profile.driver.matched_rule_count),
+		mobile_profile.driver.MatchedRulesString().c_str(),
 		static_cast<unsigned long long>(mobile_profile.driver.bugs),
 		static_cast<unsigned long long>(mobile_profile.driver.workarounds));
 	DevCon.WriteLn("VK: GPU profile hints: %s", mobile_profile.hints.c_str());

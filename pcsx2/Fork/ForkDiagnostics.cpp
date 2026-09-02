@@ -213,7 +213,7 @@ std::string ForkDiagnostics::FormatIdentityLine()
 	// pergunta antes de qualquer decodificação.
 	return fmt::format(
 		"{} identity  gpu='{}' turnip={} requested='{}' active={} unexpected={} mesa={} vk={}.{}.{} "
-		"bugs=0x{:x} workarounds=0x{:x} rules={} sha256={}",
+		"bugs=0x{:x} workarounds=0x{:x} rules={}({}) sha256={}",
 		PREFIX, caps.gpu_name, ForkGpuCapabilities::TurnipSupportToString(caps.turnip),
 		identity.requested_driver.empty() ? "system" : identity.requested_driver,
 		GpuProfileDetector::DriverToString(identity.active_driver),
@@ -222,7 +222,7 @@ std::string ForkDiagnostics::FormatIdentityLine()
 							: std::string("-"),
 		caps.vulkan_api_version >> 22, (caps.vulkan_api_version >> 12) & 0x3FFu,
 		caps.vulkan_api_version & 0xFFFu, caps.driver_bugs, caps.driver_workarounds,
-		caps.driver_matched_rules,
+		caps.driver_matched_rules, caps.driver_matched_rule_ids,
 		identity.package_sha256.empty() ? std::string("-") : identity.package_sha256);
 }
 

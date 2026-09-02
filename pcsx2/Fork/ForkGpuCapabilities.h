@@ -75,6 +75,10 @@ namespace ForkGpuCapabilities
 		u64 driver_bugs = 0;
 		u64 driver_workarounds = 0;
 		u32 driver_matched_rules = 0;
+		/// Ids das regras que casaram, ja formatados. O bitmask diz O QUE foi aplicado; isto diz
+		/// POR QUE. Sem ele, `rules=1` obriga a reproduzir o casamento da tabela de cabeca — que
+		/// foi o custo real de descobrir a regra desligando o framebuffer fetch do Adreno 740.
+		std::string driver_matched_rule_ids = "-";
 	};
 
 	/// A regra, isolada de qualquer estado para poder ser testada exaustivamente. Toda a Fase 3 se

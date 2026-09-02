@@ -6,9 +6,12 @@
 
 #include "GS/Renderers/Common/GSGPUProfilePrivate.h"
 
+#include "fmt/format.h"
+
 #include <array>
 #include <cctype>
 #include <limits>
+#include <string>
 
 namespace GpuProfileDetail
 {
@@ -574,6 +577,11 @@ MobileDriverProfile ResolveDriverProfile(const GpuProfileSelection& selection,
 
 		profile.bugs |= rule.bugs;
 		profile.workarounds |= rule.workarounds;
+		// A contagem sobe SEMPRE; o id so entra enquanto houver espaco. Assim uma tabela que um
+		// dia case mais regras do que o vetor comporta continua reportando o numero certo, e o
+		// truncamento fica visivel na comparacao entre os dois.
+		if (profile.matched_rule_count < MobileDriverProfile::MAX_TRACKED_RULES)
+			profile.matched_rule_ids[profile.matched_rule_count] = rule.id;
 		profile.matched_rule_count++;
 	}
 
@@ -582,3 +590,25 @@ MobileDriverProfile ResolveDriverProfile(const GpuProfileSelection& selection,
 	return profile;
 }
 } // namespace GpuProfileDetail
+
+std::string MobileDriverProfile::MatchedRulesString() const
+{
+	if (matched_rule_count == 0)
+		return "-";
+
+	std::string out;
+	const u32 tracked = TrackedRuleCount();
+	for (u32 i = 0; i < tracked; i++)
+	{
+		if (matched_rule_ids[i] == nullptr)
+			continue;
+		if (!out.empty())
+			out += ',';
+		out += matched_rule_ids[i];
+	}
+	// So aparece quando a tabela casar mais regras do que o vetor guarda. Explicito para que o
+	// leitor saiba que esta vendo uma lista parcial, em vez de concluir que o resto nao existe.
+	if (matched_rule_count > tracked)
+		out += fmt::format("+{}", matched_rule_count - tracked);
+	return out;
+}
