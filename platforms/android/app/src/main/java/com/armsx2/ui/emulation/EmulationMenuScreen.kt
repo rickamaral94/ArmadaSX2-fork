@@ -195,11 +195,17 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
                     .clickable(onClick = closeMenu),
             )
         }
+        // Right edge by default, left when the user asks for it. Everything that encodes
+        // "which side" moves together — dock alignment, slide direction, which corners are
+        // rounded, and which edge gets the inset — because a half-mirrored sheet reads as a
+        // rendering bug: rounded on the wrong side, or sliding out of the edge it is glued to.
+        val menuLeft by com.armsx2.ui.QuickMenuSide.left
+        val slideFrom: (Int) -> Int = if (menuLeft) { w -> -w } else { w -> w }
         AnimatedVisibility(
             visible = shown,
-            enter = slideInHorizontally(tween(320, easing = EaseOut)) { it },
-            exit = slideOutHorizontally(tween(220, easing = EaseIn)) { it },
-            modifier = Modifier.align(Alignment.CenterEnd),
+            enter = slideInHorizontally(tween(320, easing = EaseOut), slideFrom),
+            exit = slideOutHorizontally(tween(220, easing = EaseIn), slideFrom),
+            modifier = Modifier.align(if (menuLeft) Alignment.CenterStart else Alignment.CenterEnd),
         ) {
             if (compact) {
                 Surface(
@@ -207,7 +213,8 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
                         .fillMaxHeight()
                         .fillMaxWidth(0.96f)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical)),
-                    shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+                    shape = if (menuLeft) RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
+                        else RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                     shadowElevation = 22.dp,
@@ -227,7 +234,12 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
                         .fillMaxWidth(0.64f)
                         .widthIn(max = 900.dp)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
-                        .padding(top = 14.dp, end = 12.dp, bottom = 14.dp),
+                        .padding(
+                            top = 14.dp,
+                            start = if (menuLeft) 12.dp else 0.dp,
+                            end = if (menuLeft) 0.dp else 12.dp,
+                            bottom = 14.dp,
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Surface(
@@ -711,12 +723,69 @@ private fun SessionPane(state: EmulationMenuUiState, viewModel: EmulationMenuVie
             val next = ((osdColorIndex + step) % size + size) % size
             viewModel.updateSettings { it.copy(osdColor = com.armsx2.ui.settings.OSD_COLORS[next]) }
         }
+        // Where the stats block sits, cycled in place. In the quick menu and not only in All
+        // Settings because the moment you want to move the OSD is the moment it is covering
+        // something you are trying to read — which is mid-game, not in a settings screen.
+        val osdPosIndex = com.armsx2.ui.settings.OSD_POSITIONS
+            .indexOf(state.settings.osdPosition).coerceAtLeast(0)
+        MenuCycleRow(
+            title = str("overlay.osdPosition.label"),
+            valueLabel = str(com.armsx2.ui.settings.OSD_POSITION_LABEL_KEYS[osdPosIndex]),
+        ) { step ->
+            val size = com.armsx2.ui.settings.OSD_POSITIONS.size
+            val next = ((osdPosIndex + step) % size + size) % size
+            viewModel.updateSettings { it.copy(osdPosition = com.armsx2.ui.settings.OSD_POSITIONS[next]) }
+        }
+        // Which edge this very panel docks to. Cycling it while the panel is open moves the
+        // panel under your thumb, which is the only way to judge the choice.
+        val menuSide by com.armsx2.ui.QuickMenuSide.left
+        MenuCycleRow(
+            title = str("overlay.quickMenuSide.label"),
+            valueLabel = str(if (menuSide) "overlay.quickMenuSide.left" else "overlay.quickMenuSide.right"),
+        ) { _ -> com.armsx2.ui.QuickMenuSide.set(!menuSide) }
     }
     SectionCard(str("savestate.title.loadManage")) {
+        // When each slot was last written. Ten chips numbered 1..10 say nothing about which
+        // hold anything or how old they are, so picking a slot to overwrite after a long
+        // session was guesswork -- the Save Manager has had the dates all along, but the quick
+        // picker is where the choice actually gets made. Read off disk once per menu open;
+        // SaveSlotLookup is blocking, hence produceState rather than a composition-time call.
+        // ★ getGamePathSlot, NOT SaveSlotLookup.
+        //
+        // SaveSlotLookup exists for the LIBRARY, where nothing is booted and the only way to
+        // find states is to match `<serial> (title).NN.p2s` on disk. In here a VM is running, so
+        // the native side already knows the exact path for each slot — and it is authoritative
+        // where the filename match is a guess that silently returns nothing when the serial is
+        // absent or formatted differently, which is what made this show "Empty" for every slot.
+        val slotStamps by androidx.compose.runtime.produceState(
+            // Re-read when the menu's slot selection changes, which is the only thing that
+            // happens in here after a save; a save also bumps the file, and the menu is short-
+            // lived enough that one read per open is the right granularity.
+            initialValue = emptyMap<Int, Long>(), state.saveSlot,
+        ) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    (0..9).mapNotNull { slot ->
+                        val path = kr.co.iefriends.pcsx2.NativeApp.getGamePathSlot(slot)
+                        if (path.isNullOrBlank()) return@mapNotNull null
+                        val f = java.io.File(path)
+                        if (f.isFile && f.lastModified() > 0L) slot to f.lastModified() else null
+                    }.toMap()
+                }.getOrDefault(emptyMap())
+            }
+        }
         Text(
             "${str("memcard.slot1").substringBefore(' ')} ${state.saveSlot + 1}",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            slotStamps[state.saveSlot]?.let {
+                java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(it))
+            } ?: str("savestate.slot.empty"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
         Row(
@@ -729,7 +798,9 @@ private fun SessionPane(state: EmulationMenuUiState, viewModel: EmulationMenuVie
         ) {
             repeat(10) { slot ->
                 OptionChip(
-                    label = "${slot + 1}",
+                    // A dot marks a slot that holds something, so the row shows what is used
+                    // without having to select each one to find out.
+                    label = if (slotStamps.containsKey(slot)) "${slot + 1} •" else "${slot + 1}",
                     selected = slot == state.saveSlot,
                     controllerId = "pause.saveslot.$slot",
                     onClick = { viewModel.setSaveSlot(slot) },
@@ -827,25 +898,46 @@ private fun GraphicsPane(state: EmulationMenuUiState, viewModel: EmulationMenuVi
     // "vulkan" hid this row from almost everyone — which is exactly what happened. Only OpenGL
     // and software genuinely cannot run it.
     if (settings.renderer != "opengl" && settings.renderer != "software") {
-        val fsr1On = settings.upscaler == com.armsx2.config.Settings.UPSCALER_FSR1
-        MenuSwitchRow(
-            str("renderer.fsr1.label"),
-            fsr1On,
-            description = str("renderer.fsr1.description"),
-        ) { on ->
-            viewModel.updateSettings {
-                it.copy(upscaler = if (on) com.armsx2.config.Settings.UPSCALER_FSR1 else com.armsx2.config.Settings.UPSCALER_OFF)
-            }
-        }
+        // A picker, matching the Renderer tab. This was a switch while FSR1 was the only
+        // upscaler; with SGSR beside it there are three mutually exclusive choices, and this
+        // screen is the SECOND place that has to learn about a new one -- the settings tab has
+        // its own copy of the same control, and updating only that one leaves the in-game menu
+        // silently unable to reach the new option.
+        val sgsrOn = settings.upscaler == com.armsx2.config.Settings.UPSCALER_SGSR ||
+            settings.upscaler == com.armsx2.config.Settings.UPSCALER_SGSR_EDGE
+        val fsr1On = settings.upscaler == com.armsx2.config.Settings.UPSCALER_FSR1 || sgsrOn
+        HorizontalOptions(
+            title = str("renderer.upscaler.label"),
+            options = listOf(
+                com.armsx2.config.Settings.UPSCALER_OFF to str("common.off"),
+                com.armsx2.config.Settings.UPSCALER_FSR1 to "FSR 1",
+                com.armsx2.config.Settings.UPSCALER_SGSR to "SGSR",
+                com.armsx2.config.Settings.UPSCALER_SGSR_EDGE to "SGSR Edge",
+            ),
+            selected = if (fsr1On) settings.upscaler else com.armsx2.config.Settings.UPSCALER_OFF,
+            onSelect = { v -> viewModel.updateSettings { it.copy(upscaler = v) } },
+        )
         if (fsr1On) {
-            com.armsx2.ui.settings.IntSliderRow(
-                label = str("renderer.fsr1.sharpness.label"),
-                value = settings.fsrSharpness.coerceIn(0, 100),
-                min = 0,
-                max = 100,
-                valueFormatter = { "$it%" },
-                onChange = { pct -> viewModel.updateSettings { it.copy(fsrSharpness = pct) } },
-            )
+            // Separate settings, separate ranges — see the note in RendererTab.
+            if (sgsrOn) {
+                com.armsx2.ui.settings.IntSliderRow(
+                    label = str("renderer.sgsr.sharpness.label"),
+                    value = settings.sgsrSharpness.coerceIn(0, 200),
+                    min = 0,
+                    max = 200,
+                    valueFormatter = { "$it%" },
+                    onChange = { pct -> viewModel.updateSettings { it.copy(sgsrSharpness = pct) } },
+                )
+            } else {
+                com.armsx2.ui.settings.IntSliderRow(
+                    label = str("renderer.fsr1.sharpness.label"),
+                    value = settings.fsrSharpness.coerceIn(0, 100),
+                    min = 0,
+                    max = 100,
+                    valueFormatter = { "$it%" },
+                    onChange = { pct -> viewModel.updateSettings { it.copy(fsrSharpness = pct) } },
+                )
+            }
         }
     }
     HorizontalOptions(
@@ -1067,10 +1159,17 @@ private fun PerformancePane(state: EmulationMenuUiState, viewModel: EmulationMen
     )
     HorizontalOptions(
         title = str("perf.vuClamping.label"),
-        options = listOf(str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign"))
+        options = listOf(str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign"), str("perf.clamp.exact"))
             .mapIndexed { index, label -> index to label },
         selected = settings.vuClampMode,
         onSelect = { value -> viewModel.updateSettings { it.copy(vuClampMode = value) } },
+    )
+    HorizontalOptions(
+        title = str("perf.vu1Clamping.label"),
+        options = listOf(str("perf.clamp.followVu0"), str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign"), str("perf.clamp.exact"))
+            .mapIndexed { index, label -> index - 1 to label },
+        selected = settings.vu1ClampMode,
+        onSelect = { value -> viewModel.updateSettings { it.copy(vu1ClampMode = value) } },
     )
     HorizontalOptions(
         title = str("perf.eeFpuRoundMode.label"),
@@ -1102,28 +1201,24 @@ private fun PerformancePane(state: EmulationMenuUiState, viewModel: EmulationMen
     }
     // Frame generation, in its own card: it changes what is PRESENTED rather than what is
     // emulated, so it does not belong among the speedhacks above. Github flavour only — the
-    // section returns immediately when BuildConfig.LSFG is false, taking the card with it.
-    if (com.armsx2.BuildConfig.LSFG) {
-        SectionCard(str("perf.lsfg.label")) {
-            com.armsx2.ui.common.LsfgSection(
-                enabled = settings.lsfgEnabled,
-                multiplier = settings.lsfgMultiplier,
-                dllPath = settings.lsfgDllPath,
-                performance = settings.lsfgPerformance,
-                flowScale = settings.lsfgFlowScale,
-                forkFrameGenMode = settings.forkFrameGenMode,
-            ) { on, mult, dll, perf, flow, fgMode ->
-                viewModel.updateSettings {
-                    it.copy(
-                        lsfgEnabled = on,
-                        lsfgMultiplier = mult,
-                        lsfgDllPath = dll,
-                        lsfgPerformance = perf,
-                        lsfgFlowScale = flow,
-                        forkFrameGenMode = fgMode,
-                    )
-                }
-            }
+    // card is a no-op stub in the Play build, which contains no frame generation at all.
+    com.armsx2.ui.common.LsfgEmulationCard(
+        enabled = settings.lsfgEnabled,
+        multiplier = settings.lsfgMultiplier,
+        dllPath = settings.lsfgDllPath,
+        performance = settings.lsfgPerformance,
+        flowScale = settings.lsfgFlowScale,
+        targetRate = settings.lsfgTargetRate,
+    ) { on, mult, dll, perf, flow, target ->
+        viewModel.updateSettings {
+            it.copy(
+                lsfgEnabled = on,
+                lsfgMultiplier = mult,
+                lsfgDllPath = dll,
+                lsfgPerformance = perf,
+                lsfgFlowScale = flow,
+                lsfgTargetRate = target,
+            )
         }
     }
     SectionCard(str("tab.recompiler")) {
@@ -1232,6 +1327,14 @@ private fun ControlsPane(state: EmulationMenuUiState, viewModel: EmulationMenuVi
     // Sits with the touch layout because it's the same job: what the on-screen pad LOOKS
     // like, right after where it's laid out. Full-screen like Controller mapping.
     CompactAction(str("tab.skins"), "◈", Modifier.fillMaxWidth(), viewModel::openSkins)
+    // Analog sticks in-game: swap/invert per stick, deadzone and feel. Requested because some
+    // games ship no invert option of their own, so changing it meant leaving the game for All
+    // Settings mid-session (Sizor). Global scope, matching the rumble/multitap toggles above.
+    run {
+        val stickPlayer = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val stickRefresh = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        com.armsx2.ui.settings.AnalogSticksSection(stickPlayer, stickRefresh)
+    }
     // Motion / gyroscope controls in-game (mode, sensitivity, smoothing, invert). Global scope
     // to match the rumble/multitap toggles above; the per-game scope lives in All Settings › Controls.
     com.armsx2.ui.settings.GyroSection()
@@ -1490,7 +1593,7 @@ private fun ActionGrid(actions: List<MenuAction>) {
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp),

@@ -28,6 +28,7 @@
 #include "PINE.h"
 #include "Patch.h"
 #include "PerformanceMetrics.h"
+#include "PerGameOverrides.h"
 #include "R3000A.h"
 #include "R5900.h"
 #include "Recording/InputRecording.h"
@@ -48,6 +49,7 @@
 #include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/FPControl.h"
+#include "common/HostSys.h"
 #include "common/Perf.h"
 #include "common/ScopedGuard.h"
 #include "common/SettingsWrapper.h"
@@ -70,6 +72,18 @@
 #include <optional>
 #include <sstream>
 #include <common/RedtapeWilCom.h>
+
+#if defined(__ANDROID__)
+// Performance-core selection: std::popcount/max_element for the mask, and plain POSIX I/O
+// for the sysfs capacity nodes (they report st_size == 0, so buffered reads come back empty).
+#include <algorithm>
+#include <bit>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #ifdef _WIN32
 #include "common/RedtapeWindows.h"
@@ -206,6 +220,11 @@ static u32 s_frame_advance_count = 0;
 static bool s_fast_boot_requested = false;
 static bool s_gs_open_on_initialize = false;
 static bool s_thread_affinities_set = false;
+// Cluster mask covering wherever the EE/VU/GS threads were just placed, published for helper
+// threads that want to sit alongside them (the Oboe audio callback). Atomic because that
+// callback is a real-time thread and must not walk cpuinfo itself; 0 means "affinity is off",
+// which is also the correct answer whenever placement failed or was cleared.
+static std::atomic<u64> s_perf_cluster_mask{0};
 
 static LimiterModeType s_limiter_mode = LimiterModeType::Nominal;
 static s64 s_limiter_ticks_per_frame = 0;
@@ -527,13 +546,10 @@ void VMManager::Internal::CPUThreadShutdown()
 
 u64 VMManager::Internal::GetPerformanceClusterAffinityMask()
 {
-	// TODO(android-monorepo): full impl (in the known-good core) unions the CPU
-	// clusters of the EE/VU/GS target processors via ClusterAffinityMaskForOSId(),
-	// which isn't ported into this core yet. Returning 0 leaves adjacent helper
-	// threads (Oboe audio callback) on the kernel's default affinity — correct,
-	// just not big-cluster-pinned. Wire up when the thread-affinity subsystem is
-	// reconciled.
-	return 0;
+	// Unions the CPU clusters of the EE/VU/GS target processors. Computed on the CPU thread
+	// in SetEmuThreadAffinities and only read here, so this stays a single relaxed load —
+	// the caller is Oboe's audio data thread, on its callback deadline.
+	return s_perf_cluster_mask.load(std::memory_order_relaxed);
 }
 
 void VMManager::Internal::SetFileLogPath(std::string path)
@@ -741,6 +757,13 @@ void VMManager::LoadCoreSettings(SettingsInterface& si)
 	if (SettingsInterface* base = Host::Internal::GetBaseSettingsLayer(); base && base != &si)
 		EmuConfig.GS.UserHackOverrides |= static_cast<u32>(base->GetIntValue("EmuCore/GS", "UserHackOverrides", 0));
 
+	// A hack key sitting in the per-game file is a claim on that hack, whether or not
+	// a frontend also wrote the mask — only iOS does. This is what makes MaskUserHacks()
+	// below spare it, so the value survives long enough for the database to be told to
+	// leave it alone.
+	if (const SettingsInterface* game_layer = Host::Internal::GetGameSettingsLayer())
+		EmuConfig.GS.UserHackOverrides |= ComputePerGameOverrides(*game_layer).gs_hacks;
+
 	Patch::ApplyPatchSettingOverrides();
 
 	// Achievements hardcore mode disallows setting some configuration options.
@@ -861,8 +884,16 @@ void VMManager::ApplyGameFixes()
 	if (!game)
 		return;
 
-	game->applyGameFixes(EmuConfig, EmuConfig.EnableGameFixes);
-	game->applyGSHardwareFixes(EmuConfig.GS);
+	// What the player set for this game specifically, which the database does not get
+	// to overwrite. Read from the game layer alone — the layered stack cannot tell a
+	// per-game choice from a global one, and only the per-game one outranks the
+	// database. The settings lock is held by both callers of this function.
+	PerGameOverrides overrides;
+	if (const SettingsInterface* game_layer = Host::Internal::GetGameSettingsLayer())
+		overrides = ComputePerGameOverrides(*game_layer);
+
+	game->applyGameFixes(EmuConfig, EmuConfig.EnableGameFixes, overrides);
+	game->applyGSHardwareFixes(EmuConfig.GS, overrides);
 
 	// Re-remove upscaling fixes, make sure they don't apply at native res.
 	// We do this in LoadCoreSettings(), but game fixes get applied afterwards because of the unsafe warning.
@@ -1007,7 +1038,6 @@ void VMManager::Internal::UpdateEmuFolders()
 	const std::string old_patches_directory(EmuFolders::Patches);
 	const std::string old_memcards_directory(EmuFolders::MemoryCards);
 	const std::string old_textures_directory(EmuFolders::Textures);
-	const std::string old_videos_directory(EmuFolders::Videos);
 
 	auto lock = Host::GetSettingsLock();
 	EmuFolders::LoadConfig(*Host::Internal::GetBaseSettingsLayer());
@@ -1039,12 +1069,6 @@ void VMManager::Internal::UpdateEmuFolders()
 				if (VMManager::HasValidVM())
 					GSTextureReplacements::ReloadReplacementMap();
 			});
-		}
-
-		if (EmuFolders::Videos != old_videos_directory)
-		{
-			if (VMManager::HasValidVM())
-				MTGS::RunOnGSThread(&GSEndCapture);
 		}
 	}
 }
@@ -2501,10 +2525,11 @@ void VMManager::Internal::Throttle()
 	}
 
 	// Conversion to milliseconds loses some precision; after sleeping off whole milliseconds,
-	// spin the thread without sleeping until we finally reach our expected end time.
+	// spin the thread without sleeping until we finally reach our expected end time. Hint the
+	// spin with the calibrated pause bursts (pause on x86, isb on AArch64) instead of hammering
+	// the counter bare - the hint keeps the co-resident cores' throughput and cuts power.
 	while (GetCPUTicks() < uExpectedEnd)
-	{
-	}
+		ShortSpin();
 
 	// Finally, set our next frame start to when this one ends
 	s_limiter_frame_start = uExpectedEnd;
@@ -3524,7 +3549,6 @@ void VMManager::ReleaseNonEssentialRuntimeResources(u32 release_flags)
 		GSConfig.OsdShowSettings = false;
 		GSConfig.OsdshowPatches = false;
 		GSConfig.OsdShowInputs = false;
-		GSConfig.OsdShowVideoCapture = false;
 		GSConfig.OsdShowInputRec = false;
 		GSConfig.OsdShowTextureReplacements = false;
 	}
@@ -3752,8 +3776,9 @@ void VMManager::WarnAboutUnsafeSettings()
 			TRANSLATE_SV("VMManager", "VU1 Round Mode is not set to default, this may break some games."));
 	}
 	if (!EmuConfig.Cpu.Recompiler.vu0Overflow || EmuConfig.Cpu.Recompiler.vu0ExtraOverflow ||
-		EmuConfig.Cpu.Recompiler.vu0SignOverflow || !EmuConfig.Cpu.Recompiler.vu1Overflow ||
-		EmuConfig.Cpu.Recompiler.vu1ExtraOverflow || EmuConfig.Cpu.Recompiler.vu1SignOverflow)
+		EmuConfig.Cpu.Recompiler.vu0SignOverflow || EmuConfig.Cpu.Recompiler.vu0ExactMode ||
+		!EmuConfig.Cpu.Recompiler.vu1Overflow || EmuConfig.Cpu.Recompiler.vu1ExtraOverflow ||
+		EmuConfig.Cpu.Recompiler.vu1SignOverflow || EmuConfig.Cpu.Recompiler.vu1ExactMode)
 	{
 		append(ICON_PF_MICROCHIP,
 			TRANSLATE_SV("VMManager", "VU Clamp Mode is not set to default, this may break some games."));
@@ -3934,6 +3959,120 @@ static u32 GetProcessorIdForProcessor(const cpuinfo_processor* proc)
 #endif
 }
 
+#if defined(__ANDROID__)
+// Per-CPU scheduler capacity, as the kernel's own EAS uses it. Read with plain POSIX I/O:
+// these sysfs nodes report st_size == 0, so any size-based read comes back EMPTY.
+// Returns 0 when the node is missing (older kernels) or unreadable.
+static u32 ReadCpuSysfsU32(u32 cpu, const char* node)
+{
+	char path[128];
+	std::snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/%s", cpu, node);
+
+	const int fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return 0;
+
+	char buf[32] = {};
+	const ssize_t got = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (got <= 0)
+		return 0;
+
+	return static_cast<u32>(std::strtoul(buf, nullptr, 10));
+}
+
+// How "fast" each processor is, on whatever scale we can actually read. Only the RATIO between
+// entries matters, so the three sources never mix within one call:
+//   1. cpu_capacity   — what EAS itself ranks by, and present on Android where the others aren't
+//   2. cpuinfo_max_freq — every cpufreq kernel has it, even without capacity-aware scheduling
+//   3. cpuinfo's frequency — last resort, and 0 on many Android SoCs (hence the two above)
+// An all-zero result means "we cannot tell the clusters apart", which callers must treat as
+// "do not confine anything" rather than guessing.
+static std::vector<u32> GetProcessorWeights()
+{
+	const u32 count = cpuinfo_get_processors_count();
+	std::vector<u32> weights(count, 0);
+
+	for (const char* node : {"cpu_capacity", "cpufreq/cpuinfo_max_freq"})
+	{
+		bool any = false;
+		for (u32 i = 0; i < count; i++)
+		{
+			const cpuinfo_processor* proc = cpuinfo_get_processor(i);
+			if (!proc)
+				continue;
+			weights[i] = ReadCpuSysfsU32(GetProcessorIdForProcessor(proc), node);
+			any |= (weights[i] != 0);
+		}
+		if (any)
+			return weights;
+	}
+
+	for (u32 i = 0; i < count; i++)
+	{
+		const cpuinfo_processor* proc = cpuinfo_get_processor(i);
+		weights[i] = (proc && proc->core) ? proc->core->frequency : 0;
+	}
+	return weights;
+}
+
+// Every processor within PERF_CLUSTER_RATIO of the fastest one. Deliberately NOT "the cluster
+// owning the fastest core": cpuinfo starts a new cluster whenever max_frequency differs, so on
+// any 1+3+4 or 1+2+2+3 flagship the prime core is a cluster of ONE, and confining EE/VU/GS to
+// a single core is far worse than not confining them at all. Ranking by capacity puts the prime
+// and the big cores in one mask, which is the grouping a human means by "performance cores".
+static u64 GetPerformanceCoresMask()
+{
+	const std::vector<u32> weights = GetProcessorWeights();
+	const u32 peak = weights.empty() ? 0 : *std::max_element(weights.begin(), weights.end());
+	if (peak == 0)
+		return 0; // Indistinguishable cores — caller must not confine.
+
+	// 0.75 keeps a 4x A715 @ 855 tier with an X3 @ 1024 (0.83), while dropping an A510 @ 280
+	// (0.27). Mid tiers on 1+2+2+3 parts sit around 0.80-0.90 and are kept on purpose.
+	constexpr double PERF_CLUSTER_RATIO = 0.75;
+	const u32 threshold = static_cast<u32>(static_cast<double>(peak) * PERF_CLUSTER_RATIO);
+
+	u64 mask = 0;
+	for (u32 i = 0; i < weights.size(); i++)
+	{
+		const cpuinfo_processor* proc = cpuinfo_get_processor(i);
+		if (!proc || proc->smt_id != 0 || weights[i] < threshold)
+			continue;
+		mask |= static_cast<u64>(1) << GetProcessorIdForProcessor(proc);
+	}
+	return mask;
+}
+
+// Widen a mask of individual processors to every processor sharing their clusters. cpuinfo
+// splits ARM clusters by MIDR, so this is "the same core type", which is what a helper thread
+// wants: near the emu threads' cache, without stealing one of their specific cores.
+static u64 ClusterMaskForProcessorMask(u64 processor_mask)
+{
+	if (processor_mask == 0)
+		return 0;
+
+	const u32 count = cpuinfo_get_processors_count();
+	u64 mask = 0;
+	for (u32 i = 0; i < count; i++)
+	{
+		const cpuinfo_processor* seed = cpuinfo_get_processor(i);
+		if (!seed || !seed->cluster)
+			continue;
+		if (!(processor_mask & (static_cast<u64>(1) << GetProcessorIdForProcessor(seed))))
+			continue;
+
+		for (u32 j = 0; j < count; j++)
+		{
+			const cpuinfo_processor* peer = cpuinfo_get_processor(j);
+			if (peer && peer->cluster == seed->cluster)
+				mask |= static_cast<u64>(1) << GetProcessorIdForProcessor(peer);
+		}
+	}
+	return mask;
+}
+#endif
+
 static void InitializeProcessorList()
 {
 	if (!cpuinfo_initialize())
@@ -4080,7 +4219,9 @@ void VMManager::EnsureCPUInfoInitialized()
 //   0 Disabled (default — scheduler decides)   1 EE>VU>GS   2 EE>GS>VU   3 VU>EE>GS
 //   4 VU>GS>EE   5 GS>EE>VU   6 GS>VU>EE       7 Performance Cores
 // A plain int like g_gs_android_prefer_vk: written once at startup/boot, read on the CPU thread.
-int g_android_affinity_mode = 0;
+// Default 7 = Performance Cores; see the Kotlin Settings.affinityMode doc. The app pushes
+// the user's value before runVMThread, so this only applies if that push never happened.
+int g_android_affinity_mode = 7;
 #endif
 
 void VMManager::SetEmuThreadAffinities()
@@ -4096,11 +4237,15 @@ void VMManager::SetEmuThreadAffinities()
 	// devices (all clusters report 0 MHz), so the frequency-ordered pin is unreliable
 	// anyway. Release any affinity so the scheduler can use the prime for VU.
 	//
-	// Affinity Control Mode (g_android_affinity_mode, default 0 = Disabled) is the opt-in
-	// escape hatch from that default. It exists because the reasoning above is not universal:
-	// on GS-bound titles an unpinned GS thread measurably regressed (Burnout 3), and community
-	// testers on other SoCs report gains from explicit placement. It is EXPERIMENTAL and
-	// off by default — the unpinned scheduler path below stays the recommended setting.
+	// All of the above is about modes 1-6, which hand out INDIVIDUAL cores. They stay
+	// EXPERIMENTAL and opt-in: they exist because the reasoning is not universal (on GS-bound
+	// titles an unpinned GS thread measurably regressed on Burnout 3, and community testers on
+	// other SoCs report gains from explicit placement), but the VU hazard above is real.
+	//
+	// Mode 7 (Performance Cores) is the DEFAULT and is a different mechanism: it confines the
+	// emu threads to the big/prime TIER and lets EAS keep placing them within it, so VU can
+	// still float to the prime. It never selects fewer processors than there are threads to
+	// place, and falls back to fully unpinned when it cannot resolve the tier at all.
 	if (g_android_affinity_mode == 0)
 	{
 		MTGS::GetThreadHandle().SetAffinity(0);
@@ -4108,6 +4253,7 @@ void VMManager::SetEmuThreadAffinities()
 		s_vm_thread_handle.SetAffinity(0);
 		s_software_renderer_processor_list = {};
 		s_thread_affinities_set = false;
+		s_perf_cluster_mask.store(0, std::memory_order_relaxed);
 		return;
 	}
 
@@ -4120,113 +4266,47 @@ void VMManager::SetEmuThreadAffinities()
 		s_vm_thread_handle.SetAffinity(0);
 		s_software_renderer_processor_list = {};
 		s_thread_affinities_set = false;
+		s_perf_cluster_mask.store(0, std::memory_order_relaxed);
 		return;
 	}
 
 	const bool android_mtvu = EmuConfig.Speedhacks.vuThread;
 
-	// Mode 7 = "Performance Cores": não distribui núcleos individuais — separa o SoC em rápido e
-	// lento e deixa o escalonador colocar cada thread dentro da metade que lhe cabe.
-	//
-	// A regra vem do ARMSX3 (porte Android do RPCS3, `thread_ctrl::get_affinity_mask` em
-	// Utilities/Thread.cpp), e a adotamos porque ela resolve dois problemas que a nossa versão
-	// anterior tinha — um deles medido no aparelho:
-	//
-	//  1. A FONTE. Nós líamos frequência do cpuinfo, e o cpuinfo reporta 0 MHz para todos os
-	//     núcleos em boa parte dos SoCs Android — caso em que a nossa máscara saía vazia e o modo
-	//     não fazia nada. O kernel expõe `/sys/devices/system/cpu/cpuN/cpu_capacity`, que é a
-	//     capacidade normalizada que o próprio EAS usa para escalonar. É a fonte certa, e existe
-	//     em todo DynamIQ/big.LITTLE.
-	//
-	//  2. O CRITÉRIO. Agrupar por CLUSTER quebra no QCS8550 do Odin 2, onde o Cortex-X3 é um
-	//     cluster de um núcleo só. O critério deles é por CAPACIDADE: tudo dentro de 25% do
-	//     núcleo mais forte conta como rápido, então o X3 e os quatro A715/A710 ficam juntos e só
-	//     os três A510 sobram como lentos. Chega ao mesmo lugar na topologia que a gente conhece
-	//     e continua correto nas que a gente não conhece.
-	//
-	// A terceira ideia é deles inteira, e é a que mais rende: RESERVAR O NÚCLEO MAIS FORTE PARA A
-	// THREAD QUE SEGURA O QUADRO. No RPCS3 é a RSX, medida gastando ~10 ms por quadro dentro do
-	// próprio laço sem rodar — nem bloqueada na GPU, nem em falta de página, apenas esperando um
-	// núcleo, porque as threads de SPU disputavam a mesma máscara. Aqui a análoga é a MTGS: é ela
-	// que submete e apresenta. EE e VU ficam com os rápidos MENOS o prime, e só quando isso ainda
-	// lhes deixa mais de um núcleo — senão o remédio aperta mais que a doença.
+	// Mode 7 = "Performance Cores": don't hand out individual cores at all, just confine the
+	// emu threads to the big/prime tier and let EAS place them within it. This is the safest
+	// of the pinning modes because it never pins VU to a specific mid-tier core.
 	if (g_android_affinity_mode == 7)
 	{
-		// Capacidade por núcleo, direto do kernel. Lida uma vez: o arquivo não muda em runtime.
-		static const std::array<u32, 64> capacities = [] {
-			std::array<u32, 64> caps{};
-			for (u32 core = 0; core < 64; core++)
-			{
-				const std::string path = fmt::format("/sys/devices/system/cpu/cpu{}/cpu_capacity", core);
-				std::optional<std::string> text = FileSystem::ReadFileToString(path.c_str());
-				if (!text.has_value())
-					continue;
-				caps[core] = static_cast<u32>(std::atoi(text->c_str()));
-			}
-			return caps;
-		}();
-
-		u32 highest = 0;
-		for (const u32 capacity : capacities)
-			highest = std::max(highest, capacity);
-
-		u64 fast_mask = 0;
-		u64 slow_mask = 0;
-		if (highest > 0)
+		const u64 perf_mask = GetPerformanceCoresMask();
+		// Confining N busy threads to fewer than N processors is strictly worse than leaving
+		// them alone — they end up timesharing one core instead of running concurrently. This
+		// is the guard that makes the mode safe enough to be the default: when the topology
+		// can't be read, or the fast tier is too narrow, we do NOTHING rather than something
+		// harmful. Note this deliberately does NOT fall through to the ordered per-core path
+		// below; that path is the pinning this mode exists to avoid.
+		const u32 threads_to_place = android_mtvu ? 3 : 2;
+		if (perf_mask != 0 && static_cast<u32>(std::popcount(perf_mask)) >= threads_to_place)
 		{
-			// 25% de folga: uma cluster intermediária (A715/A710) entra junto com o prime em vez
-			// de ser jogada no balaio dos A510.
-			const u32 threshold = highest * 3 / 4;
-			for (u32 core = 0; core < 64; core++)
-			{
-				if (capacities[core] == 0)
-					continue;
-				((capacities[core] >= threshold) ? fast_mask : slow_mask) |= (static_cast<u64>(1) << core);
-			}
-		}
-
-		// Sem capacidades, ou com o SoC inteiro na mesma faixa, não há metade rápida para separar
-		// — e inventar uma fixaria o emulador em núcleos escolhidos no chute. Cai no caminho
-		// ordenado, que ao menos usa a ordem do próprio cpuinfo.
-		if (fast_mask != 0 && slow_mask != 0)
-		{
-			u64 prime_mask = 0;
-			u32 best = 0;
-			for (u32 core = 0; core < 64; core++)
-			{
-				if ((fast_mask & (static_cast<u64>(1) << core)) && capacities[core] > best)
-				{
-					best = capacities[core];
-					prime_mask = (static_cast<u64>(1) << core);
-				}
-			}
-
-			const u64 others_mask =
-				(std::popcount(fast_mask & ~prime_mask) > 1) ? (fast_mask & ~prime_mask) : fast_mask;
-
-			INFO_LOG("Affinity mode: Performance Cores — GS 0x{:x} ({} cores), EE/VU 0x{:x} ({} cores)",
-				fast_mask, std::popcount(fast_mask), others_mask, std::popcount(others_mask));
-
-			MTGS::GetThreadHandle().SetAffinity(fast_mask);
-			s_vm_thread_handle.SetAffinity(others_mask);
-			vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? others_mask : 0);
+			INFO_LOG("Affinity mode: Performance Cores (mask 0x{:x}, {} processors, mtvu={})",
+				perf_mask, std::popcount(perf_mask), android_mtvu ? 1 : 0);
+			s_vm_thread_handle.SetAffinity(perf_mask);
+			MTGS::GetThreadHandle().SetAffinity(perf_mask);
+			vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? perf_mask : 0);
 			s_thread_affinities_set = true;
+			// Already a whole tier — hand it to helper threads unchanged.
+			s_perf_cluster_mask.store(perf_mask, std::memory_order_relaxed);
 			return;
 		}
-		// Sem leitura utilizável, o modo se comporta como DESLIGADO — e não cai no caminho
-		// ordenado, que era o que ele fazia antes.
-		//
-		// A diferença passou a importar quando este virou o modo PADRÃO. Cair no caminho ordenado
-		// significa entrar na linha 6 (GS>VU>EE), que fixa cada thread a UM núcleo específico —
-		// uma escolha agressiva, e que o usuário não fez. Enquanto o modo era opt-in, "fazer algo
-		// em vez de nada" era defensável; como padrão, num aparelho onde nem a capacidade dá para
-		// ler, o certo é devolver o escalonamento ao Android.
-		INFO_LOG("Affinity mode: Performance Cores sem capacidade utilizável — deixando com o EAS");
+
+		INFO_LOG("Affinity mode: Performance Cores unavailable (mask 0x{:x} covers {} of the {} "
+				 "threads to place) — leaving threads unpinned.",
+			perf_mask, std::popcount(perf_mask), threads_to_place);
 		MTGS::GetThreadHandle().SetAffinity(0);
 		vu1Thread.GetThreadHandle().SetAffinity(0);
 		s_vm_thread_handle.SetAffinity(0);
 		s_software_renderer_processor_list = {};
 		s_thread_affinities_set = false;
+		s_perf_cluster_mask.store(0, std::memory_order_relaxed);
 		return;
 	}
 
@@ -4262,8 +4342,12 @@ void VMManager::SetEmuThreadAffinities()
 
 	s_vm_thread_handle.SetAffinity(android_ee_affinity);
 	MTGS::GetThreadHandle().SetAffinity(android_gs_affinity);
-	vu1Thread.GetThreadHandle().SetAffinity(android_mtvu ? affinity_for_rank(vu_rank) : 0);
+	const u64 android_vu_affinity = android_mtvu ? affinity_for_rank(vu_rank) : 0;
+	vu1Thread.GetThreadHandle().SetAffinity(android_vu_affinity);
 	s_thread_affinities_set = true;
+	s_perf_cluster_mask.store(
+		ClusterMaskForProcessorMask(android_ee_affinity | android_gs_affinity | android_vu_affinity),
+		std::memory_order_relaxed);
 	return;
 #else
 	const bool new_pin_enable = (GetState() != VMState::Shutdown && EmuConfig.EnableThreadPinning);

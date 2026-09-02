@@ -252,10 +252,18 @@ fun PerformanceTab(state: MutableState<Settings>) {
             SettingsDivider()
             SegmentedRow(
                 label = str("perf.vuClamping.label"),
-                options = listOf(str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign")),
-                selectedIndex = s.vuClampMode.coerceIn(0, 3),
+                options = listOf(str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign"), str("perf.clamp.exact")),
+                selectedIndex = s.vuClampMode.coerceIn(0, 4),
                 description = str("perf.vuClamping.description"),
                 onChange = { apply(s.copy(vuClampMode = it)) },
+            )
+            SettingsDivider()
+            SegmentedRow(
+                label = str("perf.vu1Clamping.label"),
+                options = listOf(str("perf.clamp.followVu0"), str("perf.clamp.none"), str("perf.clamp.normal"), str("perf.clamp.extra"), str("perf.clamp.extraSign"), str("perf.clamp.exact")),
+                selectedIndex = if (s.vu1ClampMode < 0) 0 else s.vu1ClampMode.coerceIn(0, 4) + 1,
+                description = str("perf.vu1Clamping.description"),
+                onChange = { apply(s.copy(vu1ClampMode = it - 1)) },
             )
             SettingsDivider()
             SegmentedRow(
@@ -354,15 +362,15 @@ fun PerformanceTab(state: MutableState<Settings>) {
             dllPath = s.lsfgDllPath,
             performance = s.lsfgPerformance,
             flowScale = s.lsfgFlowScale,
-            forkFrameGenMode = s.forkFrameGenMode,
-        ) { on, mult, dll, perf, flow, fgMode ->
+            targetRate = s.lsfgTargetRate,
+        ) { on, mult, dll, perf, flow, target ->
             apply(s.copy(
                 lsfgEnabled = on,
                 lsfgMultiplier = mult,
                 lsfgDllPath = dll,
                 lsfgPerformance = perf,
                 lsfgFlowScale = flow,
-                forkFrameGenMode = fgMode,
+                lsfgTargetRate = target,
             ))
         }
 

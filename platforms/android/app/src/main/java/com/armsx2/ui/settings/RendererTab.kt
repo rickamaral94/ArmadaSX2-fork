@@ -400,36 +400,53 @@ fun RendererTab(state: MutableState<Settings>) {
                 apply(s.copy(fxaa = it))
             }
             SettingsDivider()
-            // Escolha, não dois interruptores: o Upscaler do núcleo é um enum exclusivo, e dois
-            // toggles deixariam o usuário "ligar" os dois e ver só um valer. De quebra, a
-            // comparação FSR1 x SGSR1 vira um toque, que é o A/B que queremos que seja fácil.
-            // A ordem casa com o enum GSUpscaler; MetalFX (1) não aparece porque é só macOS.
-            val upscalerChoices = listOf(Settings.UPSCALER_OFF, Settings.UPSCALER_FSR1, Settings.UPSCALER_SGSR1)
-            val fsr1On = s.upscaler == Settings.UPSCALER_FSR1
+            // A picker rather than the on/off toggle this was: with SGSR there are three
+            // mutually exclusive upscalers, and two toggles that silently turn each other off
+            // is a worse way to say that than one list. The UI index is NOT the enum value --
+            // MetalFX is 1 and is Apple-only, so it has no row here.
+            val upscalerValues = listOf(
+                Settings.UPSCALER_OFF, Settings.UPSCALER_FSR1,
+                Settings.UPSCALER_SGSR, Settings.UPSCALER_SGSR_EDGE,
+            )
+            val sgsrOn = s.upscaler == Settings.UPSCALER_SGSR || s.upscaler == Settings.UPSCALER_SGSR_EDGE
+            val upscalerOn = s.upscaler == Settings.UPSCALER_FSR1 || sgsrOn
             SegmentedRow(
                 label = str("renderer.upscaler.label"),
-                options = listOf(str("renderer.upscaler.off"), "FSR 1", "SGSR 1"),
-                selectedIndex = upscalerChoices.indexOf(s.upscaler).coerceAtLeast(0),
-                description = str("renderer.upscaler.description"),
-                onChange = { apply(s.copy(upscaler = upscalerChoices[it])) },
+                options = listOf(str("common.off"), "FSR 1", "SGSR", "SGSR Edge"),
+                selectedIndex = upscalerValues.indexOf(s.upscaler).coerceAtLeast(0),
+                onChange = { apply(s.copy(upscaler = upscalerValues[it])) },
             )
-            if (fsr1On) {
+            // One slider per upscaler, not one shared. They are never both on screen, and the
+            // ranges genuinely differ: FSR1's RCAS is natively 0..100, SGSR's edge sharpness is
+            // 0..2 with 100 as Qualcomm's default. Sharing a field would redefine an existing FSR
+            // configuration the moment SGSR was picked.
+            if (upscalerOn) {
                 SettingsDivider()
-                IntSliderRow(
-                    label = str("renderer.fsr1.sharpness.label"),
-                    value = s.fsrSharpness.coerceIn(0, 100),
-                    min = 0,
-                    max = 100,
-                    valueFormatter = { "$it%" },
-                    onChange = { apply(s.copy(fsrSharpness = it)) },
-                )
+                if (sgsrOn) {
+                    IntSliderRow(
+                        label = str("renderer.sgsr.sharpness.label"),
+                        value = s.sgsrSharpness.coerceIn(0, 200),
+                        min = 0,
+                        max = 200,
+                        valueFormatter = { "$it%" },
+                        onChange = { apply(s.copy(sgsrSharpness = it)) },
+                    )
+                } else {
+                    IntSliderRow(
+                        label = str("renderer.fsr1.sharpness.label"),
+                        value = s.fsrSharpness.coerceIn(0, 100),
+                        min = 0,
+                        max = 100,
+                        valueFormatter = { "$it%" },
+                        onChange = { apply(s.copy(fsrSharpness = it)) },
+                    )
+                }
             }
             // FSR's second pass IS RCAS, a contrast-adaptive sharpener, so the core runs one or
-            // the other and never both. Showing CAS while FSR is on would offer a slider that
-            // does nothing. SGSR1 is in the same else-if chain in GSRenderer for the same reason —
-            // its edge-direction delta IS the sharpen — so it hides CAS too.
-            val upscalerSharpens = fsr1On || s.upscaler == Settings.UPSCALER_SGSR1
-            if (!upscalerSharpens) {
+            // the other and never both. Showing CAS while an upscaler is on would offer a slider
+            // that does nothing. SGSR is in the same else-if chain in GSRenderer for the same
+            // reason — its edge-direction delta IS the sharpen — so upscalerOn covers all three.
+            if (!upscalerOn) {
                 SettingsDivider()
                 SegmentedRow(
                     label = str("renderer.cas.label"),

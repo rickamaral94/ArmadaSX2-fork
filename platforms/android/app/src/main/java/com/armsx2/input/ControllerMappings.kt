@@ -836,6 +836,42 @@ object ControllerMappings {
         invalidateRuntimeCaches()
     }
 
+    // A latch-flagged button toggles on a TAP instead of following the physical button: press
+    // once to hold the PS2 button down, press again to release. The on-screen controls have had
+    // this ("tap to hold") since they existed; physical buttons never did, so a game that wants a
+    // button held while you do something else with the d-pad is unplayable for anyone who cannot
+    // hold two controls at once. Requested by bobo123g (#612), who cannot hold R1 and aim at the
+    // same time in Metal Gear Solid 2.
+    //
+    // Global rather than per-game, and stored the same way turbo is, because it describes the
+    // player rather than the title.
+    private const val LATCH_PREFIX = "pad.latch."
+    private fun latchKey(action: Action, player: Int) = playerPrefix(player) + LATCH_PREFIX + action.id
+    fun isLatchAction(action: Action, player: Int = 0): Boolean =
+        MainActivityRuntime.prefs.getBoolean(latchKey(action, player), false)
+    fun setLatchAction(action: Action, player: Int, on: Boolean) {
+        MainActivityRuntime.prefs.edit { putBoolean(latchKey(action, player), on) }
+        invalidateRuntimeCaches()
+        // Changing this mid-game must not stand a button up permanently: if it is latched down
+        // right now, the tap that would have released it no longer toggles anything.
+        MainActivityRuntime.releaseLatches()
+    }
+
+    /** True when a physical button's PS2 target [targetKeyCode] is latch-flagged. */
+    fun isLatchTarget(targetKeyCode: Int, player: Int = 0): Boolean {
+        return targetKeyCode in runtimeBindings().latchTargets[if (player == P2) P2 else P1]
+    }
+
+    /** The slot a per-slot save/load hotkey targets, or -1 for every other hotkey. */
+    fun slotForHotkey(h: SysHotkey): Int = when {
+        h.name.startsWith("SAVE_SLOT_") -> h.name.removePrefix("SAVE_SLOT_").toIntOrNull() ?: -1
+        h.name.startsWith("LOAD_SLOT_") -> h.name.removePrefix("LOAD_SLOT_").toIntOrNull() ?: -1
+        else -> -1
+    }
+
+    /** True for the save half of the per-slot pair. */
+    fun isSaveSlotHotkey(h: SysHotkey): Boolean = h.name.startsWith("SAVE_SLOT_")
+
     /** True when a physical button's PS2 target [targetKeyCode] is turbo-flagged. */
     fun isTurboTarget(targetKeyCode: Int, player: Int = 0): Boolean {
         return targetKeyCode in runtimeBindings().turboTargets[if (player == P2) P2 else P1]
@@ -876,6 +912,36 @@ object ControllerMappings {
         // MainActivityRuntime.dispatchKeyEvent (sets TouchControls.pressureModifierHeld), not as a
         // one-shot action like the others.
         PRESSURE_MOD("pad.pressuremod.keycode", "Pressure Modifier (hold)"),
+
+        // Per-slot save/load and a backwards slot step, matching what NetherSX2 exposes. The
+        // existing trio (Quick Save, Quick Load, Cycle Slot) only reaches the SELECTED slot and
+        // only cycles forwards, so getting to slot 7 meant seven presses and there was no way to
+        // bind "save to 3" outright.
+        //
+        // ★ APPENDED, never inserted. stickCodeForHotkey() is HOTKEY_STICK_CODE_BASE + ordinal,
+        // so an entry added in the middle silently re-points every stick-bound hotkey somebody
+        // already has.
+        PREV_SLOT("pad.prevslot.keycode", "Select Previous Save Slot"),
+        SAVE_SLOT_0("pad.saveslot0.keycode", "Save State To Slot 0"),
+        SAVE_SLOT_1("pad.saveslot1.keycode", "Save State To Slot 1"),
+        SAVE_SLOT_2("pad.saveslot2.keycode", "Save State To Slot 2"),
+        SAVE_SLOT_3("pad.saveslot3.keycode", "Save State To Slot 3"),
+        SAVE_SLOT_4("pad.saveslot4.keycode", "Save State To Slot 4"),
+        SAVE_SLOT_5("pad.saveslot5.keycode", "Save State To Slot 5"),
+        SAVE_SLOT_6("pad.saveslot6.keycode", "Save State To Slot 6"),
+        SAVE_SLOT_7("pad.saveslot7.keycode", "Save State To Slot 7"),
+        SAVE_SLOT_8("pad.saveslot8.keycode", "Save State To Slot 8"),
+        SAVE_SLOT_9("pad.saveslot9.keycode", "Save State To Slot 9"),
+        LOAD_SLOT_0("pad.loadslot0.keycode", "Load State From Slot 0"),
+        LOAD_SLOT_1("pad.loadslot1.keycode", "Load State From Slot 1"),
+        LOAD_SLOT_2("pad.loadslot2.keycode", "Load State From Slot 2"),
+        LOAD_SLOT_3("pad.loadslot3.keycode", "Load State From Slot 3"),
+        LOAD_SLOT_4("pad.loadslot4.keycode", "Load State From Slot 4"),
+        LOAD_SLOT_5("pad.loadslot5.keycode", "Load State From Slot 5"),
+        LOAD_SLOT_6("pad.loadslot6.keycode", "Load State From Slot 6"),
+        LOAD_SLOT_7("pad.loadslot7.keycode", "Load State From Slot 7"),
+        LOAD_SLOT_8("pad.loadslot8.keycode", "Load State From Slot 8"),
+        LOAD_SLOT_9("pad.loadslot9.keycode", "Load State From Slot 9"),
         // Gyro on/off (issue #337) — bind any spare button so gyro can be silenced
         // mid-game without opening settings. TOGGLE flips it and stays; HOLD is the
         // "only while aiming" binding (gyro live only while the button is held, so the
@@ -896,6 +962,12 @@ object ControllerMappings {
         // Also useful for rotation-vector steering after shifting position mid-race.
         // Appended last for the same persisted-by-ordinal reason as TOGGLE_KEYBOARD above.
         GYRO_RECENTER("pad.gyrorecenter.keycode", "Motion Recenter"),
+        // Cycles the PANEL between its supported refresh rates (120 → 90 → 60 → …) without
+        // leaving the game. Distinct from the low-latency frame-rate vote in EmulationSurface:
+        // that one is a hint the compositor may ignore, this is a window mode request.
+        // Requested for battery — dropping a 120Hz panel to 60 while a 60fps game runs costs
+        // nothing visually. Appended last for the persisted-by-ordinal reason above.
+        DISPLAY_REFRESH("pad.displayrefresh.keycode", "Cycle Display Refresh Rate"),
     }
 
     // A hotkey is either a single button or a two-button combo. The main key is
@@ -918,6 +990,7 @@ object ControllerMappings {
         val serial: String?,
         val targets: Array<Map<Int, Int>>,
         val turboTargets: Array<Set<Int>>,
+        val latchTargets: Array<Set<Int>>,
         val hotkeys: List<RuntimeHotkey>,
         val dpadAsLeftStick: Boolean,
     )
@@ -943,6 +1016,12 @@ object ControllerMappings {
                 .map { it.targetKeyCode }
                 .toSet()
         }
+        val latchTargets = Array(2) { player ->
+            actions.asSequence()
+                .filter { isLatchAction(it, player) }
+                .map { it.targetKeyCode }
+                .toSet()
+        }
         val hotkeys = SysHotkey.values().map { action ->
             RuntimeHotkey(action, hotkeyCode(action), hotkeyModCode(action))
         }
@@ -950,6 +1029,7 @@ object ControllerMappings {
             serial,
             targets,
             turboTargets,
+            latchTargets,
             hotkeys,
             resolveBoolean(KEY_DPAD_AS_LSTICK, false),
         )

@@ -76,6 +76,7 @@ add_pcsx2_test(recompiler_tests
 	vif_unpack_dynarec_tests.cpp
 	ee_vu0_cop2_maxmini_conv_tests.cpp
 	ee_vu0_cop2_madd_clamp_tests.cpp
+	ee_vu0_cop2_sub_mul_clamp_tests.cpp
 	ee_vu0_cop2_madda_bc_tests.cpp
 	vu0_harness_validation_tests.cpp
 	vu0_alu_upper_tests.cpp
@@ -102,6 +103,7 @@ add_pcsx2_test(recompiler_tests
 	ee_vu0_cop2_transfer_residency_tests.cpp
 	ee_vu0_cop2_clamp_residency_tests.cpp
 	ee_vu0_cop2_macro_tests.cpp
+	ee_vu0_cop2_guard_mask_tests.cpp
 	vu1_alu_upper_tests.cpp
 	vu1_alu_lower_tests.cpp
 	vu1_efu_p_pipeline_tests.cpp
@@ -122,6 +124,7 @@ add_pcsx2_test(recompiler_tests
 	mvu_progcache_disk_tests.cpp
 	mvu_waitmtvu_stub_tests.cpp
 	mvu_ibit_hack_tests.cpp
+	vu0_macro_zero_sign_console_tests.cpp
 	# Conformance against real-hardware captures rather than against the other
 	# engine: each case is scored on interp and JIT separately, so a mistake the
 	# two share is still visible. Case tables in autocases*.h are generated
@@ -145,8 +148,12 @@ add_pcsx2_test(recompiler_tests
 	ee_lsu_console_conformance_tests.cpp
 	vu0_macro_console_conformance_tests.cpp
 	vu0_macro_fmac_range_console_tests.cpp
+	vu0_macro_fmac_underflow_console_tests.cpp
+	vu0_macro_guard_mask_console_tests.cpp
 	vu_madd_contract_console_tests.cpp
+	vu1_efu_band_console_tests.cpp
 	vu1_efu_console_conformance_tests.cpp
+	vu1_efu_sweep_console_tests.cpp
 	vu_sticky_console_conformance_tests.cpp
 	vu_rsqrt_divisor_sign_tests.cpp
 	vu_divunit_console_conformance_tests.cpp
@@ -157,6 +164,12 @@ add_pcsx2_test(recompiler_tests
 	ee_cache_console_conformance_tests.cpp
 	ee_cache2_console_conformance_tests.cpp
 	ee_cache3_console_conformance_tests.cpp
+	ee_vu0_cop2_mul_underflow_tests.cpp
+	ee_vu0_cop2_overflow_tests.cpp
+	vu_micro_fmac_uo_tests.cpp
+	vu_micro_guard_mask_console_tests.cpp
+	vu_micro_fmac_console_tests.cpp
+	vu_mul_deficit_tests.cpp
 )
 
 target_include_directories(recompiler_tests PRIVATE

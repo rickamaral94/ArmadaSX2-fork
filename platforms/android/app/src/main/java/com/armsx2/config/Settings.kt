@@ -74,14 +74,28 @@ data class Settings(
      *  fpuOverflow/fpuExtraOverflow/fpuFullMode/fpuExactMode.
      *  4 is Full plus the rest of the EE multiplier's one-ULP deficit and a
      *  divide/sqrt/rsqrt that runs the unit's own recurrence out of line, so it
-     *  costs a call per divide. ⚠️ The GameDB overwrites this whole tier for any
-     *  title carrying an eeClampMode entry, and an entry below 4 CLEARS the
-     *  exact bit — so on those titles the choice is inert unless game fixes are
-     *  off. Keep any bound in the pickers in sync with this list. */
+     *  costs a call per divide. A title's own GameDB eeClampMode entry applies
+     *  only while game fixes are on and the mode was not set for that game —
+     *  a per-game setting outranks the database, and a GameDB entry below 4
+     *  clears the exact bit. Keep any bound in the pickers in sync with this
+     *  list. */
     val eeClampMode: Int = 1,
-    /** VU clamp mode — 0 None / 1 Normal / 2 Extra / 3 Extra+Sign (PCSX2 default Normal).
-     *  Unpacks to vu0/vu1 Overflow/ExtraOverflow/SignOverflow. */
+    /** VU clamp mode — 0 None / 1 Normal / 2 Extra / 3 Extra+Sign / 4 Exact
+     *  (PCSX2 default Normal). Unpacks to vu0 Overflow/ExtraOverflow/
+     *  SignOverflow/ExactMode, and to the vu1 four unless [vu1ClampMode]
+     *  overrides them. 4 is Extra+Sign plus the VU's own arithmetic and
+     *  status flags: the adder's guard mask, the divide unit's recurrence and
+     *  the EFU's series, the multiplier's one-ULP deficit, and the FMAC's
+     *  saturation ceiling with its MAC U and MAC O. A title's own GameDB
+     *  vu0/vu1/vuClampMode entry applies only while game fixes are on and the
+     *  mode was not set for that game — a per-game setting outranks the
+     *  database, and a GameDB entry below 4 clears the exact bit. Keep any
+     *  bound in the pickers in sync with this list. */
     val vuClampMode: Int = 1,
+    /** VU1 clamp override — -1 follows [vuClampMode], else 0..4 on the same
+     *  ladder but for the vu1 keys alone. Keep any bound in the pickers in
+     *  sync with this list. */
+    val vu1ClampMode: Int = -1,
     /** EmuCore/Speedhacks/vuThread — Multi-Threaded VU1 (MTVU).
      *  Kept on by default for the mac ARM64 backend, but persisted normally
      *  so testers can A/B games which dislike MTVU. */
@@ -423,30 +437,18 @@ data class Settings(
      *  only does anything on games that implement the prompt. Per-game because the same combo is
      *  a normal input elsewhere, and titles that ignore the prompt gain nothing from holding it. */
     val autoProgressiveScan: Boolean = false,
-    /** Affinity Control Mode. 0 Disabled · 1 EE>VU>GS · 2 EE>GS>VU · 3 VU>EE>GS · 4 VU>GS>EE ·
-     *  5 GS>EE>VU · 6 GS>VU>EE · 7 Performance Cores.
+    /** Affinity Control Mode (default 7 = Performance Cores). 0 Disabled · 1 EE>VU>GS ·
+     *  2 EE>GS>VU · 3 VU>EE>GS · 4 VU>GS>EE · 5 GS>EE>VU · 6 GS>VU>EE · 7 Performance Cores.
+     *  Pushed to native via NativeApp.setAffinityMode before runVMThread and consumed by
+     *  VMManager::SetEmuThreadAffinities, so it applies on the next boot. Per-game because the
+     *  best placement is workload-dependent: GS-bound titles want the GS thread on the prime
+     *  core, VU-bound ones want VU left free to float there.
      *
-     *  Empurrado ao nativo por NativeApp.setAffinityMode antes de runVMThread e consumido por
-     *  VMManager::SetEmuThreadAffinities, então vale no próximo boot. Por jogo, porque a melhor
-     *  colocação depende da carga: título preso no GS quer a thread do GS no núcleo prime, preso
-     *  na VU quer a VU livre para flutuar lá.
-     *
-     *  **Padrão 7 (Performance Cores) neste fork, por decisão do mantenedor.** A ressalva fica
-     *  registrada porque ela é real: não existe uma medição A/B nossa, e a regra do projeto é que
-     *  nada vira global sem comparação. O que reduz o risco é que os dois defeitos que tornavam
-     *  este modo perigoso foram corrigidos antes de ligá-lo:
-     *
-     *   - a regra era "o cluster do núcleo mais rápido", e no QCS8550 esse cluster tem UM núcleo
-     *     (1x X3 + 4x A715/A710 + 3x A510) — o modo confinava EE, GS e VU a um core só;
-     *   - a fonte era a frequência do cpuinfo, que reporta 0 MHz em boa parte dos SoCs Android.
-     *
-     *  Agora a capacidade vem de /sys/devices/system/cpu/cpuN/cpu_capacity — a mesma que o EAS
-     *  usa — e a MTGS recebe os núcleos rápidos incluindo o prime enquanto EE/VU ficam com os
-     *  rápidos menos o prime, para que a thread que segura o quadro não dispute com elas.
-     *
-     *  Quem quiser voltar ao escalonador do Android põe em Disabled; e o log imprime a máscara
-     *  escolhida (`Affinity mode: Performance Cores (mask 0x..., N cores)`), então o A/B que
-     *  falta é uma sessão com e outra sem, na mesma cena. */
+     *  Modes 1-6 hand out INDIVIDUAL cores and remain experimental — pinning VU to a mid-tier
+     *  big core measured ~1.4x slower than letting it float to the prime. Mode 7 is a different
+     *  thing: it confines the emu threads to the big/prime TIER and leaves EAS free to place
+     *  them within it, and it self-disables (unpinned) on any device where that tier can't be
+     *  read or is too narrow to hold them. That safety is why it can be the default. */
     val affinityMode: Int = 7,
     /** EmuCore/GS FramerateNTSC — the emulated PS2 vsync rate for NTSC games
      *  (PCSX2 default 59.94). Lowering it slows the game's target rate; raising it
@@ -627,6 +629,21 @@ data class Settings(
      *  when the user's Lossless.dll predates 3.1p. */
     val lsfgPerformance: Boolean = true,
     /** EmuCore/GS/LsfgFlowScale — optical-flow resolution, as a PERCENTAGE of the presented
+     *  image (25..100). Lower is cheaper and blurrier. The native side inverts it: the library
+     *  takes a divisor, so 25% becomes 4.0. See GSLsfg.cpp. */
+    val lsfgFlowScale: Int = 100,
+    /** EmuCore/GS/LsfgTargetRate — target OUTPUT rate in Hz for the adaptive pacer; 0 holds
+     *  [lsfgMultiplier] fixed.
+     *
+     *  A fixed multiplier is the wrong shape for a game that oscillates between 60 and 30fps on
+     *  a 60Hz panel: at x2 it presents 120 then 60, and every transition reads as judder. Given
+     *  a target the pacer varies the generation count instead — two interpolated frames while
+     *  the game runs at 30, one while it runs at 60 — so the presented rate stays put while the
+     *  rendered rate moves underneath it.
+     *
+     *  Stored as a concrete Hz rather than an on/off flag because the native pacer needs a
+     *  number; the UI writes the panel's refresh rate when the user turns it on. */
+    val lsfgTargetRate: Int = 0,
      *  image (25..100). Lower is cheaper e mais borrado. O lado nativo inverte: a biblioteca
      *  recebe um divisor, então 25% vira 4.0. Ver GSLsfg.cpp.
      *
@@ -671,13 +688,18 @@ data class Settings(
     val casMode: Int = 0,
     /** EmuCore/GS/CASSharpness — sharpening strength 0..100 (%). */
     val casSharpness: Int = 50,
-    /** EmuCore/GS/Upscaler — GSUpscaler: 0 Off / 1 MetalFX (Apple only) / 2 FSR1 / 3 SGSR1.
+    /** EmuCore/GS/Upscaler — GSUpscaler: 0 Off / 1 MetalFX (Apple only) / 2 FSR1 / 3 SGSR /
+     *  4 SGSR edge-direction.
      *  1 is unreachable from this UI; the values are the core enum's, and it is persisted
      *  as an integer, so they must not be renumbered to close the gap. */
     val upscaler: Int = 0,
     /** EmuCore/GS/FSRSharpness — FSR1 RCAS strength 0..100 (%). Separate from casSharpness:
      *  RCAS runs on a different curve, so the two sliders are not interchangeable. */
     val fsrSharpness: Int = 50,
+    /** EmuCore/GS/SGSRSharpness — SGSR edge sharpness 0..200 (%), 100 = Qualcomm's default.
+     *  Deliberately NOT shared with fsrSharpness: FSR1's is natively 0..100, so one field would
+     *  either redefine existing FSR configurations or force FSR's range to change meaning. */
+    val sgsrSharpness: Int = 100,
     /** EmuCore/GS/LoadTextureReplacements. */
     val loadTextureReplacements: Boolean = false,
     /** EmuCore/GS/LoadTextureReplacementsAsync. */
@@ -702,6 +724,14 @@ data class Settings(
     val osdScale: Int = 65,
     /** EmuCore/GS/OsdColor — OSD text colour as 0xRRGGBB. 0 = default white. */
     val osdColor: Int = 0,
+    /** EmuCore/GS/OsdPerformancePos — which corner the perf stats block sits in.
+     *
+     *  Stored as PCSX2's own OsdOverlayPos ordinal (1 TopLeft, 3 TopRight, 7 BottomLeft,
+     *  9 BottomRight) rather than a 0..3 index of our own, so the value written here is the
+     *  value the core reads — no translation table to keep in sync, and an INI hand-edited to
+     *  one of the five positions we don't offer (the centres) still round-trips. Default 3 is
+     *  PCSX2's own DEFAULT_OSD_PERFORMANCE_POS, so nobody's overlay moves on update. */
+    val osdPosition: Int = 3,
     /** EmuCore/GS/VsyncEnable — sync presentation to the display refresh (less
      *  tearing/smoother, slightly higher latency). Applies on game restart. */
     val vsyncEnable: Boolean = false,
@@ -812,6 +842,8 @@ data class Settings(
      *  a renderer restart to take effect. */
     val gpuProfile: Int = 0,
 ) {
+    val effectiveVu1ClampMode: Int get() = if (vu1ClampMode < 0) vuClampMode else vu1ClampMode
+
     /** Routes a persisted-key write to the native base layer, or to
      *  [emitSink] when a per-game INI export is capturing the key set (see
      *  [writeGameSettingsIni]). Replaces the direct NativeApp.setSetting calls
@@ -829,8 +861,8 @@ data class Settings(
         put("EmuCore/Speedhacks", "EECycleRate", "int", eeCycleRate.toString())
         put("EmuCore/Speedhacks", "EECycleSkip", "int", eeCycleSkip.toString())
         // EE/FPU + VU clamping (recompiler accuracy). Each mode unpacks to the
-        // PCSX2 bit flags below; both VUs get the same mode. Needs a recompiler
-        // reset (commitSettings / game restart) to take effect.
+        // PCSX2 bit flags below. Needs a recompiler reset (commitSettings /
+        // game restart) to take effect.
         put("EmuCore/CPU/Recompiler", "fpuOverflow", "bool", (eeClampMode >= 1).toString())
         put("EmuCore/CPU/Recompiler", "fpuExtraOverflow", "bool", (eeClampMode >= 2).toString())
         put("EmuCore/CPU/Recompiler", "fpuFullMode", "bool", (eeClampMode >= 3).toString())
@@ -838,10 +870,13 @@ data class Settings(
         // inconsistent set is silently reset to defaults on load rather than
         // rejected, so all four go out together or none of them mean anything.
         put("EmuCore/CPU/Recompiler", "fpuExactMode", "bool", (eeClampMode >= 4).toString())
-        for (vu in arrayOf("vu0", "vu1")) {
-            put("EmuCore/CPU/Recompiler", "${vu}Overflow", "bool", (vuClampMode >= 1).toString())
-            put("EmuCore/CPU/Recompiler", "${vu}ExtraOverflow", "bool", (vuClampMode >= 2).toString())
-            put("EmuCore/CPU/Recompiler", "${vu}SignOverflow", "bool", (vuClampMode >= 3).toString())
+        for ((vu, mode) in arrayOf("vu0" to vuClampMode, "vu1" to effectiveVu1ClampMode)) {
+            put("EmuCore/CPU/Recompiler", "${vu}Overflow", "bool", (mode >= 1).toString())
+            put("EmuCore/CPU/Recompiler", "${vu}ExtraOverflow", "bool", (mode >= 2).toString())
+            put("EmuCore/CPU/Recompiler", "${vu}SignOverflow", "bool", (mode >= 3).toString())
+            // Cumulative like the FPU ladder above: emucore resets an
+            // ExactMode without SignOverflow back to defaults on load.
+            put("EmuCore/CPU/Recompiler", "${vu}ExactMode", "bool", (mode >= 4).toString())
         }
         put("EmuCore/Speedhacks", "vuThread", "bool", mtvu.toString())
         put("EmuCore/Speedhacks", "vu1Instant", "bool", vu1Instant.toString())
@@ -1048,6 +1083,12 @@ data class Settings(
         NativeApp.osdShowVersion(osdShowVersion)
         NativeApp.osdShowSettings(osdShowSettings)
         NativeApp.osdShowInputs(osdShowInputs)
+        // ★ The OSD MODE overrides every flag just written. Full / Minimal / Off are a separate
+        // choice from the per-stat selection above, and this function runs on every settings
+        // change — so without this line, changing any unrelated setting quietly swaps an active
+        // mode for the Custom flags, which reads to the user as "the OSD disappeared when I
+        // changed a setting". Custom is already correct and is left alone.
+        com.armsx2.ui.InGameOverlay.reassertOsdModeAfterSettingsApply()
         // USB keyboard (#254): live attach/detach on the running VM. A plain
         // setSetting("USB1","Type",...) write is persisted but doesn't reattach
         // USB devices, so drive the device (re)creation explicitly. No-op before
@@ -1088,15 +1129,20 @@ data class Settings(
             if (fo == null && fe == null && ff == null && fx == null) this.eeClampMode
             else if (fx == true) 4 else if (ff == true) 3 else if (fe == true) 2 else if (fo == true) 1 else 0
         }
-        // VU clamp (0 None / 1 Normal / 2 Extra / 3 Extra+Sign) — same packing on vu0*
-        // (applyTo writes vu0 and vu1 identically, so reading vu0 recovers the mode).
-        val vuClamp = run {
-            val o = boolAt("EmuCore/CPU/Recompiler/vu0Overflow")
-            val e = boolAt("EmuCore/CPU/Recompiler/vu0ExtraOverflow")
-            val sgn = boolAt("EmuCore/CPU/Recompiler/vu0SignOverflow")
-            if (o == null && e == null && sgn == null) this.vuClampMode
-            else if (sgn == true) 3 else if (e == true) 2 else if (o == true) 1 else 0
+        // VU clamp (0 None / 1 Normal / 2 Extra / 3 Extra+Sign / 4 Exact) — the same packing,
+        // once per VU. Treat the exact key's absence as an older core rather than as mode 3 — a
+        // build without it never wrote the key, and inferring 3 there would silently demote the
+        // setting.
+        fun vuClampAt(vu: String, fallback: Int): Int {
+            val o = boolAt("EmuCore/CPU/Recompiler/${vu}Overflow")
+            val e = boolAt("EmuCore/CPU/Recompiler/${vu}ExtraOverflow")
+            val sgn = boolAt("EmuCore/CPU/Recompiler/${vu}SignOverflow")
+            val fx = boolAt("EmuCore/CPU/Recompiler/${vu}ExactMode")
+            return if (o == null && e == null && sgn == null && fx == null) fallback
+            else if (fx == true) 4 else if (sgn == true) 3 else if (e == true) 2 else if (o == true) 1 else 0
         }
+        val vuClamp = vuClampAt("vu0", this.vuClampMode)
+        val vu1Clamp = vuClampAt("vu1", this.effectiveVu1ClampMode).let { if (it == vuClamp) -1 else it }
 
         // renderer + upscale aren't written by applyTo's put() — the core / renderUpscalemultiplier
         // persist them to the base layer directly — so recover them from the native keys.
@@ -1118,6 +1164,7 @@ data class Settings(
             eeCycleSkip = intAt("EmuCore/Speedhacks/EECycleSkip") ?: this.eeCycleSkip,
             eeClampMode = eeClamp,
             vuClampMode = vuClamp,
+            vu1ClampMode = vu1Clamp,
             mtvu = boolAt("EmuCore/Speedhacks/vuThread") ?: this.mtvu,
             vu1Instant = boolAt("EmuCore/Speedhacks/vu1Instant") ?: this.vu1Instant,
             vuFlagHack = boolAt("EmuCore/Speedhacks/vuFlagHack") ?: this.vuFlagHack,
@@ -1276,6 +1323,7 @@ data class Settings(
             lsfgDllPath = strAt("EmuCore/GS/LsfgDllPath") ?: this.lsfgDllPath,
             lsfgPerformance = boolAt("EmuCore/GS/LsfgPerformance") ?: this.lsfgPerformance,
             lsfgFlowScale = intAt("EmuCore/GS/LsfgFlowScale") ?: this.lsfgFlowScale,
+            lsfgTargetRate = intAt("EmuCore/GS/LsfgTargetRate") ?: this.lsfgTargetRate,
             forkFrameGenMode = strAt("Fork/FrameGen.Mode") ?: this.forkFrameGenMode,
             shaderChainParams = strAt("EmuCore/GS/ShaderChainParams")?.let { raw ->
                 // Hand-editable file, so a malformed blob is a real possibility: keep the
@@ -1286,6 +1334,7 @@ data class Settings(
             casSharpness = intAt("EmuCore/GS/CASSharpness") ?: this.casSharpness,
             upscaler = intAt("EmuCore/GS/Upscaler") ?: this.upscaler,
             fsrSharpness = intAt("EmuCore/GS/FSRSharpness") ?: this.fsrSharpness,
+            sgsrSharpness = intAt("EmuCore/GS/SGSRSharpness") ?: this.sgsrSharpness,
             loadTextureReplacements = boolAt("EmuCore/GS/LoadTextureReplacements") ?: this.loadTextureReplacements,
             loadTextureReplacementsAsync = boolAt("EmuCore/GS/LoadTextureReplacementsAsync") ?: this.loadTextureReplacementsAsync,
             precacheTextureReplacements = boolAt("EmuCore/GS/PrecacheTextureReplacements") ?: this.precacheTextureReplacements,
@@ -1294,6 +1343,7 @@ data class Settings(
             osdShowFps = boolAt("EmuCore/GS/OsdShowFPS") ?: this.osdShowFps,
             osdScale = intAt("EmuCore/GS/OsdScale") ?: this.osdScale,
             osdColor = intAt("EmuCore/GS/OsdColor") ?: this.osdColor,
+            osdPosition = intAt("EmuCore/GS/OsdPerformancePos") ?: this.osdPosition,
             vsyncEnable = boolAt("EmuCore/GS/VsyncEnable") ?: this.vsyncEnable,
             osdShowVps = boolAt("EmuCore/GS/OsdShowVPS") ?: this.osdShowVps,
             osdShowSpeed = boolAt("EmuCore/GS/OsdShowSpeed") ?: this.osdShowSpeed,
@@ -1411,9 +1461,16 @@ data class Settings(
         val began = if (serial == null) NativeApp.gameIniBeginWrite()
                     else NativeApp.gameIniBeginWriteForSerial(serial)
         if (!began) return
+        // What outranks the GameDB is key presence in the game layer
+        // (ComputePerGameOverrides), so VU1's group is written even where its values match
+        // global's.
+        val forcedKeys: Set<String> = if (vu1ClampMode != global.vu1ClampMode)
+            setOf("vu1Overflow", "vu1ExtraOverflow", "vu1SignOverflow", "vu1ExactMode")
+        else emptySet()
         // Effective pass: stream only the keys that differ from the baseline.
         emitSink = { section, key, _, value ->
-            if (baseline["$section$key"] != value)
+            if (baseline["$section$key"] != value ||
+                (section == "EmuCore/CPU/Recompiler" && key in forcedKeys))
                 NativeApp.gameIniPut(section, key, value)
         }
         try {
@@ -1483,6 +1540,7 @@ data class Settings(
         // Clamped to the same 25..100 the native side enforces. A value outside it would be
         // coerced there anyway, and the two disagreeing is how a slider ends up looking stuck.
         put("EmuCore/GS", "LsfgFlowScale", "int", lsfgFlowScale.coerceIn(25, 100).toString())
+        put("EmuCore/GS", "LsfgTargetRate", "int", lsfgTargetRate.coerceIn(0, 1000).toString())
         // Parameter overrides, as one opaque JSON blob. Nothing in emucore reads this key —
         // there is no GSConfig field behind it, and the live values reach the renderer via
         // the push below, not through here. It is written so the map survives the same
@@ -1499,10 +1557,13 @@ data class Settings(
             ShaderParams.push(shaderChainPreset, shaderChainParams[shaderChainPreset].orEmpty())
         put("EmuCore/GS", "CASMode", "int", casMode.coerceIn(0, 2).toString())
         put("EmuCore/GS", "CASSharpness", "int", casSharpness.coerceIn(0, 100).toString())
-        // Upper bound is UPSCALER_SGSR1, not the count of options this UI shows — clamping to
-        // the visible choices would silently rewrite FSR1 back to Off.
-        put("EmuCore/GS", "Upscaler", "int", upscaler.coerceIn(UPSCALER_OFF, UPSCALER_SGSR1).toString())
+        // Upper bound is the HIGHEST enum value, not the count of options this UI shows —
+        // clamping to the visible choices would silently rewrite the top one back to Off. This
+        // bound has to move every time the core enum grows, which is exactly the trap it was
+        // written to warn about: it was still UPSCALER_FSR1 when SGSR was added.
+        put("EmuCore/GS", "Upscaler", "int", upscaler.coerceIn(UPSCALER_OFF, UPSCALER_SGSR_EDGE).toString())
         put("EmuCore/GS", "FSRSharpness", "int", fsrSharpness.coerceIn(0, 100).toString())
+        put("EmuCore/GS", "SGSRSharpness", "int", sgsrSharpness.coerceIn(0, 200).toString())
         put("EmuCore/GS", "LoadTextureReplacements", "bool", loadTextureReplacements.toString())
         put("EmuCore/GS", "LoadTextureReplacementsAsync", "bool", loadTextureReplacementsAsync.toString())
         put("EmuCore/GS", "PrecacheTextureReplacements", "bool", precacheTextureReplacements.toString())
@@ -1511,6 +1572,7 @@ data class Settings(
         put("EmuCore/GS", "OsdShowFPS", "bool", osdShowFps.toString())
         put("EmuCore/GS", "OsdScale", "int", osdScale.coerceIn(25, 500).toString())
         put("EmuCore/GS", "OsdColor", "int", (osdColor and 0xFFFFFF).toString())
+        put("EmuCore/GS", "OsdPerformancePos", "int", osdPosition.coerceIn(0, 9).toString())
         put("EmuCore/GS", "VsyncEnable", "bool", vsyncEnable.toString())
         put("EmuCore/GS", "OsdShowVPS", "bool", osdShowVps.toString())
         put("EmuCore/GS", "OsdShowSpeed", "bool", osdShowSpeed.toString())
@@ -1672,10 +1734,13 @@ data class Settings(
             lsfgDllPath != other.lsfgDllPath ||
             lsfgPerformance != other.lsfgPerformance ||
             lsfgFlowScale != other.lsfgFlowScale ||
+            lsfgTargetRate != other.lsfgTargetRate ||
+            osdPosition != other.osdPosition ||
             casMode != other.casMode ||
             casSharpness != other.casSharpness ||
             upscaler != other.upscaler ||
             fsrSharpness != other.fsrSharpness ||
+            sgsrSharpness != other.sgsrSharpness ||
             accurateBlendingUnit != other.accurateBlendingUnit ||
             hwMipmap != other.hwMipmap ||
             triFilter != other.triFilter ||
@@ -1725,6 +1790,7 @@ data class Settings(
         put("eeCycleSkip", eeCycleSkip)
         put("eeClampMode", eeClampMode)
         put("vuClampMode", vuClampMode)
+        put("vu1ClampMode", vu1ClampMode)
         put("mtvu", mtvu)
         put("vu1Instant", vu1Instant)
         put("vuFlagHack", vuFlagHack)
@@ -1897,11 +1963,13 @@ data class Settings(
         put("lsfgDllPath", lsfgDllPath)
         put("lsfgPerformance", lsfgPerformance)
         put("lsfgFlowScale", lsfgFlowScale)
+        put("lsfgTargetRate", lsfgTargetRate)
         put("forkFrameGenMode", forkFrameGenMode)
         put("casMode", casMode)
         put("casSharpness", casSharpness)
         put("upscaler", upscaler)
         put("fsrSharpness", fsrSharpness)
+        put("sgsrSharpness", sgsrSharpness)
         put("loadTextureReplacements", loadTextureReplacements)
         put("loadTextureReplacementsAsync", loadTextureReplacementsAsync)
         put("precacheTextureReplacements", precacheTextureReplacements)
@@ -1910,6 +1978,7 @@ data class Settings(
         put("osdShowFps", osdShowFps)
         put("osdScale", osdScale)
         put("osdColor", osdColor)
+        put("osdPosition", osdPosition)
         put("vsyncEnable", vsyncEnable)
         put("osdShowVps", osdShowVps)
         put("osdShowSpeed", osdShowSpeed)
@@ -1970,7 +2039,8 @@ data class Settings(
          *  position in any Android picker — writing the picker index would select MetalFX. */
         const val UPSCALER_OFF = 0
         const val UPSCALER_FSR1 = 2
-        const val UPSCALER_SGSR1 = 3
+        const val UPSCALER_SGSR = 3
+        const val UPSCALER_SGSR_EDGE = 4
 
         /** One-tap "Low-End" performance snapshot applied on top of [base].
          *  Only cheap, safe-for-most levers that already exist as fields:
@@ -2005,6 +2075,7 @@ data class Settings(
                 eeCycleSkip = json.optInt("eeCycleSkip", def.eeCycleSkip),
                 eeClampMode = json.optInt("eeClampMode", def.eeClampMode),
                 vuClampMode = json.optInt("vuClampMode", def.vuClampMode),
+                vu1ClampMode = json.optInt("vu1ClampMode", def.vu1ClampMode),
                 mtvu = json.optBoolean("mtvu", def.mtvu),
                 vu1Instant = json.optBoolean("vu1Instant", def.vu1Instant),
                 vuFlagHack = json.optBoolean("vuFlagHack", def.vuFlagHack),
@@ -2185,6 +2256,7 @@ data class Settings(
                 lsfgDllPath = json.optString("lsfgDllPath", def.lsfgDllPath),
                 lsfgPerformance = json.optBoolean("lsfgPerformance", def.lsfgPerformance),
                 lsfgFlowScale = json.optInt("lsfgFlowScale", def.lsfgFlowScale),
+                lsfgTargetRate = json.optInt("lsfgTargetRate", def.lsfgTargetRate),
                 // Migração de uma só vez: uma config gravada ANTES desta chave existir, com o
                 // backend de LSFG já ligado, resolve para "auto" em vez do padrão "off".
                 //
@@ -2200,6 +2272,7 @@ data class Settings(
                 casSharpness = json.optInt("casSharpness", def.casSharpness),
                 upscaler = json.optInt("upscaler", def.upscaler),
                 fsrSharpness = json.optInt("fsrSharpness", def.fsrSharpness),
+                sgsrSharpness = json.optInt("sgsrSharpness", def.sgsrSharpness),
                 loadTextureReplacements = json.optBoolean("loadTextureReplacements", def.loadTextureReplacements),
                 loadTextureReplacementsAsync = json.optBoolean("loadTextureReplacementsAsync", def.loadTextureReplacementsAsync),
                 precacheTextureReplacements = json.optBoolean("precacheTextureReplacements", def.precacheTextureReplacements),
@@ -2208,6 +2281,7 @@ data class Settings(
                 osdShowFps = json.optBoolean("osdShowFps", def.osdShowFps),
                 osdScale = json.optInt("osdScale", def.osdScale),
                 osdColor = json.optInt("osdColor", def.osdColor),
+                osdPosition = json.optInt("osdPosition", def.osdPosition),
                 vsyncEnable = json.optBoolean("vsyncEnable", def.vsyncEnable),
                 osdShowVps = json.optBoolean("osdShowVps", def.osdShowVps),
                 osdShowSpeed = json.optBoolean("osdShowSpeed", def.osdShowSpeed),
@@ -2271,6 +2345,7 @@ data class Settings(
             if (current.eeCycleSkip         != base.eeCycleSkip)         j.put("eeCycleSkip", current.eeCycleSkip)
             if (current.eeClampMode         != base.eeClampMode)         j.put("eeClampMode", current.eeClampMode)
             if (current.vuClampMode         != base.vuClampMode)         j.put("vuClampMode", current.vuClampMode)
+            if (current.vu1ClampMode        != base.vu1ClampMode)        j.put("vu1ClampMode", current.vu1ClampMode)
             if (current.mtvu                != base.mtvu)                j.put("mtvu", current.mtvu)
             if (current.vu1Instant          != base.vu1Instant)          j.put("vu1Instant", current.vu1Instant)
             if (current.vuFlagHack          != base.vuFlagHack)          j.put("vuFlagHack", current.vuFlagHack)
@@ -2440,11 +2515,13 @@ data class Settings(
             if (current.lsfgDllPath         != base.lsfgDllPath)         j.put("lsfgDllPath", current.lsfgDllPath)
             if (current.lsfgPerformance     != base.lsfgPerformance)     j.put("lsfgPerformance", current.lsfgPerformance)
             if (current.lsfgFlowScale       != base.lsfgFlowScale)       j.put("lsfgFlowScale", current.lsfgFlowScale)
+            if (current.lsfgTargetRate      != base.lsfgTargetRate)      j.put("lsfgTargetRate", current.lsfgTargetRate)
             if (current.forkFrameGenMode    != base.forkFrameGenMode)    j.put("forkFrameGenMode", current.forkFrameGenMode)
             if (current.casMode             != base.casMode)             j.put("casMode", current.casMode)
             if (current.casSharpness        != base.casSharpness)        j.put("casSharpness", current.casSharpness)
             if (current.upscaler            != base.upscaler)            j.put("upscaler", current.upscaler)
             if (current.fsrSharpness        != base.fsrSharpness)        j.put("fsrSharpness", current.fsrSharpness)
+            if (current.sgsrSharpness       != base.sgsrSharpness)       j.put("sgsrSharpness", current.sgsrSharpness)
             if (current.loadTextureReplacements != base.loadTextureReplacements) j.put("loadTextureReplacements", current.loadTextureReplacements)
             if (current.loadTextureReplacementsAsync != base.loadTextureReplacementsAsync) j.put("loadTextureReplacementsAsync", current.loadTextureReplacementsAsync)
             if (current.precacheTextureReplacements != base.precacheTextureReplacements) j.put("precacheTextureReplacements", current.precacheTextureReplacements)
@@ -2453,6 +2530,7 @@ data class Settings(
             if (current.osdShowFps != base.osdShowFps) j.put("osdShowFps", current.osdShowFps)
             if (current.osdScale != base.osdScale) j.put("osdScale", current.osdScale)
             if (current.osdColor != base.osdColor) j.put("osdColor", current.osdColor)
+            if (current.osdPosition != base.osdPosition) j.put("osdPosition", current.osdPosition)
             if (current.vsyncEnable != base.vsyncEnable) j.put("vsyncEnable", current.vsyncEnable)
             if (current.osdShowVps != base.osdShowVps) j.put("osdShowVps", current.osdShowVps)
             if (current.osdShowSpeed != base.osdShowSpeed) j.put("osdShowSpeed", current.osdShowSpeed)
@@ -2506,6 +2584,7 @@ data class Settings(
             eeCycleSkip = if (overrides.has("eeCycleSkip")) overrides.getInt("eeCycleSkip") else base.eeCycleSkip,
             eeClampMode = if (overrides.has("eeClampMode")) overrides.getInt("eeClampMode") else base.eeClampMode,
             vuClampMode = if (overrides.has("vuClampMode")) overrides.getInt("vuClampMode") else base.vuClampMode,
+            vu1ClampMode = if (overrides.has("vu1ClampMode")) overrides.getInt("vu1ClampMode") else base.vu1ClampMode,
             mtvu = if (overrides.has("mtvu")) overrides.getBoolean("mtvu") else base.mtvu,
             vu1Instant = if (overrides.has("vu1Instant")) overrides.getBoolean("vu1Instant") else base.vu1Instant,
             vuFlagHack = if (overrides.has("vuFlagHack")) overrides.getBoolean("vuFlagHack") else base.vuFlagHack,
@@ -2702,11 +2781,13 @@ data class Settings(
             lsfgDllPath = if (overrides.has("lsfgDllPath")) overrides.getString("lsfgDllPath") else base.lsfgDllPath,
             lsfgPerformance = if (overrides.has("lsfgPerformance")) overrides.getBoolean("lsfgPerformance") else base.lsfgPerformance,
             lsfgFlowScale = if (overrides.has("lsfgFlowScale")) overrides.getInt("lsfgFlowScale") else base.lsfgFlowScale,
+            lsfgTargetRate = if (overrides.has("lsfgTargetRate")) overrides.getInt("lsfgTargetRate") else base.lsfgTargetRate,
             forkFrameGenMode = if (overrides.has("forkFrameGenMode")) overrides.getString("forkFrameGenMode") else base.forkFrameGenMode,
             casMode = if (overrides.has("casMode")) overrides.getInt("casMode") else base.casMode,
             casSharpness = if (overrides.has("casSharpness")) overrides.getInt("casSharpness") else base.casSharpness,
             upscaler = if (overrides.has("upscaler")) overrides.getInt("upscaler") else base.upscaler,
             fsrSharpness = if (overrides.has("fsrSharpness")) overrides.getInt("fsrSharpness") else base.fsrSharpness,
+            sgsrSharpness = if (overrides.has("sgsrSharpness")) overrides.getInt("sgsrSharpness") else base.sgsrSharpness,
             loadTextureReplacements = if (overrides.has("loadTextureReplacements")) overrides.getBoolean("loadTextureReplacements") else base.loadTextureReplacements,
             loadTextureReplacementsAsync = if (overrides.has("loadTextureReplacementsAsync")) overrides.getBoolean("loadTextureReplacementsAsync") else base.loadTextureReplacementsAsync,
             precacheTextureReplacements = if (overrides.has("precacheTextureReplacements")) overrides.getBoolean("precacheTextureReplacements") else base.precacheTextureReplacements,
@@ -2715,6 +2796,7 @@ data class Settings(
             osdShowFps = if (overrides.has("osdShowFps")) overrides.getBoolean("osdShowFps") else base.osdShowFps,
             osdScale = if (overrides.has("osdScale")) overrides.getInt("osdScale") else base.osdScale,
             osdColor = if (overrides.has("osdColor")) overrides.getInt("osdColor") else base.osdColor,
+            osdPosition = if (overrides.has("osdPosition")) overrides.getInt("osdPosition") else base.osdPosition,
             vsyncEnable = if (overrides.has("vsyncEnable")) overrides.getBoolean("vsyncEnable") else base.vsyncEnable,
             osdShowVps = if (overrides.has("osdShowVps")) overrides.getBoolean("osdShowVps") else base.osdShowVps,
             osdShowSpeed = if (overrides.has("osdShowSpeed")) overrides.getBoolean("osdShowSpeed") else base.osdShowSpeed,

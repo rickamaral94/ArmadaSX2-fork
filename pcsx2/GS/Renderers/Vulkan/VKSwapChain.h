@@ -94,6 +94,13 @@ public:
 	}
 
 	VkFormat GetTextureFormat() const;
+
+	/// How many images may be acquired IN ADDITION to the one currently being presented.
+	///
+	/// Vulkan's limit is (imageCount - minImageCount + 1) held at once and the presented frame is
+	/// already using one of those, so this is imageCount - minImageCount. Frame generation must
+	/// not acquire more than this: doing so is undefined behaviour, not a recoverable error.
+	__fi u32 GetExtraAcquirableImages() const { return m_extra_acquirable_images; }
 	VkResult AcquireNextImage();
 	void ReleaseCurrentImage();
 	void ResetImageAcquireResult();
@@ -142,6 +149,7 @@ private:
 	VkSwapchainKHR m_swap_chain = VK_NULL_HANDLE;
 
 	std::vector<std::unique_ptr<GSTextureVK>> m_images;
+	u32 m_extra_acquirable_images = 0;
 	std::array<ImageSemaphores, NUM_SEMAPHORES> m_semaphores = {};
 
 	u32 m_current_image = 0;

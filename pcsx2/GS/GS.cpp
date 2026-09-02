@@ -6,7 +6,6 @@
 #include "ImGui/FullscreenUI.h"
 #include "ImGui/ImGuiManager.h"
 #include "GS/GS.h"
-#include "GS/GSCapture.h"
 #include "GS/GSExtra.h"
 #include "GS/GSGL.h"
 #include "GS/GSLzma.h"
@@ -381,16 +380,6 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 		g_gs_renderer->ReadbackTextureCache();
 	}
 
-	std::string capture_filename;
-	GSVector2i capture_size;
-	if (GSCapture::IsCapturing())
-	{
-		capture_filename = GSCapture::GetNextCaptureFileName();
-		capture_size = GSCapture::GetSize();
-		Console.Warning(fmt::format("Restarting video capture to {}.", capture_filename));
-		g_gs_renderer->EndCapture();
-	}
-
 	u8* basemem = g_gs_renderer->GetRegsMem();
 
 	freezeData fd = {};
@@ -459,9 +448,6 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 			return false;
 		}
 	}
-
-	if (!capture_filename.empty())
-		g_gs_renderer->BeginCapture(std::move(capture_filename), capture_size);
 
 #ifdef __ANDROID__
 	// Trocar de API/renderizador nao passa por GSopen. Sem esta linha, a unica mudanca de
@@ -562,9 +548,6 @@ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* b
 
 void GSclose()
 {
-	if (GSCapture::IsCapturing())
-		GSCapture::EndCapture();
-
 	CloseGSRenderer();
 	CloseGSDevice(true);
 	Host::ReleaseRenderWindow();
@@ -578,17 +561,6 @@ void GSreset(bool hardware_reset)
 	if (g_gs_front)
 		g_gs_front->Reset(hardware_reset);
 	g_gs_renderer->Reset(hardware_reset);
-
-	// Restart video capture if it's been started.
-	// Otherwise we get a buildup of audio frames from the CPU thread.
-	if (hardware_reset && GSCapture::IsCapturing())
-	{
-		std::string next_filename = GSCapture::GetNextCaptureFileName();
-		const GSVector2i size = GSCapture::GetSize();
-		Console.Warning(fmt::format("Restarting video capture to {}.", next_filename));
-		g_gs_renderer->EndCapture();
-		g_gs_renderer->BeginCapture(std::move(next_filename), size);
-	}
 }
 
 void GSgifSoftReset(u32 mask)
@@ -734,11 +706,6 @@ int GSfreeze(FreezeAction mode, freezeData* data)
 		// out the current textures.
 		g_gs_device->ClearCurrent();
 
-		// Dump audio frames in video capture if it's been started, otherwise we get
-		// a buildup of audio frames from the CPU thread.
-		if (GSCapture::IsCapturing())
-			GSCapture::Flush();
-
 		return GSParseTarget()->Defrost(data);
 	}
 }
@@ -762,20 +729,6 @@ bool GSIsDumpRecording()
 bool GSHasFrontParser()
 {
 	return static_cast<bool>(g_gs_front);
-}
-
-bool GSBeginCapture(std::string filename)
-{
-	if (g_gs_renderer)
-		return g_gs_renderer->BeginCapture(std::move(filename));
-	else
-		return false;
-}
-
-void GSEndCapture()
-{
-	if (g_gs_renderer)
-		g_gs_renderer->EndCapture();
 }
 
 void GSPresentCurrentFrame()
@@ -813,9 +766,6 @@ void GSGameChanged()
 		GSHwHack::ResetState();
 		GSTextureReplacements::GameChanged();
 	}
-
-	if (!VMManager::HasValidVM() && GSCapture::IsCapturing())
-		GSCapture::EndCapture();
 }
 
 bool GSHasDisplayWindow()
@@ -1517,7 +1467,7 @@ static bool HasConfiguredOSD()
 		   EmuConfig.GS.OsdShowGPU || EmuConfig.GS.OsdShowGPUDebug || EmuConfig.GS.OsdShowIndicators ||
 		   EmuConfig.GS.OsdShowFrameTimes || EmuConfig.GS.OsdShowHardwareInfo || EmuConfig.GS.OsdShowVersion ||
 		   EmuConfig.GS.OsdShowSettings || EmuConfig.GS.OsdshowPatches || EmuConfig.GS.OsdShowInputs ||
-		   EmuConfig.GS.OsdShowInputRec || EmuConfig.GS.OsdShowVideoCapture || EmuConfig.GS.OsdShowTextureReplacements;
+		   EmuConfig.GS.OsdShowInputRec || EmuConfig.GS.OsdShowTextureReplacements;
 }
 
 static void SetForcedSimpleOSD(bool enabled)
@@ -1546,7 +1496,6 @@ static void HotkeyToggleOSD()
 	GSConfig.OsdshowPatches ^= EmuConfig.GS.OsdshowPatches;
 	GSConfig.OsdShowInputs ^= EmuConfig.GS.OsdShowInputs;
 	GSConfig.OsdShowInputRec ^= EmuConfig.GS.OsdShowInputRec;
-	GSConfig.OsdShowVideoCapture ^= EmuConfig.GS.OsdShowVideoCapture;
 	GSConfig.OsdShowTextureReplacements ^= EmuConfig.GS.OsdShowTextureReplacements;
 
 	GSConfig.OsdMessagesPos =
@@ -1563,26 +1512,6 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 			MTGS::RunOnGSThread([]() { GSQueueSnapshot(std::string(), 0); });
 		}
 	}},
-	{"ToggleVideoCapture", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Video Capture"),
-		[](s32 pressed) {
-			if (!pressed)
-			{
-				if (GSCapture::IsCapturing())
-				{
-					MTGS::RunOnGSThread([]() { g_gs_renderer->EndCapture(); });
-					MTGS::WaitGS(false, false, false);
-					return;
-				}
-
-				MTGS::RunOnGSThread([]() {
-					std::string filename(fmt::format("{}.{}", GSGetBaseVideoFilename(), GSConfig.CaptureContainer));
-					g_gs_renderer->BeginCapture(std::move(filename));
-				});
-
-				// Sync GS thread. We want to start adding audio at the same time as video.
-				MTGS::WaitGS(false, false, false);
-			}
-		}},
 	{"GSDumpSingleFrame", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Save Single Frame GS Dump"),
 		[](s32 pressed) {
 			if (!pressed)

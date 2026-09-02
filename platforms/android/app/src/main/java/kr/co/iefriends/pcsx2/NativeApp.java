@@ -181,7 +181,7 @@ public class NativeApp {
 	 * {@link #reloadPatches()} to apply. Writing the .pnach file alone is NOT
 	 * enough — a patch is inert unless its name is enabled here.
 	 */
-	public static native void setEnabledPatches(boolean cheats, String[] allNames, String[] enabledNames);
+	public static native void setEnabledPatches(boolean cheats, String[] allNames, String[] enabledNames, String serial);
 	/**
 	 * One-time repair: drop the GLOBAL [Patches]/[Cheats] "Enable" lists.
 	 * <p>
@@ -189,7 +189,6 @@ public class NativeApp {
 	 * patches are enabled by NAME those entries armed the same-named group in the bundled pnach
 	 * archive for every game. Per-game lists are left alone. Call once, gated on a pref.
 	 */
-	public static native void purgeGlobalPatchEnableLists();
 
 	// ---- USB lightgun (GunCon 2) ----------------------------------------------
 	/** GunCon2 binding ids, from pcsx2/USB/usb-lightgun/guncon2.cpp. */
@@ -235,6 +234,19 @@ public class NativeApp {
 	public static native float getFPS();
 	/** Current game's nominal emulated refresh (~59.94 NTSC / 50 PAL), or 0 without a VM. */
 	public static native float getNominalFrameRate();
+
+	/** The rest of the in-game OSD's figures, for the second-screen panel. All return 0 with
+	 *  no VM running rather than the last value, so an idle panel reads as idle. */
+	/** Push device temperatures to the performance overlay. ARMSX2_THERMAL_NONE means
+	 *  "no reading" — the overlay then omits that figure rather than drawing a zero. */
+	public static native void setThermals(float cpu, float gpu, float battery, boolean show);
+
+	public static native float getVPS();
+	public static native float getEmuSpeedPercent();
+	public static native float getCpuThreadUsage();
+	public static native float getGsThreadUsage();
+	public static native float getGpuUsage();
+	public static native float getAverageFrameTime();
 
 	/** Build version string from BuildVersion::GitRev — formatted as
 	 *  "GitTagHi.GitTagMid.GitTagLo.ARMSX2Build-SNAPSHOT". Used by the
@@ -359,6 +371,25 @@ public class NativeApp {
 	 *  library can still clear a stale, in-game-written override file. Returns false when no such
 	 *  file exists — there is then nothing to rewrite and the caller should skip the put/commit. */
 	public static native boolean gameIniBeginWriteForSerial(String serial);
+
+	/** Where host: reads from. The single source of truth -- do NOT rebuild this path in
+	 *  Kotlin: DataRoot and the user-facing system-directory preference differ whenever the
+	 *  data folder is on an SD card. */
+	public static native String getHostfsDir();
+
+	/** Copy an ISO's files into hostfs/&lt;subdir&gt;/ so a host:-loading ELF can read them.
+	 *  Android cannot mount an ISO, so the app has to do this itself. Returns the file
+	 *  count, or -1 on failure. Must not be called while a game is running. */
+	public static native int extractIsoToHostfs(String isoPath, String subdir);
+
+	/** Pair a boot ELF with the disc it needs -- desktop's "Properties -> Disc Path".
+	 *  Without it VMManager boots the ELF with NoDisc and a game that reads from the disc
+	 *  hangs on its loading screen. Pass an empty discPath to clear the pairing.
+	 *  Returns false when the file is not a readable ELF or yields no CRC. */
+	public static native boolean setElfDiscOverride(String elfPath, String discPath);
+
+	/** The disc currently paired with elfPath, or "" when there is none. */
+	public static native String getElfDiscOverride(String elfPath);
 	public static native void gameIniPut(String section, String key, String value);
 	public static native boolean gameIniCommitWrite();
 
@@ -523,7 +554,15 @@ public class NativeApp {
 			// No controller actuator handled it → fall back to the device's built-in
 			// haptic (issue #241), when permitted (Player 1 / explicit test) so a
 			// vibrator-less P2 pad never buzzes the handheld that P1 is holding.
-			if (!drove && allowSystemFallback) {
+			//
+			// ...but NOT when the pad is an EXTERNAL controller. Xbox pads over Bluetooth
+			// report hasVibrator() == false through InputDevice even though they rumble
+			// perfectly well by other means, so this fallback fired for them and buzzed the
+			// PHONE — sitting in a pocket or a stand — while the user held the controller
+			// (#433). The #241 case is the opposite shape: a handheld whose own built-in pad
+			// has no actuator, where the "device" and the thing in your hands are the same
+			// object and buzzing it is exactly right.
+			if (!drove && allowSystemFallback && !isExternalPad(dev)) {
 				rumbleOne(systemVibrator(), combined, ms);
 			}
 		} catch (Throwable ignored) {
@@ -535,6 +574,26 @@ public class NativeApp {
 	 *  "Vibration Strength" slider tames or boosts all of it. Set from Kotlin
 	 *  (ControllerMappings.setHapticIntensity) live and at app start. */
 	public static volatile float sHapticScale = 1.0f;
+
+	/**
+	 * True when [dev] is a controller the user is holding SEPARATELY from this device.
+	 *
+	 * InputDevice.isExternal() answers this exactly but is @hide, so it is reached by
+	 * reflection and may be refused on newer platforms. When it cannot be read this returns
+	 * false — meaning "assume built-in", which keeps the #241 handheld fallback working. The
+	 * cost of guessing wrong in that direction is a phone buzzing when it should not; the cost
+	 * of guessing wrong the other way is a handheld that stops rumbling at all. The first is
+	 * the better failure, and it is also the one the user can see and report.
+	 */
+	private static boolean isExternalPad(InputDevice dev) {
+		if (dev == null) return false;
+		try {
+			Object r = InputDevice.class.getMethod("isExternal").invoke(dev);
+			if (r instanceof Boolean) return (Boolean) r;
+		} catch (Throwable ignored) {
+		}
+		return false;
+	}
 
 	/** @return true if [v] is a real, usable vibrator that was driven (or cancelled). */
 	private static boolean rumbleOne(Vibrator v, float intensity, int ms) {
@@ -743,6 +802,11 @@ public class NativeApp {
 	 *  Safe to call with no game running and on any build (the Play build always
 	 *  answers NOT_COMPILED_IN). */
 	public static native int lsfgAvailability(String dllPath);
+
+	/** Tell the native side the file behind the current path was replaced, so the next
+	 *  lsfgAvailability() re-reads it. The import always writes to the same path, so nothing
+	 *  else can notice. */
+	public static native void lsfgDllChanged();
 
 	public static native void flushShaderCache();
 

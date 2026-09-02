@@ -61,6 +61,25 @@ object InGameOverlay {
         }
     }
 
+    /**
+     * Re-assert a non-Custom OSD mode after [com.armsx2.config.Settings.applyTo] has run.
+     *
+     * applyTo pushes the per-stat osdShow* flags unconditionally, and it runs on EVERY settings
+     * change — so changing anything at all, brightness, a speedhack, a controller binding, would
+     * silently replace an active Full / Minimal / Off mode with the Custom flag set. For most
+     * users the Custom set is mostly off, so what that looks like is the OSD vanishing whenever
+     * you touch settings.
+     *
+     * Custom needs nothing done: applyTo just wrote exactly what Custom means. Only the three
+     * modes that OVERRIDE the per-stat flags have to be restored, which is what
+     * [reapplyOsdMode] already does for the second-display case.
+     */
+    fun reassertOsdModeAfterSettingsApply() {
+        ensureOsdLoaded()
+        if (osdMode.value != OsdMode.Custom)
+            runCatching { applyOsdMode(osdMode.value) }
+    }
+
     /** Short label for [mode], shown by the hotkey toast and the menu selector. */
     fun osdModeLabel(mode: OsdMode): String = when (mode) {
         OsdMode.Full -> "Full"
@@ -97,7 +116,6 @@ object InGameOverlay {
                     MainActivityRuntime.upscale.value = updated.upscaleFloat.coerceIn(0.25f, 8.0f)
                 }
                 if (MainActivityRuntime.eState.value != EmuState.STOPPED) {
-                    updated.applyTo()
                     // Regenerate the native per-game INI (gamesettings/<serial>_<CRC>.ini) from the
                     // resolved settings so a stale key there can't shadow the base layer. Without this a
                     // legacy per-game key — e.g. TVShader=3 from a reused data folder — survives every
@@ -105,9 +123,19 @@ object InGameOverlay {
                     // and the game layer wins. gameIniBeginWrite uses a fresh (no-Load) interface, so keys
                     // the user no longer overrides (TVShader once it equals global) are dropped and the
                     // file is deleted when empty. No-op when no VM (gameIniBeginWrite early-returns).
+                    //
+                    // ★ BEFORE applyTo(), not after. applyTo() is what triggers the commit, and that
+                    // commit re-reads base∘game off disk — so with the write afterwards the commit saw
+                    // the OLD file every time and the game layer clobbered the change that was being
+                    // made. The regenerated file only took effect on the NEXT commit, which is why a
+                    // live shader change appeared to need an app restart, and why it looked
+                    // game-dependent: only games that already had a per-game INI carrying that key
+                    // were affected. ConfigStore.save() above has already stored the new values, so
+                    // resolveForGame() here reads them and nothing depends on applyTo() running first.
                     currentSerial.value?.takeIf { it.isNotBlank() }?.let { serial ->
                         ConfigStore.resolveForGame(serial).writeGameSettingsIni(ConfigStore.loadGlobal())
                     }
+                    updated.applyTo()
                 }
                 // ★ Re-assert the OSD MODE after the commit. The Minimal/Full/Off modes are a
                 // LIVE-only flag apply (deliberately not persisted, so they don't overwrite the

@@ -12,8 +12,8 @@ import com.armsx2.navigation.SettingsCategory
  */
 internal data class SettingsSearchEntry(val text: String, val isI18nKey: Boolean, val category: SettingsCategory)
 
-internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
-    SettingsSearchEntry("app.bootLogo", false, SettingsCategory.General),
+private val BASE_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
+    SettingsSearchEntry("app.bootLogo", true, SettingsCategory.General),
     SettingsSearchEntry("app.library.search", true, SettingsCategory.General),
     SettingsSearchEntry("app.library.recents", true, SettingsCategory.General),
     SettingsSearchEntry("app.library.coverSize", true, SettingsCategory.General),
@@ -63,11 +63,6 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("perf.palFramerate.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.frameSkip.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.fg.mode.label", true, SettingsCategory.Performance),
-    SettingsSearchEntry("perf.lsfg.label", true, SettingsCategory.Performance),
-    SettingsSearchEntry("perf.lsfg.multiplier.label", true, SettingsCategory.Performance),
-    SettingsSearchEntry("perf.lsfg.performance.label", true, SettingsCategory.Performance),
-    SettingsSearchEntry("perf.lsfg.flowScale.label", true, SettingsCategory.Performance),
-    SettingsSearchEntry("perf.lsfg.dll.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.lowLatencyMode.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.speedhackProfile.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.displayResolution.label", true, SettingsCategory.Performance),
@@ -76,6 +71,7 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("perf.adpf.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.eeFpuClamping.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.vuClamping.label", true, SettingsCategory.Performance),
+    SettingsSearchEntry("perf.vu1Clamping.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.eeFpuRoundMode.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.vu0RoundMode.label", true, SettingsCategory.Performance),
     SettingsSearchEntry("perf.vu1RoundMode.label", true, SettingsCategory.Performance),
@@ -86,7 +82,6 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("renderer.shadeboost.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.gsBackThread.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.fxaa.label", true, SettingsCategory.Graphics),
-    SettingsSearchEntry("renderer.upscaler.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.shaderChain.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.shaderChain.preset.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.section.captures", true, SettingsCategory.Graphics),
@@ -122,7 +117,12 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("renderer.textureFiltering.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.texturePreloading.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.displayFilter.label", true, SettingsCategory.Graphics),
-    SettingsSearchEntry("renderer.fsr1.label", true, SettingsCategory.Graphics),
+    // The FSR1 switch became the Display-upscaler picker when SGSR joined it; searching for the
+    // old key would land on a row that no longer exists.
+    // Missing from the index entirely, so nobody could search their way to it -- which is
+    // exactly what #629 reported ("If one exists, I can't seem to find it").
+    SettingsSearchEntry("overlay.toggle.fastForwardPopups", true, SettingsCategory.Graphics),
+    SettingsSearchEntry("renderer.upscaler.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.cas.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.blendingAccuracy.label", true, SettingsCategory.Graphics),
     SettingsSearchEntry("renderer.trilinear.label", true, SettingsCategory.Graphics),
@@ -206,6 +206,8 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("overlay.toggle.fastForwardPopups", true, SettingsCategory.OnScreen),
     SettingsSearchEntry("overlay.osdSize.label", true, SettingsCategory.OnScreen),
     SettingsSearchEntry("overlay.osdColor.label", true, SettingsCategory.OnScreen),
+    SettingsSearchEntry("overlay.osdPosition.label", true, SettingsCategory.OnScreen),
+    SettingsSearchEntry("overlay.quickMenuSide.label", true, SettingsCategory.OnScreen),
     SettingsSearchEntry("overlay.uiSize.label", true, SettingsCategory.OnScreen),
     SettingsSearchEntry("overlay.uiFontSize.label", true, SettingsCategory.OnScreen),
     SettingsSearchEntry("fixes.antiBlur.label", true, SettingsCategory.Advanced),
@@ -274,3 +276,13 @@ internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = listOf(
     SettingsSearchEntry("patches.noInterlacing.label", true, SettingsCategory.Patches),
     SettingsSearchEntry("patches.hostFs.label", true, SettingsCategory.Patches),
 )
+
+/**
+ * Everything searchable, plus whatever the flavour adds.
+ *
+ * The frame-generation rows come from a flavoured list rather than sitting in the one above. In
+ * the play build they would otherwise still be indexed while the section they point at was
+ * compiled out — searching would offer a result that renders its own key as its title and leads
+ * nowhere.
+ */
+internal val SETTINGS_SEARCH_INDEX: List<SettingsSearchEntry> = BASE_SEARCH_INDEX + LSFG_SEARCH_INDEX

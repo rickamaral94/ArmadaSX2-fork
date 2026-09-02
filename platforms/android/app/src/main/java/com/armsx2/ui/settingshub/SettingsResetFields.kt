@@ -28,12 +28,12 @@ internal val SETTINGS_CATEGORY_FIELDS: Map<SettingsCategory, List<String>> = map
         "eeClampMode", "eeCycleRate", "eeCycleSkip", "eeFpuRoundMode",
         "fastCDVD", "fpsLimit", "frameSkip", "framerateNtsc", "frameratePal",
         "intcStat", "mtvu", "nominalSpeedPercent", "skipDuplicateFrames", "vu0RoundMode",
-        "vu1Instant", "vu1RoundMode", "vuClampMode", "vuDeferredWrites", "vuFlagHack",
-        "vuNeonFusions", "vuSkipStallSim", "waitLoop",
+        "vu1ClampMode", "vu1Instant", "vu1RoundMode", "vuClampMode", "vuDeferredWrites",
+        "vuFlagHack", "vuNeonFusions", "vuSkipStallSim", "waitLoop",
         // LsfgSection lives on this tab. lsfgDllPath is deliberately NOT here: Reset restores
         // settings, and forgetting which file the user imported is not a setting being restored,
         // it is making them go and find their Lossless.dll again.
-        "lsfgEnabled", "lsfgMultiplier", "lsfgPerformance", "lsfgFlowScale",
+        "lsfgEnabled", "lsfgMultiplier", "lsfgPerformance", "lsfgFlowScale", "lsfgTargetRate",
         "forkFrameGenMode",
     ),
     // RendererTab.kt
@@ -65,7 +65,7 @@ internal val SETTINGS_CATEGORY_FIELDS: Map<SettingsCategory, List<String>> = map
     ),
     // OverlayTab.kt
     SettingsCategory.OnScreen to listOf(
-        "osdColor", "osdScale", "osdShowCpu", "osdShowFps", "osdShowFrameTimes", "osdShowGpu",
+        "osdColor", "osdPosition", "osdScale", "osdShowCpu", "osdShowFps", "osdShowFrameTimes", "osdShowGpu",
         "osdShowGpuStats", "osdShowGsStats", "osdShowHardwareInfo", "osdShowInputs",
         "osdShowMessages", "osdShowResolution", "osdShowSettings", "osdShowSpeed",
         "osdShowVersion", "osdShowVps",

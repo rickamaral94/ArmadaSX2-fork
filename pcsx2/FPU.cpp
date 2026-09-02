@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include "Config.h"
+#include "EeFpuModel.h"
 
 #include "common/FPControl.h"
 
@@ -660,7 +661,7 @@ static u32 eeDivideSignificand(u32 sma, u32 smb)
 	return (quotient << 1) + eeSrtDigitValue(digit);
 }
 
-u32 eeDivide(u32 a, u32 b)
+EEFPU_MODEL_CALL u32 eeDivide(u32 a, u32 b)
 {
 	const s32 ea = (s32)((a >> 23) & 0xFF);
 	const s32 eb = (s32)((b >> 23) & 0xFF);
@@ -756,7 +757,7 @@ static u32 eeSqrtSignificand(u32 m)
 	return (root >> 2) & 0xFFFFFFu;
 }
 
-u32 eeSqrtBits(u32 t)
+EEFPU_MODEL_CALL u32 eeSqrtBits(u32 t)
 {
 	const u32 E = (t >> 23) & 0xFFu;
 	if (E == 0)
@@ -1257,3 +1258,61 @@ void SWC1() {
 }
 
 } } }
+
+// The same unit, addressed by bits instead of by FCR31.
+namespace EeFpuModel
+{
+namespace COP1 = R5900::Interpreter::OpcodeImpl::COP1;
+
+// O and U as raiseOrClearOU() reads them for FCR31: O after the rounding, so a
+// value past 0x7FFFFFFF that chops back onto it does not raise it, and U off
+// the exact value, the only place a flushed result is still distinguishable
+// from a zero.
+static Result MakeResult(double exact, u32 bits)
+{
+	Result s;
+	s.bits = bits;
+	s.overflow = eeRoundsOutOfRange(exact);
+	s.underflow = !s.overflow && exact != 0.0 && std::fabs(exact) < kEeMinNormal;
+	return s;
+}
+
+Result AddSub(u32 a, u32 b, bool issub)
+{
+	const double sum = COP1::eeGuardedSum(a, b, issub);
+	return MakeResult(sum, COP1::eeRoundToSingle(sum, true));
+}
+
+Result Mul(u32 fs, u32 ft)
+{
+	const double product = eeToDouble(fs) * eeToDouble(ft);
+	return MakeResult(product, COP1::eeMulRound(fs, ft, product));
+}
+
+Accumulate MulAccumulate(u32 acc, u32 fs, u32 ft, bool issub)
+{
+	const Result product = Mul(fs, ft);
+	if (product.overflow)
+	{
+		Result result = product;
+		result.bits ^= issub ? 0x80000000u : 0u;
+		return {product, result};
+	}
+	return {product, AddSub(acc, product.bits, issub)};
+}
+
+EEFPU_MODEL_CALL u32 Divide(u32 a, u32 b)
+{
+	return COP1::eeDivide(a, b);
+}
+
+EEFPU_MODEL_CALL u32 SqrtBits(u32 t)
+{
+	return COP1::eeSqrtBits(t);
+}
+
+EEFPU_MODEL_CALL u32 RecipSqrt(u32 a, u32 t)
+{
+	return COP1::eeDivide(a, COP1::eeSqrtBits(t));
+}
+} // namespace EeFpuModel

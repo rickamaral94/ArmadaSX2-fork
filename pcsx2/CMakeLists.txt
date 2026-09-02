@@ -40,11 +40,6 @@ else()
 	)
 endif()
 
-if(USE_LINKED_FFMPEG)
-	target_compile_definitions(PCSX2_FLAGS INTERFACE USE_LINKED_FFMPEG)
-	target_link_libraries(PCSX2_FLAGS INTERFACE FFMPEG::avcodec FFMPEG::avformat FFMPEG::avutil FFMPEG::swscale FFMPEG::swresample)
-endif()
-
 if(WIN32)
 	set(MIN_WIN32 0x0A00)
 	target_compile_definitions(PCSX2_FLAGS INTERFACE
@@ -100,6 +95,7 @@ set(pcsx2Sources
 	Patch.cpp
 	Pcsx2Config.cpp
 	PerformanceMetrics.cpp
+	PerGameOverrides.cpp
 	PrecompiledHeader.cpp
 	R3000A.cpp
 	R3000AInterpreter.cpp
@@ -159,6 +155,7 @@ set(pcsx2Headers
 	Counters.h
 	Dmac.h
 	EeFpuFormat.h
+	EeFpuModel.h
 	GameDatabase.h
 	Elfheader.h
 	FW.h
@@ -187,6 +184,7 @@ set(pcsx2Headers
 	no-jit-improvements.h
 	Patch.h
 	PerformanceMetrics.h
+	PerGameOverrides.h
 	PrecompiledHeader.h
 	R3000A.h
 	R5900.h
@@ -216,8 +214,10 @@ set(pcsx2Headers
 	VMManager.h
 	vtlb.h
 	VU1Trace.h
+	VuEfuModel.h
 	VUflags.h
 	VUmicro.h
+	VuMulBand.h
 	VUops.h)
 
 # CDVD sources
@@ -512,7 +512,6 @@ endif()
 
 set(pcsx2GSSources
 	GS/GS.cpp
-	GS/GSCapture.cpp
 	GS/GSClut.cpp
 	GS/GSDrawingContext.cpp
 	GS/GSDrawingEnvironment.cpp
@@ -573,7 +572,6 @@ set(pcsx2GSHeaders
 	GS/GSAlignedClass.h
 	GS/GSBlock.h
 	GS/GSBackQueue.h
-	GS/GSCapture.h
 	GS/GSClut.h
 	GS/GSDrawingContext.h
 	GS/GSDrawingEnvironment.h
@@ -717,21 +715,59 @@ if(USE_VULKAN)
 		GS/Renderers/Vulkan/VKStreamBuffer.cpp
 		GS/Renderers/Vulkan/VKSwapChain.cpp
 	)
-	# GSLsfg.cpp is the ONE translation unit in PCSX2 built with exceptions.
+	# Frame generation ported from Eden (eden-emu PR #4263).
 	#
-	# The rest of the emulator is -fno-exceptions, and stays that way. But LSFG's entire error
-	# protocol is throwing — initialize(), createContextFromAHB() and presentContext() all raise
-	# LSFG::vulkan_error, and the DXBC translator raises on a malformed shader — so without this
-	# there is no way to survive a bad Lossless.dll or an unsupported driver. The alternative,
-	# letting those propagate into -fno-exceptions frames, is std::terminate: a hard crash on the
-	# exact paths this feature is most likely to take on someone else's device.
+	# Gated on ARMSX2_ENABLE_LSFG rather than on ARMSX2_HAVE_LSFG, and the difference matters:
+	# ARMSX2_ENABLE_LSFG arrives as a -D on the CMake command line from the Android gradle
+	# flavour, so it is in the cache before any subdirectory is processed. ARMSX2_HAVE_LSFG is
+	# set by 3rdparty/lsfg, which is added AFTER this file — testing it here would silently
+	# evaluate false and drop every source below, producing a build that succeeds with the
+	# feature missing. Desktop builds never define either, so they skip this entirely.
 	#
-	# The boundary is airtight by construction: GSLsfg.cpp catches (...) at every call into the
-	# library and returns a bool, so nothing ever unwinds into GSDeviceVK. Skipping the PCH is
-	# required, not incidental — clang rejects a -fno-exceptions PCH from a -fexceptions TU.
-	set_source_files_properties(GS/Renderers/Vulkan/GSLsfg.cpp PROPERTIES
-		COMPILE_OPTIONS "-fexceptions"
-		SKIP_PRECOMPILE_HEADERS ON)
+	# Nothing here needs -fexceptions. The old lsfg-vk-android library reported failure by
+	# throwing, which cost GSLsfg.cpp a -fexceptions + no-PCH carve-out; the Eden port has zero
+	# throw sites and returns status enums, so the whole feature builds under the emulator's
+	# normal -fno-exceptions and GSLsfg.cpp is back on the PCH with everything else.
+	if(ARMSX2_ENABLE_LSFG)
+		list(APPEND pcsx2GSSources
+			GS/Renderers/Vulkan/FrameGen/FrameGen.cpp
+			GS/Renderers/Vulkan/FrameGen/FrameGenPacer.cpp
+			GS/Renderers/Vulkan/FrameGen/LosslessDll.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgAlpha.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgBeta.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgChain.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgCommon.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgDelta.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgGamma.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgGenerate.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgMipmaps.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgShaders.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgTranslate.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgUtil.cpp
+			GS/Renderers/Vulkan/FrameGen/LsfgVkCompat.cpp
+		)
+		list(APPEND pcsx2GSHeaders
+			GS/Renderers/Vulkan/FrameGen/FrameGen.h
+			GS/Renderers/Vulkan/FrameGen/FrameGenPacer.h
+			GS/Renderers/Vulkan/FrameGen/FrameGenTypes.h
+			GS/Renderers/Vulkan/FrameGen/LosslessDll.h
+			GS/Renderers/Vulkan/FrameGen/LsfgAlpha.h
+			GS/Renderers/Vulkan/FrameGen/LsfgBeta.h
+			GS/Renderers/Vulkan/FrameGen/LsfgChain.h
+			GS/Renderers/Vulkan/FrameGen/LsfgCommon.h
+			GS/Renderers/Vulkan/FrameGen/LsfgDelta.h
+			GS/Renderers/Vulkan/FrameGen/LsfgGamma.h
+			GS/Renderers/Vulkan/FrameGen/LsfgGenerate.h
+			GS/Renderers/Vulkan/FrameGen/LsfgMipmaps.h
+			GS/Renderers/Vulkan/FrameGen/LsfgShaders.h
+			GS/Renderers/Vulkan/FrameGen/LsfgTranslate.h
+			GS/Renderers/Vulkan/FrameGen/LsfgUtil.h
+			GS/Renderers/Vulkan/FrameGen/LsfgVkCompat.h
+		)
+		# The ported sources include each other by bare filename, as they did upstream.
+		target_include_directories(PCSX2_FLAGS INTERFACE
+			"${CMAKE_CURRENT_SOURCE_DIR}/GS/Renderers/Vulkan/FrameGen")
+	endif()
 
 	# VKLibretro.cpp needs the libretro Vulkan HW-render interface header.
 	# Link it PRIVATE to PCSX2 (not the shared PCSX2_FLAGS) so the header path
@@ -1198,6 +1234,7 @@ set(pcsx2arm64Headers
 	arm64/microVU_ProgCache-arm64.h
 	arm64/microVU_ProgCache-arm64.inl
 	arm64/microVU_Misc-arm64.h
+	arm64/VuFmacFlags-arm64.h
 )
 
 # Mobile (arm64) platform sources, relocated from the former android/iOS core
@@ -1420,7 +1457,6 @@ target_include_directories(PCSX2_FLAGS INTERFACE
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${CMAKE_BINARY_DIR}/pcsx2"
 	"${CMAKE_BINARY_DIR}/common/include"
-	"${FFMPEG_INCLUDE_DIRS}"
 )
 
 set_source_files_properties(PrecompiledHeader.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -1592,10 +1628,17 @@ function(setup_main_executable target)
 			install(FILES "${DEPS_BINDIR}/${DEP_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin")
 		endforeach()
 
-		set(OPT_DEPS_TO_COPY avcodec-62.dll avformat-62.dll avutil-60.dll swresample-6.dll swscale-9.dll)
-		foreach(OPT_DEP_TO_COPY ${OPT_DEPS_TO_COPY})
-			install(FILES "${DEPS_BINDIR}/${OPT_DEP_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin" OPTIONAL)
-		endforeach()
+		file(GLOB OPT_DEPS_FULL_PATHS
+			"${DEPS_BINDIR}/avcodec-*.dll"
+			"${DEPS_BINDIR}/avformat-*.dll"
+			"${DEPS_BINDIR}/avutil-*.dll"
+			"${DEPS_BINDIR}/swscale-*.dll"
+			"${DEPS_BINDIR}/swresample-*.dll"
+		)
+		install(FILES ${OPT_DEPS_FULL_PATHS} DESTINATION "${CMAKE_SOURCE_DIR}/bin" OPTIONAL)
+
+		set(OPT_DEPS_TO_COPY ${OPT_DEPS_FULL_PATHS})
+		list(TRANSFORM OPT_DEPS_TO_COPY REPLACE "^.*/" "")
 
 		set(SYMBOLS_TO_COPY ${DEPS_TO_COPY} ${OPT_DEPS_TO_COPY})
 		list(TRANSFORM SYMBOLS_TO_COPY REPLACE "[.]dll" ".pdb")

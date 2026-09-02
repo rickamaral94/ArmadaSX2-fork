@@ -61,6 +61,16 @@ import java.io.File
 @Composable
 fun PatchManagerScreen(onBack: () -> Unit, game: GameInfo? = null, viewModel: PatchManagerViewModel = viewModel()) {
     val state = viewModel.state.value
+    // ★ Stop any online scan when this leaves the screen.
+    //
+    // The scan downloads and regex-scans four multi-megabyte repository trees. Left running it
+    // competes with the emulator for CPU, which on a low-end device costs full speed and heats
+    // the phone badly — reported on a Helio G99, where returning to the game did not stop it.
+    // The ViewModel is Activity-scoped and shared with the settings tab, so it does NOT clear
+    // just because the user navigated away; this is what actually ends the work.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { viewModel.cancelOnlineSearch() }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::import) }
     // Folder import: cheats arrive as a folder of files far more often than one at a time, and the
     // single-file picker made adding a set a repetitive chore. Requested by Fun (SD712).
@@ -226,6 +236,16 @@ private fun PatchDisclaimer() {
 @Composable
 fun PatchesSettingsTab(game: GameInfo? = null, viewModel: PatchManagerViewModel = viewModel()) {
     val state = viewModel.state.value
+    // ★ Stop any online scan when this leaves the screen.
+    //
+    // The scan downloads and regex-scans four multi-megabyte repository trees. Left running it
+    // competes with the emulator for CPU, which on a low-end device costs full speed and heats
+    // the phone badly — reported on a Helio G99, where returning to the game did not stop it.
+    // The ViewModel is Activity-scoped and shared with the settings tab, so it does NOT clear
+    // just because the user navigated away; this is what actually ends the work.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { viewModel.cancelOnlineSearch() }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::import) }
     // Keyed on the game, not Unit: the scope switch above hands this tab a different game
     // (the game, or null for Global), and refresh() is what re-reads the tier. Keyed on
@@ -319,6 +339,18 @@ private fun PatchOptions(state: PatchManagerUiState, viewModel: PatchManagerView
                     onConfirm = { viewModel.update { it.copy(hostFs = !state.settings.hostFs) } },
                 ),
             )
+            // Where host: actually reads from. Worth stating outright: on Android the root
+            // CANNOT be the folder holding the disc, because a SAF content:// URI has no
+            // parent directory to derive one from (see Hle_SetHostRoot). Without this line
+            // the natural assumption is "next to the ISO", which silently reads nothing.
+            if (state.settings.hostFs) {
+                Text(
+                    str("patches.hostFs.folder"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                )
+            }
         }
     }
 }
@@ -339,10 +371,23 @@ private fun OnlineBrowser(
             val forThisGame = state.onlineForGameKey == (game?.uri?.toString() ?: "")
             val entries = if (forThisGame) state.onlineEntries else emptyList()
             when {
-                state.onlineLoading && forThisGame -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(str("patches.online.loading"))
+                // Says how long, and that leaving is safe. The scan reads four community
+                // repositories — tens of thousands of files between them — so a minute or two is
+                // normal, and users reported assuming it had hung. The second line matters as
+                // much as the first: the search now stops when this screen closes, so nobody has
+                // to sit and wait to protect their device.
+                state.onlineLoading && forThisGame -> Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(str("patches.online.loading"))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        str("patches.online.loading.hint"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 entries.isEmpty() -> Button(
                     onClick = { viewModel.fetchOnline(game) },

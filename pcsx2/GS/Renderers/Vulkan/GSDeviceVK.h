@@ -52,6 +52,11 @@ public:
 		bool vk_khr_shader_non_semantic_info : 1;
 		bool vk_ext_attachment_feedback_loop_layout : 1;
 		bool vk_ext_fragment_shader_interlock : 1;
+		/// Both are required by the LSFG frame-generation shaders and by NOTHING else in the
+		/// renderer. They are requested anyway whenever the driver really has them, because the
+		/// alternative is recreating the device when frame generation is switched on.
+		bool vk_khr_vulkan_memory_model : 1;   ///< shaders declare the Vulkan memory model
+		bool vk_ext_robustness2_null_descriptor : 1; ///< nullDescriptor only; not the robust-access bits
 	};
 
 	// Global state accessors
@@ -578,13 +583,10 @@ private:
 	VkDescriptorSetLayout m_fsr1_ds_layout = VK_NULL_HANDLE;
 	VkPipelineLayout m_fsr1_pipeline_layout = VK_NULL_HANDLE;
 	std::array<VkPipeline, NUM_FSR1_PIPELINES> m_fsr1_pipelines = {};
-
-	// SGSR1 is one pass, so one pipeline and no array. It gets its OWN layouts rather than
-	// borrowing FSR1's: the two push different constant sizes (48 vs 80 bytes), and sharing a
-	// layout would make the smaller push leave the tail undefined.
-	VkDescriptorSetLayout m_sgsr1_ds_layout = VK_NULL_HANDLE;
-	VkPipelineLayout m_sgsr1_pipeline_layout = VK_NULL_HANDLE;
-	VkPipeline m_sgsr1_pipeline = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_sgsr_ds_layout = VK_NULL_HANDLE;
+	VkPipelineLayout m_sgsr_pipeline_layout = VK_NULL_HANDLE;
+	/// One per variant: plain and edge-direction. Still one pass each.
+	std::array<VkPipeline, NUM_SGSR_PIPELINES> m_sgsr_pipelines = {};
 	VkPipeline m_imgui_pipeline = VK_NULL_HANDLE;
 
 	GSHWDrawConfig::VSConstantBuffer m_vs_cb_cache;
@@ -625,9 +627,10 @@ private:
 
 	bool DoFSR1EASU(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_FSR1_CONSTANTS>& constants) final;
 	bool DoFSR1RCAS(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_FSR1_CONSTANTS>& constants) final;
+	bool DoSGSR(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_SGSR_CONSTANTS>& constants,
+		bool edge_direction) final;
 	/// Shared body of the two above: same layout, same push range, different pipeline and
 	/// different input-side synchronisation.
-	bool DoSGSR1(GSTexture* sTex, GSTexture* dTex, const std::array<u32, NUM_SGSR1_CONSTANTS>& constants) override;
 	bool DoFSR1Pass(
 		GSTexture* sTex, GSTexture* dTex, bool easu_pass, const std::array<u32, NUM_FSR1_CONSTANTS>& constants);
 
@@ -668,7 +671,7 @@ private:
 	bool CompilePostProcessingPipelines();
 	bool CompileCASPipelines();
 	bool CompileFSR1Pipelines();
-	bool CompileSGSR1Pipeline();
+	bool CompileSGSRPipeline();
 
 	bool CompileImGuiPipeline();
 	void RenderImGui();
