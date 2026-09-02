@@ -129,6 +129,28 @@ Requisitos: JDK 17, Android SDK, NDK `28.2.13676358`, CMake `3.31.6`.
 O NDK e o CMake são **pinados** de propósito: um A/B de driver ou de frame generation não
 significa nada se o toolchain mudar entre as duas medições.
 
+Numa máquina sem SDK, `tools/fork/setup-android-sdk.sh` faz os três passos de uma vez (SDK +
+NDK + CMake, `git-sync-deps`, alvo Rust) e escreve o `local.properties`. Uma armadilha que custa
+tempo: o pacote da plataforma passou a carregar versão MENOR, então é `platforms;android-37.0` —
+`platforms;android-37` não existe no repositório e o `sdkmanager` responde só
+`Warning: Failed to find package`.
+
+**Compile antes de marcar a tag.** As alphas 21, 22 e 23 quebraram no runner, cada uma num
+estrato diferente do mesmo merge — link do C++, sintaxe do Kotlin, ambiguidade do Kotlin — e cada
+ciclo custou uma release para achar erro que o compilador local acha em minutos:
+
+```sh
+./gradlew :app:compileGithubDebugKotlin   # ~1 min; é onde erro de merge aparece
+./gradlew :app:assembleGithubDebug        # ~10 min em 4 núcleos; é o que prova o link
+```
+
+Para conferir UM arquivo nativo sem recompilar tudo, o ninja aceita o objeto direto:
+
+```sh
+cd app/.cxx/Debug/*/arm64-v8a
+"$ANDROID_HOME/cmake/3.31.6/bin/ninja" CMakeFiles/emucore_4k.dir/native-lib.cpp.o
+```
+
 ---
 
 ## 4. Verificação manual pós-CI (precisa de dispositivo)
