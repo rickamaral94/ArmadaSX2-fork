@@ -81,8 +81,15 @@ check_env() {
 	if ! command -v java >/dev/null; then
 		echo "    ERRO: java não encontrado"; ok=1
 	else
-		JDK_LOCAL="$(java -version 2>&1 | sed -n '1s/.*"\([0-9]*\).*/\1/p')"
-		if [ "${JDK_LOCAL}" = "${CI_JDK_MAJOR}" ]; then
+		# NAO ancorar na linha 1: com JAVA_TOOL_OPTIONS definido (proxy, truststore) a JVM
+		# imprime "Picked up ..." ANTES da versao, e o parse devolvia string vazia. Com a
+		# politica antiga, que so avisava, uma versao vazia passava batido — o bug so apareceu
+		# quando o modo completo passou a reprovar.
+		JDK_LOCAL="$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -1)"
+		if [ -z "${JDK_LOCAL}" ]; then
+			echo "    ERRO: nao consegui ler a versao do java (saida inesperada de 'java -version')"
+			ok=1
+		elif [ "${JDK_LOCAL}" = "${CI_JDK_MAJOR}" ]; then
 			echo "    JDK          ${JDK_LOCAL}"
 		elif [ "${QUICK}" = "1" ]; then
 			# No ciclo curto o desvio é aviso: o objetivo ali é achar erro de código depressa, e
