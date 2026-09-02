@@ -644,6 +644,7 @@ data class Settings(
      *  Stored as a concrete Hz rather than an on/off flag because the native pacer needs a
      *  number; the UI writes the panel's refresh rate when the user turns it on. */
     val lsfgTargetRate: Int = 0,
+    /** EmuCore/GS/LsfgFlowScale — optical-flow resolution, as a PERCENTAGE of the presented
      *  image (25..100). Lower is cheaper e mais borrado. O lado nativo inverte: a biblioteca
      *  recebe um divisor, então 25% vira 4.0. Ver GSLsfg.cpp.
      *
