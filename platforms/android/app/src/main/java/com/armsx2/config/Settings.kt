@@ -628,10 +628,6 @@ data class Settings(
      *  pipeline is what makes frame generation pay for itself there. Falls back to 3.1 by itself
      *  when the user's Lossless.dll predates 3.1p. */
     val lsfgPerformance: Boolean = true,
-    /** EmuCore/GS/LsfgFlowScale — optical-flow resolution, as a PERCENTAGE of the presented
-     *  image (25..100). Lower is cheaper and blurrier. The native side inverts it: the library
-     *  takes a divisor, so 25% becomes 4.0. See GSLsfg.cpp. */
-    val lsfgFlowScale: Int = 100,
     /** EmuCore/GS/LsfgTargetRate — target OUTPUT rate in Hz for the adaptive pacer; 0 holds
      *  [lsfgMultiplier] fixed.
      *
