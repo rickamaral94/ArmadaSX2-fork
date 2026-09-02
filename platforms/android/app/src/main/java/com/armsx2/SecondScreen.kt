@@ -888,10 +888,33 @@ object SecondScreen {
             // jeito, para produzir texto que ninguem exibe. Continua sendo UMA chamada por
             // tick para os tres tiles juntos, que e o motivo de trackAchievements ter saido
             // de dentro do tile de Achievements.
-            if (inGame && tileViews.keys.any { it in RA_TILES }) {
-                runCatching { trackAchievements() }
-            } else if (!inGame) {
+            //
+            // O estado de RetroAchievements pertence a UM jogo, e sao tres campos, nao um:
+            // [raItems], [seenUnlocked] e [lastUnlock]. Sem uma identidade de jogo os tres
+            // atravessavam a troca, e cada um errava de um jeito:
+            //
+            //   * raItems — com a guarda de tiles acima, trocar de jogo sem nenhum tile de RA
+            //     colocado nao limpava nada; um tile adicionado na sessao seguinte exibia as
+            //     conquistas do jogo ANTERIOR ate o proximo tick com tile;
+            //   * seenUnlocked — os ids do jogo A entravam na sessao do B. Como sao globalmente
+            //     unicos, NENHUM id de B estava no conjunto, entao `fresh` vinha cheio e a regua
+            //     de "so anuncia o que e novidade" anunciava uma conquista JA desbloqueada de B
+            //     como se tivesse acabado de cair. A protecao `seenUnlocked.isNotEmpty()` so
+            //     cobre o primeiro jogo da sessao;
+            //   * lastUnlock — o tile de ultimo desbloqueio continuava mostrando o titulo do
+            //     jogo A enquanto se jogava B, ate B desbloquear algo.
+            //
+            // Os dois ultimos ja erravam antes da guarda de tiles. Mesma chave que o tile de
+            // capa usa para decidir se recarrega a arte, pelo mesmo motivo.
+            val raKey = if (inGame) MainActivityRuntime.currentGame.value?.let { it.serial ?: it.title } else null
+            if (raKey != raGameKey) {
+                raGameKey = raKey
                 raItems = emptyList()
+                seenUnlocked = emptySet()
+                lastUnlock = null
+            }
+            if (raKey != null && tileViews.keys.any { it in RA_TILES }) {
+                runCatching { trackAchievements() }
             }
 
             // Read charge straight from BatteryManager rather than plumbing state over from the
@@ -1072,6 +1095,8 @@ object SecondScreen {
         }
 
         /** Session-only: which achievement ids were already unlocked when we last looked. */
+        /** Jogo a que [raItems], [seenUnlocked] e [lastUnlock] se referem; null fora de jogo. */
+        private var raGameKey: String? = null
         private var seenUnlocked: Set<Int> = emptySet()
         private var lastUnlock: String? = null
 
