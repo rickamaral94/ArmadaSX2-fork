@@ -32,26 +32,30 @@ TOOLS="${REPO}/tools/fork"
 QUICK=0
 [ "${1:-}" = "--quick" ] && QUICK=1
 
-# Referência de frescor: o arquivo RASTREADO mais novo do repositório.
+# Referência de frescor, POR ARTEFATO.
 #
-# A primeira versão exigia que o artefato fosse mais novo que o INÍCIO da execução, e isso estava
-# errado — um build incremental legítimo em que nada mudou termina UP-TO-DATE sem reescrever a
-# .so, e o gate reprovava um artefato perfeitamente válido. Foi o próprio gate que pegou isso.
+# A pergunta não é "foi escrito agora?" — um build incremental legítimo termina UP-TO-DATE sem
+# reescrever nada — e sim "corresponde ao código que pode tê-lo mudado?".
 #
-# A pergunta certa nunca foi "foi escrito agora?", e sim "corresponde ao código atual?". Um
-# artefato mais novo que todo fonte rastreado não pode ser anterior a nenhuma alteração; um mais
-# antigo que algum fonte é, por definição, obsoleto. A árvore de saída fica de fora deliberadamente
-# — apagar em massa num repositório de trabalho seria pior que o problema que resolve.
-newest_source_mtime() {
-	local mais_novo=0 m
+# "Pode tê-lo mudado" é a parte que custou duas tentativas. Comparar contra o arquivo mais novo do
+# repositorio INTEIRO reprova a .so por causa de uma edicao em Kotlin ou em documentacao, que nao
+# entram nela. Cada artefato tem o seu proprio conjunto de fontes, e e contra ele que o frescor e
+# medido. docs/, tools/ e .github/ ficam fora dos dois: nao podem alterar binario compilado.
+newest_mtime_under() {
+	local mais_novo=0 m f
 	while IFS= read -r f; do
 		[ -f "${REPO}/${f}" ] || continue
 		m="$(stat -c %Y "${REPO}/${f}" 2>/dev/null || echo 0)"
 		[ "${m}" -gt "${mais_novo}" ] && mais_novo="${m}"
-	done < <(git -C "${REPO}" ls-files)
+	done < <(git -C "${REPO}" ls-files -- "$@")
 	echo "${mais_novo}"
 }
-SOURCE_MTIME="$(newest_source_mtime)"
+
+# A .so vem de C/C++ e do CMake. Kotlin, recursos e manifesto nao a alcancam.
+NATIVE_SRC="$(newest_mtime_under pcsx2 common 3rdparty cmake CMakeLists.txt \
+	platforms/android/app/src/main/cpp)"
+# O APK empacota a .so mais Kotlin, recursos e manifesto — entao a superficie e maior.
+APP_SRC="$(newest_mtime_under pcsx2 common 3rdparty cmake CMakeLists.txt platforms/android)"
 
 CI_JDK_MAJOR=17
 NDK_VERSION="28.2.13676358"
@@ -158,7 +162,7 @@ check_tree() { "${TOOLS}/check-tree-state.sh" "${REPO}"; }
 check_link() {
 	local so
 	so="$(find "${ANDROID_DIR}/app/build/intermediates" -name 'libemucore*.so' -path '*arm64-v8a*' \
-		-newermt "@${SOURCE_MTIME}" 2>/dev/null | head -1)"
+		-newermt "@${NATIVE_SRC}" 2>/dev/null | head -1)"
 	if [ -z "${so}" ]; then
 		echo "    ERRO: nenhuma libemucore*.so arm64-v8a mais nova que o fonte mais recente."
 		echo "          Ou o link nao produziu nada, ou a .so presente e anterior a alguma alteracao."
@@ -194,10 +198,10 @@ check_apk() {
 
 	local apk="${apks[0]}" mtime
 	mtime="$(stat -c %Y "${apk}")"
-	if [ "${mtime}" -lt "${SOURCE_MTIME}" ]; then
+	if [ "${mtime}" -lt "${APP_SRC}" ]; then
 		echo "    ERRO: o APK e ANTERIOR ao fonte mais recente."
 		echo "          apk   $(date -d "@${mtime}" '+%F %T')"
-		echo "          fonte $(date -d "@${SOURCE_MTIME}" '+%F %T')"
+		echo "          fonte $(date -d "@${APP_SRC}" '+%F %T')"
 		echo "          Um artefato mais velho que o codigo nao prova que o codigo atual compila."
 		return 1
 	fi
@@ -223,8 +227,8 @@ report() {
 	printf '    toolchain  JDK %s · NDK %s · CMake %s · Rust %s\n' \
 		"${JDK_LOCAL:-?}" "${NDK_VERSION}" "${CMAKE_VERSION}" \
 		"$(rustc --version 2>/dev/null | awk '{print $2}' || echo '?')"
-	printf '    frescor    artefatos conferidos contra o fonte de %s\n' \
-		"$(date -d "@${SOURCE_MTIME}" '+%F %T')"
+	printf '    frescor    nativo vs %s · apk vs %s\n' \
+		"$(date -d "@${NATIVE_SRC}" '+%H:%M:%S')" "$(date -d "@${APP_SRC}" '+%H:%M:%S')"
 	[ -n "${SO_FACTS}" ] && printf '    nativo     %s\n' "${SO_FACTS}"
 	local a; for a in "${APK_FACTS[@]:-}"; do [ -n "${a}" ] && printf '    apk        %s\n' "${a}"; done
 
