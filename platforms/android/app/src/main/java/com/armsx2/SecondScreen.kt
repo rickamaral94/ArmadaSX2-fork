@@ -399,8 +399,8 @@ object SecondScreen {
         private val batteryManager: android.os.BatteryManager? by lazy {
             // this@Panel.context, nao o parametro do construtor: e o Context ajustado ao
             // display que o resto do painel usa, e a resolucao so acontece depois de pronto.
-            this@Panel.context.getSystemService(Context.BATTERY_SERVICE)
-                as? android.os.BatteryManager
+            (this@Panel.context.getSystemService(Context.BATTERY_SERVICE)
+                as? android.os.BatteryManager)
         }
         /**
          * Um formatador so. SimpleDateFormat reanalisa o padrao no construtor, e o painel
