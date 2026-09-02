@@ -169,7 +169,7 @@ step "4. Kotlin"                       gradle :app:compileGithubDebugKotlin
 if [ "${QUICK}" = "1" ]; then
 	skip "5. C/C++ ARM64"    "--quick"
 	skip "6. Link"           "--quick"
-	skip "7. Testes host"    "--quick"
+	skip "7. Testes de unidade"  "--quick"
 	skip "8. APK debug"      "--quick"
 	skip "9. APK release"    "--quick"
 	report
@@ -178,10 +178,13 @@ fi
 
 step "5. C/C++ ARM64"                  gradle :app:externalNativeBuildGithubDebug
 step "6. Link"                         check_link
-# A suíte host (tests/ctest) exige a cadeia ~/deps — Qt, ffmpeg — que o build Android não usa,
-# e que hoje não cabe neste laço. Fica DECLARADA como delegada ao CI em vez de omitida: um gate
-# que finge cobrir o que não cobre é pior que um que diz o que deixou de fora.
-skip "7. Testes host"    "delegados ao CI (phase-0.5 e fork tests exigem a cadeia ~/deps)"
+# Testes de JVM do app: migracao de configuracao, onde uma regressao nao da erro nem log — so
+# devolve a opcao ao padrao e o usuario descobre sozinho.
+step "7. Testes de unidade (JVM)"      gradle :app:testGithubDebugUnitTest
+# Ja a suite host (tests/ctest, phase-0.5) exige a cadeia ~/deps — Qt, ffmpeg — que o build
+# Android nao usa e que hoje nao cabe neste laco. Fica DECLARADA como delegada em vez de
+# omitida: um gate que finge cobrir o que nao cobre e pior que um que diz o que deixou de fora.
+skip "7b. Testes host (ctest)"    "delegados ao CI (exigem a cadeia ~/deps)"
 step "8. APK debug"                    gradle :app:assembleGithubDebug
 step "9. APK debug presente"           check_apk debug
 step "10. APK release (LTO + R8)"      gradle :app:assembleGithubRelease

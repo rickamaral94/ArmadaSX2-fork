@@ -90,6 +90,12 @@ jobs:
       - name: Install Rust Android target
         run: rustup target add aarch64-linux-android
 
+      # Antes do APK porque e barato e falha rapido. Cobre a migracao de configuracao, onde
+      # uma regressao nao produz erro nem log: a opcao so volta ao padrao, e quem descobre e o
+      # usuario que perdeu a escolha.
+      - name: Unit tests (JVM)
+        run: ./gradlew :app:testGithubDebugUnitTest --stacktrace
+
       - name: Build debug APK (github flavor, arm64-v8a)
         run: ./gradlew :app:assembleGithubDebug --stacktrace
 
