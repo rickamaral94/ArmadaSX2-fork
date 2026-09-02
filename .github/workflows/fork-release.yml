@@ -45,8 +45,8 @@ jobs:
   # — propriedade duplicada, marcador de conflito, campo que sumiu da serializacao.
   #
   # O job de publicacao depende deste, entao uma tag nao pode nascer com o gate vermelho.
-  gate:
-    name: Gate de pré-release
+  preflight:
+    name: Preflight (verificações estáticas)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -58,9 +58,40 @@ jobs:
       - name: Resíduos de merge
         run: python3 tools/fork/scan-merge-damage.py
 
+  # O gate de release DE VERDADE. O preflight acima so olha o texto do repositorio; quem prova
+  # que o codigo compila e passa nos testes sao OUTROS workflows, e eles podem simplesmente nao
+  # ter rodado neste SHA.
+  #
+  # Nao e hipotese: a alpha 25 foi publicada de 02aaf475a5, um commit que mexeu so em
+  # .github/workflows/, e por isso ficou FORA do filtro de paths da Phase 0.5 — a suite host
+  # nunca rodou nesse SHA. Ali o risco era nulo, porque YAML nao afeta teste de C++. Mas nada
+  # no processo distinguia esse caso de um em que o risco seria real.
+  #
+  # Em vez de alargar o filtro da Phase 0.5 (o que faria um job de ~40 min rodar a cada edicao de
+  # YAML), este job aceita a execucao de um ANCESTRAL, desde que nada relevante para aquela suite
+  # tenha mudado entre os dois commits. Se mudou, exige execucao neste SHA.
+  require-ci-green:
+    name: CI verde neste SHA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # precisa do historico para achar o ancestral e comparar os caminhos
+
+      - name: Exigir validacoes obrigatorias no SHA exato
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/actions/runs?head_sha=${SHA}&per_page=100" > runs.json
+          python3 tools/fork/require-ci-green.py runs.json "${SHA}"
+
   build-and-publish:
     name: APK arm64 · github/release
-    needs: gate
+    needs: [preflight, require-ci-green]
     runs-on: ubuntu-24.04
     # LTO + R8 em cima do build nativo inteiro. O CI de debug leva ~33 min; este teto é folgado
     # de propósito, para o job morrer só quando algo estiver de fato errado.
