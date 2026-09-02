@@ -78,6 +78,7 @@ Sem comprometer a precisão da emulação e sem tocar em EE, IOP ou VU.
 - [Fase 7 — esqueleto de Frame Generation](docs/fase7-frame-generation-esqueleto.md)
 - [Lista de jogos-canário e protocolo de teste](docs/jogos-canario.md)
 - [Extensões Qualcomm no Turnip — o que dá para usar no Adreno 740](docs/qualcomm-turnip-extensoes.md)
+- [Regras de driver com prazo de validade (desenho)](docs/regras-driver-com-validade.md)
 
 ## Licença
 
