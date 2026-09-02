@@ -864,11 +864,16 @@ object SecondScreen {
             // dereferences null and takes the process down. The panel ticks whether or not a game
             // is running, so calling it unconditionally crashed the app the moment the panel
             // appeared. runCatching is no help here: a SIGSEGV is not a Throwable.
-            if (MainActivityRuntime.eState.value == EmuState.RUNNING ||
-                MainActivityRuntime.eState.value == EmuState.PAUSED
-            ) {
+            // ...e só quando algum dos tres tiles que leem raItems estiver de fato no painel.
+            // GetAchievementsAsJSON serializa a lista INTEIRA do jogo, atravessa o JNI como
+            // UTF-8 e ainda e parseada aqui — duas vezes por segundo, na thread de UI, com a
+            // emulacao rodando. Quem nao usa RetroAchievements pagava esse custo do mesmo
+            // jeito, para produzir texto que ninguem exibe. Continua sendo UMA chamada por
+            // tick para os tres tiles juntos, que e o motivo de trackAchievements ter saido
+            // de dentro do tile de Achievements.
+            if (inGame && tileViews.keys.any { it in RA_TILES }) {
                 runCatching { trackAchievements() }
-            } else {
+            } else if (!inGame) {
                 raItems = emptyList()
             }
 
@@ -988,12 +993,22 @@ object SecondScreen {
          */
         private var raItems: List<com.armsx2.ui.achievements.AchievementItem> = emptyList()
 
+        /** Os tiles que leem [raItems]. Nenhum deles no painel, nenhuma consulta por tick. */
+        private val RA_TILES = setOf(
+            SecondScreenTile.ACHIEVEMENTS,
+            SecondScreenTile.RA_POINTS,
+            SecondScreenTile.RA_RECENT,
+        )
+
         /**
          * Refresh [raItems] and note any new unlock.
          *
-         * Called once per tick regardless of which tiles are placed. It used to live inside the
-         * Achievements tile's own text builder, which meant the Latest-unlock tile read "—"
-         * forever unless the Achievements tile happened to be on the panel as well.
+         * Chamada UMA vez por tick para os tres tiles de [RA_TILES] juntos. Vivia dentro do
+         * construtor de texto do tile de Achievements, e por isso o tile de ultimo desbloqueio
+         * lia "—" para sempre a menos que o de Achievements estivesse no painel tambem.
+         *
+         * O chamador pula o tick inteiro quando nenhum dos tres esta colocado — a consulta
+         * so existe para alimentar esses tiles.
          */
         private fun trackAchievements() {
             val json = runCatching { NativeApp.getAchievementsJSON() }.getOrDefault("")
