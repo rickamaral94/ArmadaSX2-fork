@@ -495,7 +495,9 @@ int _allocArm64GPR(int type, int reg, int mode)
 
 	if (type == ARM64TYPE_GPR && (mode & MODE_WRITE))
 	{
-		if (reg < 32 && GPR_IS_CONST1(reg))
+		// Sem `reg < 32 &&` na frente: GPR_IS_CONST1 ja o contem (iR5900-arm64.h), entao o teste
+		// era feito duas vezes na mesma expressao.
+		if (GPR_IS_CONST1(reg))
 			GPR_DEL_CONST(reg);
 		if (hostNEONreg >= 0)
 		{
@@ -508,7 +510,8 @@ int _allocArm64GPR(int type, int reg, int mode)
 	}
 	else if (type == ARM64TYPE_PSX && (mode & MODE_WRITE))
 	{
-		if (reg < 32 && PSX_IS_CONST1(reg))
+		// PSX_IS_CONST1 tambem ja carrega o limite; ver a nota no ramo GPR acima.
+		if (PSX_IS_CONST1(reg))
 			PSX_DEL_CONST(reg);
 	}
 
@@ -992,7 +995,7 @@ int _allocGPRtoNEONreg(int gprreg, int mode)
 		}
 	}
 
-	if (mode & MODE_WRITE && gprreg < 32 && GPR_IS_CONST1(gprreg))
+	if (mode & MODE_WRITE && GPR_IS_CONST1(gprreg))
 		GPR_DEL_CONST(gprreg);
 	if (mode & MODE_WRITE && hostGPRreg >= 0)
 		_freeArm64GPRWithoutWriteback(hostGPRreg);

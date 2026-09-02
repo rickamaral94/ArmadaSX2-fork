@@ -1326,7 +1326,9 @@ void endMacroOp_arm64(int mode)
 // VU0 sync is conditional on VU0 actually running (VPU_STAT bit 0).
 // Sync is skipped in the common case where VU0 micro isn't executing.
 
-extern void _vu0FinishMicro();
+// Apenas o Wait: _vu0FinishMicro ja vem de VUmicro.h, incluido no topo deste arquivo e usado
+// mais acima (linha ~1251) sem declaracao local. O _vu0WaitMicro nao esta em header nenhum —
+// esta e a unica declaracao dele no projeto, entao ela fica.
 extern void _vu0WaitMicro();
 
 // VE-08: thin sync helpers for the rec-emitted COP2 sync sites below.
