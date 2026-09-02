@@ -91,8 +91,16 @@ jobs:
       # porque o sdkmanager ja saiu com codigo 0 sem instalar o que foi pedido.
       - name: Install NDK + CMake
         run: |
-          set -euo pipefail
-          yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null
+          set -eu
+          # `|| true` DE PROPOSITO, e sem pipefail: o sdkmanager para de ler a entrada assim que
+          # tem o que precisa, o `yes` morre com EPIPE e o codigo de saida da pipeline vira 1
+          # mesmo quando a instalacao deu certo. Foi o que derrubou a alpha 25.
+          #
+          # O erro do `|| true` original nunca foi engolir ESTE codigo de saida — que e mesmo
+          # ruido — e sim nao verificar NADA depois. Quem responde "instalou?" sao os dois test
+          # abaixo, e esses nao tem `|| true`: sem o NDK pinado o passo falha aqui, em vez de
+          # publicar um binario compilado com outro toolchain.
+          yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
           test -d "$ANDROID_HOME/ndk/28.2.13676358"
           test -d "$ANDROID_HOME/cmake/3.31.6"
 
