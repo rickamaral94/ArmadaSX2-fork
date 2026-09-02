@@ -2,7 +2,9 @@
 #include <android/native_window_jni.h>
 #include <android/log.h>
 #include <unistd.h>
+#include <poll.h> // espera com prazo no thread de redirecionamento do stdout
 #include <pthread.h>
+#include <cerrno>
 #include <stdio.h>
 #include <cstdio>
 #include <mutex>
@@ -85,14 +87,84 @@ static std::FILE* s_native_log = nullptr;
 static long s_native_log_written = 0;
 static constexpr long kNativeLogMaxBytes = 8L * 1024 * 1024;
 
+// Prazo de coalescência do flush.
+//
+// A versão anterior chamava fflush() a CADA bloco lido do pipe, e o bloco tem no máximo 511
+// bytes: uma rajada de log — compilação de shader, erro de Vulkan repetindo, boot — virava
+// centenas de write() por segundo em armazenamento de portátil.
+//
+// O flush por bloco não era paranoia, e é por isso que ele NÃO foi simplesmente removido: se o
+// processo morrer, o que ainda estiver no buffer da libc se perde, e este arquivo existe
+// exatamente para o testador sem PC conseguir relatar o que aconteceu antes da queda.
+//
+// O prazo resolve os dois: com log esparso (uma linha por segundo) cada linha continua indo para
+// o disco na hora, porque o prazo já venceu; numa rajada, centenas de blocos passam a caber num
+// flush só. A perda máxima numa queda fica limitada a este intervalo, e só durante rajada.
+static constexpr auto kNativeLogFlushInterval = std::chrono::milliseconds(200);
+static std::chrono::steady_clock::time_point s_native_log_last_flush{};
+static bool s_native_log_dirty = false;
+
+/// Descarrega o que estiver pendente. Chamador tem de segurar s_native_log_mutex.
+static void flush_native_log_locked()
+{
+    if (!s_native_log || !s_native_log_dirty)
+        return;
+    std::fflush(s_native_log);
+    s_native_log_dirty = false;
+    s_native_log_last_flush = std::chrono::steady_clock::now();
+}
+
+/// Versão pública, para os pontos em que a perda é inaceitável: pausa e troca de arquivo.
+static void flush_native_log()
+{
+    std::lock_guard<std::mutex> lock(s_native_log_mutex);
+    flush_native_log_locked();
+}
+
 // Redirect stdout/stderr to Android logcat so Vixl/libc abort messages are visible.
 static void* stdout_redirect_thread(void* fd_ptr)
 {
     int fd = (int)(intptr_t)fd_ptr;
     char buf[512];
-    ssize_t n;
-    while ((n = read(fd, buf, sizeof(buf) - 1)) > 0)
+    while (true)
     {
+        // Espera COM PRAZO só quando há coisa pendente no buffer da libc.
+        //
+        // read() sozinho bloqueia até chegar byte, e o coalescimento lá embaixo só decide
+        // quando um bloco NOVO chega: a última linha de uma rajada ficaria pendente até o
+        // próximo log, que pode não vir nunca — que é exatamente o caso de uma queda logo
+        // depois do erro, a linha que mais interessa. Havendo pendência a espera vira um
+        // poll() de kNativeLogFlushInterval e o timeout fecha o arquivo; não havendo, poll
+        // espera indefinidamente, então aparelho ocioso não acorda à toa.
+        bool dirty;
+        {
+            std::lock_guard<std::mutex> lock(s_native_log_mutex);
+            dirty = s_native_log_dirty;
+        }
+
+        struct pollfd pfd = {fd, POLLIN, 0};
+        const int ready = poll(&pfd, 1, dirty ? (int)kNativeLogFlushInterval.count() : -1);
+        if (ready < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (ready == 0)
+        {
+            flush_native_log();
+            continue;
+        }
+
+        const ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        if (n <= 0)
+        {
+            // 0 = escritor fechou; <0 sem EINTR = pipe perdido. Nos dois casos não há mais log.
+            if (n < 0 && errno == EINTR)
+                continue;
+            break;
+        }
+
         buf[n] = '\0';
         __android_log_print(ANDROID_LOG_WARN, "STDOUT", "%s", buf);
 
@@ -102,17 +174,26 @@ static void* stdout_redirect_thread(void* fd_ptr)
         if (s_native_log)
         {
             std::fwrite(buf, 1, (size_t)n, s_native_log);
-            std::fflush(s_native_log);
             s_native_log_written += (long)n;
+            s_native_log_dirty = true;
             if (s_native_log_written > kNativeLogMaxBytes)
             {
                 // Rotação simples: recomeça o arquivo. Uma sessão de teste longa não pode encher
                 // o armazenamento do aparelho, e o começo já foi lido quando importava.
+                // freopen descarta o buffer, então o pendente sai ANTES — senão a rotação comeria
+                // justamente as últimas linhas, que são as que interessam.
+                flush_native_log_locked();
                 std::freopen(nullptr, "wb", s_native_log);
                 s_native_log_written = 0;
+                s_native_log_dirty = false;
+            }
+            else if (std::chrono::steady_clock::now() - s_native_log_last_flush >= kNativeLogFlushInterval)
+            {
+                flush_native_log_locked();
             }
         }
     }
+    flush_native_log();
     close(fd);
     return nullptr;
 }
@@ -143,9 +224,16 @@ static void enable_native_log_file(const std::string& data_root)
 
     std::lock_guard<std::mutex> lock(s_native_log_mutex);
     if (s_native_log)
+    {
+        flush_native_log_locked();
         std::fclose(s_native_log);
+    }
     s_native_log = fp;
     s_native_log_written = std::ftell(fp);
+    s_native_log_dirty = false;
+    // Zerado, não "agora": o primeiro bloco após abrir o arquivo deve ir ao disco imediatamente,
+    // porque é onde ficam as linhas de identificação de GPU e driver.
+    s_native_log_last_flush = {};
 }
 static void redirect_stdout_to_logcat()
 {
