@@ -273,3 +273,64 @@ com o gate vermelho.
 
 Fora desta lista e ainda pendente do lado do aparelho: **o teste de barreiras de textura**, que
 segue bloqueando as Etapas 2-4 de `regras-driver-com-validade.md`.
+
+
+---
+
+## 6. Situação dos achados — atualização
+
+Registro do que foi feito, com a evidência de cada um. `8b23711af2` (a auditoria) → `HEAD`.
+
+| achado | estado | evidência |
+|---|---|---|
+| V-07 gate único | **feito** | `tools/fork/gate.sh`, 11 etapas; job `gate` no CI do qual a publicação depende |
+| V-01 HEAD não validado | **feito** | gate completo verde em `21dbe48eda` (9m38s) |
+| V-10 estado de RA entre jogos | **feito** | eram três campos, dois já errados antes; identidade de jogo zera os três |
+| V-11 migração sem teste | **feito** | 13 testes, verificados por mutação (4 reprovações nas certas) |
+| V-02 `\|\| true` no NDK | **feito** | removido nos dois workflows, com conferência de diretório |
+| V-04 checksum das cmdline-tools | **feito** | SHA-1 oficial do Google + SHA-256 derivado, conferidos antes de descompactar |
+| V-05 Rust não pinado | **feito** | `rust-toolchain.toml` 1.94.1; CI usa `rustup show` |
+| V-03 JDK divergente | **feito** | gate e script avisam; CI e doc dizem 17 |
+| V-12 cobertura de regras | **feito** | 3 testes novos; achou e corrigiu o retorno vazio com ids nulos |
+| V-06 versões duplicadas no script | **feito** | `check-toolchain.py` cruza os cinco lugares e reprova na divergência |
+| V-09 ganho do `native.log` | **medido** | ver abaixo |
+| V-08 suíte host | **decidido** | ver abaixo |
+| V-13 `PolicyFromConfig` por quadro | hipótese | não implementar sem medição |
+
+### V-09 — o `native.log` medido
+
+`tools/fork/nativelog-bench.cpp` roda as duas estratégias sobre o mesmo fluxo.
+
+| cenário | flushes (antes → depois) | tempo de escrita | atraso máx. até o disco |
+|---|---|---|---|
+| Rajada — 20.000 blocos de 200 B | 20.000 → **2** | 11,05 ms → **5,09 ms** | 0,05 ms → **205,76 ms** |
+| Esparso — 1 linha a cada 250 ms | 20 → **20** | 0,50 ms → 0,57 ms | 0,05 ms → 0,03 ms |
+| Rotação — 12 MB | 30.000 → **3** | 20,05 ms → **9,66 ms** | 1,07 ms → 202,52 ms |
+
+**O que os números sustentam.** A redução de chamadas de flush é de quatro ordens de grandeza e
+não depende de hardware. O cenário esparso confirma a afirmação central do desenho — com uma
+linha a cada 250 ms o coalescimento **não muda nada**: mesmos 20 flushes, mesmo atraso. Só há
+coalescimento onde há rajada.
+
+**O que os números NÃO sustentam.** O ganho de tempo de parede medido aqui é modesto: ~6 ms numa
+rajada de 20.000 blocos, e foi medido no sistema de arquivos do host, com I/O bufferizado, onde
+`fflush` é barato. **Não transfere direto para o armazenamento do aparelho** — provavelmente é
+maior lá, mas isso é expectativa, não medição, e fica dito como tal.
+
+**O preço.** Numa rajada, o atraso máximo entre uma linha chegar e estar no disco vai de ~0,05 ms
+para ~206 ms. É o limite de projeto (200 ms) e só existe durante rajada; fora dela é zero. Numa
+queda no meio de uma rajada, perde-se até 200 ms de log.
+
+Classificação final: **otimização comprovada em número de flushes; ganho de tempo comprovado no
+host e ainda não medido no aparelho.**
+
+### V-08 — a suíte host fica no CI, e isso é verificável
+
+`fork_config_tests` linka a biblioteca `PCSX2` inteira, então construí-la localmente exige a
+cadeia `~/deps` (Qt, ffmpeg) que o build Android não usa. Não cabe no laço local.
+
+Não é omissão: o workflow `phase-0.5-arm64-correctness.yml` constrói e roda
+`presentation_metrics_tests` e `fork_config_tests`, disparando em push para `claude/**` quando
+`tests/**` ou `pcsx2/**` mudam — última execução verde em `a802fac2b6`. O gate declara a etapa
+como delegada em vez de fingir que a cobre, e roda localmente o que consegue: a suíte de JVM do
+app, que é onde mora a migração de configuração.
