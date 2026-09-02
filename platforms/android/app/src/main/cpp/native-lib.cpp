@@ -310,8 +310,6 @@ static std::string s_settings_interface_path;
 static std::unique_ptr<INISettingsInterface> s_secrets_settings_interface;
 static std::string s_secrets_settings_interface_path;
 
-static JNIEnv env_main;
-
 // Cached JVM + refs for callbacks originating on non-Java threads (e.g. vmSetPaused).
 // Populated once in initialize() while we have a valid Java-thread env.
 static JavaVM*    s_jvm              = nullptr;
@@ -2684,11 +2682,7 @@ void Host::ReleaseRenderWindow() {
     }
 }
 
-static s32 s_loop_count = 1;
-
 // Owned by the GS thread.
-static u32 s_dump_frame_number = 0;
-static u32 s_loop_number = s_loop_count;
 static double s_last_internal_draws = 0;
 static double s_last_draws = 0;
 static double s_last_render_passes = 0;
