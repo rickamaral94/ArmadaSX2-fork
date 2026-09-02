@@ -6909,6 +6909,79 @@ bool GSDeviceVK::DoSGSR(GSTexture* sTex, GSTexture* dTex, const std::array<u32, 
 	return true;
 }
 
+void GSDeviceVK::QuiesceAsyncPipelineCompiler(const char* reason)
+{
+	const bool was_running = m_tfx_pipeline_compiler.IsRunning();
+	const std::vector<ForkPipelineCompiler::Result> orphaned = m_tfx_pipeline_compiler.CancelAndJoin();
+	for (const ForkPipelineCompiler::Result result : orphaned)
+	{
+		const VkPipeline pipeline = OpaqueToVkHandle<VkPipeline>(result);
+		if (pipeline != VK_NULL_HANDLE)
+			vkDestroyPipeline(m_device, pipeline, nullptr);
+	}
+	m_tfx_pipeline_tasks.clear();
+
+	// Todo cache aqui é privado do pool — nunca o principal —, então o tratamento é uniforme:
+	// mesclar no principal e destruir. A mescla é o que devolve ao disco tudo que os workers
+	// compilaram; sem ela o trabalho assíncrono morreria junto com o pool. Só acontece depois do
+	// join acima, que é a condição de sincronização externa que vkMergePipelineCaches exige.
+	if (!m_tfx_worker_pipeline_caches.empty())
+	{
+		if (g_vulkan_shader_cache)
+			g_vulkan_shader_cache->MergePipelineCaches(m_tfx_worker_pipeline_caches);
+		for (const VkPipelineCache cache : m_tfx_worker_pipeline_caches)
+		{
+			if (cache != VK_NULL_HANDLE)
+				vkDestroyPipelineCache(m_device, cache, nullptr);
+		}
+	}
+	m_tfx_worker_pipeline_caches.clear();
+
+	if (was_running)
+	{
+		const ForkPipelineCompiler::Stats stats = m_tfx_pipeline_compiler.GetStats();
+		// `reason` separa parada por teardown de ciclo de persistência. Sem isso o log mostraria
+		// "stopped" a cada 256 adoções, sem "enabled" correspondente — e um leitor concluiria que
+		// o experimento vive caindo. Os contadores são acumulados e sobrevivem ao restart.
+		Console.WriteLn(
+			"@@FORK_PIPELINE_ASYNC@@ %s requests=%" PRIu64 " selector_hits=%" PRIu64
+			" queued=%" PRIu64 " completed=%" PRIu64 " parallel=%" PRIu64 " waits=%" PRIu64
+			" compile_ms=%.1f wait_ms=%.1f failures=%" PRIu64 " cancelled=%" PRIu64 " peak=%u",
+			reason, m_tfx_pipeline_requests, m_tfx_pipeline_selector_hits, stats.queued, stats.completed,
+			stats.parallel_compiles, stats.waits_at_use, static_cast<double>(stats.compile_time_ns) / 1e6,
+			static_cast<double>(stats.wait_time_ns) / 1e6, stats.failures, stats.cancelled, stats.peak_active);
+	}
+}
+
+void GSDeviceVK::PersistAsyncPipelineWork()
+{
+	if (!m_tfx_pipeline_compiler.IsRunning())
+		return;
+
+	// POR QUE ISTO PRECISA PARAR O POOL. `vkMergePipelineCaches` lê os caches de origem enquanto
+	// `vkCreateGraphicsPipelines` escreve neles, e o Vulkan exige sincronização externa do
+	// `pipelineCache` em ambos. Não existe, portanto, mescla segura com worker em execução: o
+	// único ponto de sincronização disponível é o join. Quiesce já faz exatamente a sequência
+	// certa — join, mescla os privados no principal, destrói os privados —, então esta função é a
+	// mesma sequência acionada por orçamento em vez de por teardown.
+	//
+	// O QUE CUSTA, dito por inteiro: o join espera a compilação em curso terminar, e as tarefas
+	// enfileiradas mas não iniciadas são descartadas junto com as prontas ainda não adotadas.
+	// Esse trabalho é recompilado depois. É limitado (no máximo os workers em voo mais a fila
+	// curta) e acontece uma vez a cada PIPELINE_CACHE_FLUSH_THRESHOLD adoções, então fica bem
+	// abaixo de 2% do total — barato perto de perder a sessão inteira num OOM-kill.
+	//
+	// O pool NÃO é reiniciado aqui de propósito: o próximo RequestAsyncTFXPipeline chama
+	// EnsureAsyncPipelineCompiler, que o recria com caches re-semeados a partir do principal já
+	// mesclado. Reiniciar agora só adiantaria o custo para dentro deste quadro.
+	QuiesceAsyncPipelineCompiler("persist");
+
+	// A gravação em si continua governada por VKShaderCache: intervalo mínimo de 120 s e pulo
+	// quando o tamanho não mudou. Chamar aqui não força disco a cada ciclo.
+	if (g_vulkan_shader_cache)
+		g_vulkan_shader_cache->FlushPipelineCache();
+}
+
 void GSDeviceVK::DestroyResources()
 {
 	// Primeiro ato do teardown: depois deste join nenhum worker pode voltar a tocar no VkDevice,
