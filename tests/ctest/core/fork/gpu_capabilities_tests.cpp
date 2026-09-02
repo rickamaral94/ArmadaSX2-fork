@@ -185,3 +185,41 @@ TEST(MobileDriverProfileRules, OverflowKeepsTheCountExactAndSaysItTruncated)
 	EXPECT_EQ(p.TrackedRuleCount(), MobileDriverProfile::MAX_TRACKED_RULES);
 	EXPECT_EQ(p.matched_rule_count, MobileDriverProfile::MAX_TRACKED_RULES + 3);
 }
+
+TEST(MobileDriverProfileRules, ExactlyAtTheLimitHasNoTruncationSuffix)
+{
+	// A fronteira entre "lista completa" e "lista parcial". Um erro de um no `>` faria a lista
+	// cheia anunciar "+0", e um leitor que confia no sufixo concluiria que ha regra escondida
+	// que nao existe.
+	MobileDriverProfile p;
+	p.matched_rule_count = MobileDriverProfile::MAX_TRACKED_RULES;
+	for (u32 i = 0; i < MobileDriverProfile::MAX_TRACKED_RULES; i++)
+		p.matched_rule_ids[i] = "r";
+
+	const std::string out = p.MatchedRulesString();
+	EXPECT_EQ(out.find('+'), std::string::npos) << out;
+	EXPECT_EQ(p.TrackedRuleCount(), p.matched_rule_count);
+}
+
+TEST(MobileDriverProfileRules, NullIdIsSkippedWithoutLeavingASeparator)
+{
+	// O vetor e zero-inicializado, entao um id nulo no meio e o estado natural de um registro
+	// parcial. Pular sem cuidado produziria "a,,c" ou uma virgula sobrando na ponta, e uma lista
+	// com buraco de pontuacao e lida como lista corrompida.
+	MobileDriverProfile p;
+	p.matched_rule_count = 3;
+	p.matched_rule_ids[0] = "a";
+	p.matched_rule_ids[1] = nullptr;
+	p.matched_rule_ids[2] = "c";
+	EXPECT_EQ(p.MatchedRulesString(), "a,c");
+}
+
+TEST(MobileDriverProfileRules, AllIdsNullReadsAsADashRatherThanEmpty)
+{
+	// Contagem maior que zero e nenhum id utilizavel. Uma string vazia faria a linha de log virar
+	// `rules=` sem valor, que se le como campo faltando; o traco e o mesmo vocabulario que a
+	// contagem zero ja usa para ausencia.
+	MobileDriverProfile p;
+	p.matched_rule_count = 2;
+	EXPECT_EQ(p.MatchedRulesString(), "-");
+}

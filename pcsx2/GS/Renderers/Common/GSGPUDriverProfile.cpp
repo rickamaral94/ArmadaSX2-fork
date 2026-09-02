@@ -610,5 +610,11 @@ std::string MobileDriverProfile::MatchedRulesString() const
 	// leitor saiba que esta vendo uma lista parcial, em vez de concluir que o resto nao existe.
 	if (matched_rule_count > tracked)
 		out += fmt::format("+{}", matched_rule_count - tracked);
+	// So alcancavel se TODOS os ids guardados forem nulos e nao houver truncamento. Devolver ""
+	// ali faria a linha de log virar `rules=` sem valor, que se le como campo faltando e nao como
+	// "nenhum id". O traco e o mesmo que a contagem zero ja usa, entao o leitor nao precisa
+	// aprender dois vocabularios para a mesma ausencia.
+	if (out.empty())
+		return "-";
 	return out;
 }
