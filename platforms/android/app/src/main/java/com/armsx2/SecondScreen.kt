@@ -391,6 +391,23 @@ object SecondScreen {
         private var topBarBattery: TextView? = null
         private var dp: Float = 1f
         private val tileViews = HashMap<SecondScreenTile, View>()
+        /**
+         * Buscado uma vez, nao a cada tick. getSystemService faz lookup por nome e devolve
+         * sempre a mesma instancia de processo; o painel a pedia duas vezes por tick — uma
+         * para a carga, outra para o estado de carga.
+         */
+        private val batteryManager: android.os.BatteryManager? by lazy {
+            // this@Panel.context, nao o parametro do construtor: e o Context ajustado ao
+            // display que o resto do painel usa, e a resolucao so acontece depois de pronto.
+            this@Panel.context.getSystemService(Context.BATTERY_SERVICE)
+                as? android.os.BatteryManager
+        }
+        /**
+         * Um formatador so. SimpleDateFormat reanalisa o padrao no construtor, e o painel
+         * construia um novo a cada 500 ms para produzir os mesmos cinco caracteres.
+         */
+        private val clockFormat =
+            java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
         /** Rows that only make sense with a game running; hidden in the library. */
         private val gameRows = mutableListOf<View>()
         private var ticking = false
@@ -879,17 +896,15 @@ object SecondScreen {
 
             // Read charge straight from BatteryManager rather than plumbing state over from the
             // main-display status cluster — this panel ticks on its own and the call is cheap.
+            // Carga e estado de carga saem da MESMA busca de servico: eram dois
+            // getSystemService(BATTERY_SERVICE) por tick para o mesmo objeto.
+            val bm = batteryManager
             val battery = runCatching {
-                (context.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager)
-                    ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
             }.getOrDefault(-1)
             // Charging state, so the icon can show a bolt rather than a misleading empty cell.
-            val charging = runCatching {
-                val bm = context.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
-                bm?.isCharging == true
-            }.getOrDefault(false)
-            val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(System.currentTimeMillis()))
+            val charging = runCatching { bm?.isCharging == true }.getOrDefault(false)
+            val clock = clockFormat.format(java.util.Date(System.currentTimeMillis()))
 
             // The bar, when it is the one showing these. Temps ride along on the right when the
             // user has them, because that is where a status strip is read from.
