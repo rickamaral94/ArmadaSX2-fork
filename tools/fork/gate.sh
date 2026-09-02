@@ -136,7 +136,7 @@ report() {
 	printf '    commit   %s\n' "$(git -C "${REPO}" rev-parse --short HEAD)"
 	printf '    branch   %s\n' "$(git -C "${REPO}" rev-parse --abbrev-ref HEAD)"
 	local dirty; dirty="$(git -C "${REPO}" status --porcelain | wc -l)"
-	[ "${dirty}" -gt 0 ] && printf '    AVISO    %s arquivo(s) nao commitados — o gate validou a ARVORE, nao o commit\n' "${dirty}"
+	[ "${dirty}" -gt 0 ] && printf '    SUJA     %s arquivo(s) nao commitados\n' "${dirty}"
 	printf '\n'
 	local i
 	for i in "${!STEP_NAMES[@]}"; do
@@ -148,6 +148,14 @@ report() {
 	elif [ "${QUICK}" = "1" ]; then
 		printf '\n\033[1mVERDE (modo --quick)\033[0m\n'
 		printf 'NAO autoriza release: nada de nativo foi compilado, e link foi o que derrubou a alpha 21.\n'
+	elif [ "${dirty}" -gt 0 ]; then
+		# Arvore suja e verdicto verde sao afirmacoes contraditorias: o que passou foi a ARVORE,
+		# e uma tag aponta para um COMMIT. Pior ainda, uma etapa que ficou "up-to-date" pode ter
+		# rodado ANTES da edicao nao commitada — foi o que aconteceu na primeira execucao deste
+		# gate. Entao aqui ele se recusa a autorizar, em vez de avisar e autorizar assim mesmo.
+		printf '\n\033[1mVERDE PARA A ARVORE, NAO PARA UM COMMIT\033[0m\n'
+		printf 'Ha %s arquivo(s) nao commitados. Commite e rode de novo antes de marcar a tag:\n' "${dirty}"
+		git -C "${REPO}" status --porcelain | sed 's/^/    /'
 	else
 		printf '\n\033[1mGATE VERDE — pode marcar a tag\033[0m\n'
 	fi
