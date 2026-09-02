@@ -448,7 +448,11 @@ static mVUSpinLoop mVUdetectSpinLoop(mV, u32 startPC)
 	r.viA = (lo0 >> 16) & 0x1F;
 	r.viB = (lo0 >> 11) & 0x1F;
 	const s32 imm11 = (s32)(lo0 << 21) >> 21;
-	if (startPC + 8 + imm11 * 8 == (s32)startPC)
+	// Sem o (s32) que havia aqui, e o cast era inerte: `startPC` e u32, entao o lado esquerdo
+	// ja e u32 por promocao, e comparar u32 com s32 converteria o s32 de volta para u32. So
+	// gerava -Wsign-compare. A aritmetica com envolvimento e a pretendida: um alvo que
+	// subflui (pc=0, imm=-2 -> 0xfffffff8) simplesmente nao casa, que e a resposta certa.
+	if (startPC + 8 + imm11 * 8 == startPC)
 	{
 		// 2-pair self-loop: spins while taken; exit on the opposite sense.
 		r.found = true;
@@ -463,7 +467,7 @@ static mVUSpinLoop mVUdetectSpinLoop(mV, u32 startPC)
 	if ((lo2 >> 25) != 0x20) // B
 		return r;
 	const s32 imm2 = (s32)(lo2 << 21) >> 21;
-	if (startPC + 16 + 8 + imm2 * 8 != (s32)startPC)
+	if (startPC + 16 + 8 + imm2 * 8 != startPC)
 		return r;
 	r.found = true;
 	r.exitOnEq = ibeq; // spins on fallthrough; taken (the branch sense) exits

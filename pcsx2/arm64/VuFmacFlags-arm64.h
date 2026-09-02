@@ -187,7 +187,7 @@ __fi static void armEmitVuGuardMask(const a64::VRegister& outA, const a64::VRegi
 	const a64::VRegister& a, const a64::VRegister& b, const a64::VRegister& tmp)
 {
 	pxAssert(!outA.Is(outB) && !outA.Is(tmp) && !outB.Is(tmp));
-	for (const a64::VRegister& r : {outA, outB, tmp})
+	for ([[maybe_unused]] const a64::VRegister& r : {outA, outB, tmp})
 		pxAssert(!r.Is(a) && !r.Is(b));
 
 	armAsm->Shl(tmp.V4S(), a.V4S(), 1); // drop the sign, keep exp + mantissa
@@ -306,7 +306,7 @@ __fi static void armEmitVuDefectiveMul(const a64::VRegister& dst, const a64::VRe
 	const a64::VRegister& b, const a64::VRegister& t, const a64::VRegister& u,
 	bool scalar = false, const a64::Register* floorBlocked = nullptr)
 {
-	for (const a64::VRegister& r : {t, u})
+	for ([[maybe_unused]] const a64::VRegister& r : {t, u})
 		pxAssert(!r.Is(dst) && !r.Is(a) && !r.Is(b));
 	pxAssert(!t.Is(u));
 
