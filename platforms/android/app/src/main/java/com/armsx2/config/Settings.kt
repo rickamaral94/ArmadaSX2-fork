@@ -292,8 +292,6 @@ data class Settings(
     val hwRov: Boolean = false,
     /** EmuCore/GS/HWAA1 — hardware PS2 AA1 edge anti-aliasing. Default off. Applies on game restart. */
     val hwAa1: Boolean = false,
-    /** EmuCore/GS/HWAccurateAlphaTest — accurate alpha test for the HW renderer (pairs with ROV). Default off. */
-    val hwAat: Boolean = false,
     /** EmuCore/GS/EnableAdrenoFramebufferFetch — enable the Vulkan framebuffer-fetch
      * (ROAA) accurate-blending fast path on non-Mali (Adreno) GPUs that expose the
      * extension. Default ON so accurate blending runs in-tile (fast) instead of the
@@ -538,18 +536,6 @@ data class Settings(
      *  signal handler). Disabling falls back to the slow VTLB read/write
      *  path on every memory op. */
     val enableFastmem: Boolean = true,
-
-    // ---- macOS/PCSX2 ARM64 backend compatibility flags ----
-    // Hidden from UI and forced on. Kept only so older JSON/INI/per-game blobs
-    // with UseMac* keys still parse without losing the rest of their settings.
-    /** EmuCore/CPU/Recompiler/UseMacEE — legacy, forced on. */
-    val useMacEE: Boolean = true,
-    /** EmuCore/CPU/Recompiler/UseMacIOP — legacy, forced on. */
-    val useMacIOP: Boolean = true,
-    /** EmuCore/CPU/Recompiler/UseMacVU0 — legacy, forced on. */
-    val useMacVU0: Boolean = true,
-    /** EmuCore/CPU/Recompiler/UseMacVU1 — legacy, forced on. */
-    val useMacVU1: Boolean = true,
 
     // ---- microVU-style compile-time pipeline-stall folding ----
     /** EmuCore/CPU/Recompiler/Vu1InlineFmacStall — replace the per-pair
@@ -1036,6 +1022,10 @@ data class Settings(
         put("EmuCore/CPU/Recompiler", "EnableFastmem", "bool", enableFastmem.toString())
         // Force the single macOS/PCSX2 ARM64 backend. VMManager also ignores
         // stale UseMac* values, but writing true cleans old persisted settings.
+        // Escrito como literal, nao a partir de propriedade: as quatro propriedades useMac*
+        // existiam so para "nao perder o resto das configuracoes de um JSON antigo", o que nao
+        // procede — optBoolean ignora chave que nao conhece, e nenhum campo e preciso para isso.
+        // Eram atribuidas true em quatro lugares e lidas em nenhum.
         put("EmuCore/CPU/Recompiler", "UseMacEE", "bool", "true")
         put("EmuCore/CPU/Recompiler", "UseMacIOP", "bool", "true")
         put("EmuCore/CPU/Recompiler", "UseMacVU0", "bool", "true")
@@ -1262,11 +1252,6 @@ data class Settings(
             recVU0 = boolAt("EmuCore/CPU/Recompiler/EnableVU0") ?: this.recVU0,
             recVU1 = boolAt("EmuCore/CPU/Recompiler/EnableVU1") ?: this.recVU1,
             enableFastmem = boolAt("EmuCore/CPU/Recompiler/EnableFastmem") ?: this.enableFastmem,
-            // Legacy/forced-on ARM64 backend flags — always "true" in the INI (mirror fromJson).
-            useMacEE = true,
-            useMacIOP = true,
-            useMacVU0 = true,
-            useMacVU1 = true,
             vu1InlineFmacStall = boolAt("EmuCore/CPU/Recompiler/Vu1InlineFmacStall") ?: this.vu1InlineFmacStall,
             vu1CrossBlockPState = boolAt("EmuCore/CPU/Recompiler/Vu1CrossBlockPState") ?: this.vu1CrossBlockPState,
             vu1InlineDrainTestPipes = boolAt("EmuCore/CPU/Recompiler/Vu1InlineDrainTestPipes") ?: this.vu1InlineDrainTestPipes,
@@ -2143,7 +2128,6 @@ data class Settings(
                 disableFramebufferFetch = json.optBoolean("disableFramebufferFetch", def.disableFramebufferFetch),
                 hwRov = json.optBoolean("hwRov", def.hwRov),
                 hwAa1 = json.optBoolean("hwAa1", def.hwAa1),
-                hwAat = false,
                 adrenoFbFetch = json.optBoolean("adrenoFbFetch", def.adrenoFbFetch),
                 coalesceRenderPasses = json.optBoolean("coalesceRenderPasses", def.coalesceRenderPasses),
                 forceMaliFbFetch = json.optBoolean("forceMaliFbFetch", def.forceMaliFbFetch),
@@ -2153,6 +2137,10 @@ data class Settings(
                 disableVertexShaderExpand = json.optBoolean("disableVertexShaderExpand", def.disableVertexShaderExpand),
                 useBlitSwapChain = json.optBoolean("useBlitSwapChain", def.useBlitSwapChain),
                 disableShaderCache = json.optBoolean("disableShaderCache", def.disableShaderCache),
+                // "hwAat" e o NOME ANTIGO da mesma opcao (EmuCore/GS/HWAccurateAlphaTest).
+                // A propriedade homonima nao existe mais; a string fica, porque um JSON gravado
+                // antes da renomeacao ainda traz a chave velha e perde-la reverteria a escolha
+                // do usuario em silencio.
                 hwAccurateAlphaTest = json.optBoolean(
                     "hwAccurateAlphaTest",
                     json.optBoolean("hwAat", def.hwAccurateAlphaTest),
@@ -2223,10 +2211,6 @@ data class Settings(
                 recVU0 = json.optBoolean("recVU0", def.recVU0),
                 recVU1 = json.optBoolean("recVU1", def.recVU1),
                 enableFastmem = json.optBoolean("enableFastmem", def.enableFastmem),
-                useMacEE = true,
-                useMacIOP = true,
-                useMacVU0 = true,
-                useMacVU1 = true,
                 vu1InlineFmacStall = json.optBoolean("vu1InlineFmacStall", def.vu1InlineFmacStall),
                 vu1CrossBlockPState = json.optBoolean("vu1CrossBlockPState", def.vu1CrossBlockPState),
                 vu1InlineDrainTestPipes = json.optBoolean("vu1InlineDrainTestPipes", def.vu1InlineDrainTestPipes),
@@ -2657,7 +2641,6 @@ data class Settings(
             disableFramebufferFetch = if (overrides.has("disableFramebufferFetch")) overrides.getBoolean("disableFramebufferFetch") else base.disableFramebufferFetch,
             hwRov = if (overrides.has("hwRov")) overrides.getBoolean("hwRov") else base.hwRov,
             hwAa1 = if (overrides.has("hwAa1")) overrides.getBoolean("hwAa1") else base.hwAa1,
-            hwAat = false,
             adrenoFbFetch = if (overrides.has("adrenoFbFetch")) overrides.getBoolean("adrenoFbFetch") else base.adrenoFbFetch,
             coalesceRenderPasses = if (overrides.has("coalesceRenderPasses")) overrides.getBoolean("coalesceRenderPasses") else base.coalesceRenderPasses,
             forceMaliFbFetch = if (overrides.has("forceMaliFbFetch")) overrides.getBoolean("forceMaliFbFetch") else base.forceMaliFbFetch,
@@ -2744,10 +2727,6 @@ data class Settings(
             recVU0 = if (overrides.has("recVU0")) overrides.getBoolean("recVU0") else base.recVU0,
             recVU1 = if (overrides.has("recVU1")) overrides.getBoolean("recVU1") else base.recVU1,
             enableFastmem = if (overrides.has("enableFastmem")) overrides.getBoolean("enableFastmem") else base.enableFastmem,
-            useMacEE = true,
-            useMacIOP = true,
-            useMacVU0 = true,
-            useMacVU1 = true,
             vu1InlineFmacStall = if (overrides.has("vu1InlineFmacStall")) overrides.getBoolean("vu1InlineFmacStall") else base.vu1InlineFmacStall,
             vu1CrossBlockPState = if (overrides.has("vu1CrossBlockPState")) overrides.getBoolean("vu1CrossBlockPState") else base.vu1CrossBlockPState,
             vu1InlineDrainTestPipes = if (overrides.has("vu1InlineDrainTestPipes")) overrides.getBoolean("vu1InlineDrainTestPipes") else base.vu1InlineDrainTestPipes,
