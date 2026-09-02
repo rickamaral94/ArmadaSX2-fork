@@ -38,8 +38,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Barreira antes de qualquer coisa que produza uma tag. As alphas 21, 22 e 23 quebraram no
+  # runner, cada uma num estrato diferente do mesmo merge, e a 23 so foi diagnosticada depois de
+  # a 22 ser corrigida: uma cascata de erro de sintaxe esconde o erro semantico embaixo dela.
+  # Estas duas verificacoes sao baratas e pegam exatamente os residuos que o compilador nao pega
+  # — propriedade duplicada, marcador de conflito, campo que sumiu da serializacao.
+  #
+  # O job de publicacao depende deste, entao uma tag nao pode nascer com o gate vermelho.
+  gate:
+    name: Gate de pré-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Consistência de toolchain
+        run: python3 tools/fork/check-toolchain.py
+
+      - name: Resíduos de merge
+        run: python3 tools/fork/scan-merge-damage.py
+
   build-and-publish:
     name: APK arm64 · github/release
+    needs: gate
     runs-on: ubuntu-24.04
     # LTO + R8 em cima do build nativo inteiro. O CI de debug leva ~33 min; este teto é folgado
     # de propósito, para o job morrer só quando algo estiver de fato errado.
@@ -64,8 +85,16 @@ jobs:
 
       # Versões pinadas iguais às do CI de push. Um A/B de driver ou de frame generation não
       # significa nada se o toolchain mudar entre as duas medições.
+      # Sem `|| true`: engolir a falha aqui significa compilar o binario PUBLICADO com o NDK
+      # que o runner ja tinha, e um binario de toolchain diferente do pinado invalida qualquer
+      # comparacao A/B de driver ou de frame generation. A conferencia do diretorio existe
+      # porque o sdkmanager ja saiu com codigo 0 sem instalar o que foi pedido.
       - name: Install NDK + CMake
-        run: yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
+        run: |
+          set -euo pipefail
+          yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null
+          test -d "$ANDROID_HOME/ndk/28.2.13676358"
+          test -d "$ANDROID_HOME/cmake/3.31.6"
 
       - name: Fetch shaderc third-party deps
         working-directory: platforms/android
