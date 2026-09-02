@@ -88,7 +88,10 @@ jobs:
       # librashader é compilado por cargo para o alvo Android; o rustup do runner só traz a std
       # do host.
       - name: Install Rust Android target
-        run: rustup target add aarch64-linux-android
+        # `rustup show` materializa a toolchain que rust-toolchain.toml pina — versao E alvo.
+        # Instalar so o alvo deixava a VERSAO do rustc a cargo do runner, e dois builds do mesmo
+        # commit podiam embutir um librashader gerado por compiladores diferentes.
+        run: rustup show
 
       # Antes do APK porque e barato e falha rapido. Cobre a migracao de configuracao, onde
       # uma regressao nao produz erro nem log: a opcao so volta ao padrao, e quem descobre e o

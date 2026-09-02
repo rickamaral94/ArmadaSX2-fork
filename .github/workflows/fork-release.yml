@@ -101,7 +101,10 @@ jobs:
         run: python3 app/src/main/cpp/3rdparty/shaderc/utils/git-sync-deps
 
       - name: Install Rust Android target
-        run: rustup target add aarch64-linux-android
+        # `rustup show` materializa a toolchain que rust-toolchain.toml pina — versao E alvo.
+        # Instalar so o alvo deixava a VERSAO do rustc a cargo do runner, e dois builds do mesmo
+        # commit podiam embutir um librashader gerado por compiladores diferentes.
+        run: rustup show
 
       # A tag entra como versionName para que o número que aparece no OSD e nos logs seja o
       # mesmo da release. Sem isso, todo relato de teste chegaria dizendo "2.6.1", que é a

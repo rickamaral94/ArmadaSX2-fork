@@ -48,12 +48,30 @@ def main():
     find(setup, r'CMAKE_VERSION="([\d.]+)"', "cmake", "setup-android-sdk.sh", found)
     find(setup, r'PLATFORM="platforms;android-(\d+)', "sdk", "setup-android-sdk.sh", found)
 
+    # O Rust nao aparece em cinco lugares: quem manda e o rust-toolchain.toml, e os workflows
+    # apenas o honram via `rustup show`. Entao aqui se verifica que ele EXISTE e que declara o
+    # alvo Android — sem isso o cargo compila para o host e a configuracao do CMake morre em
+    # "can't find crate for `core`", que e uma mensagem que nao aponta para a causa.
+    rust = read("rust-toolchain.toml")
+    if rust is None:
+        print("  rust   AUSENTE  rust-toolchain.toml nao existe")
+        rust_problem = True
+    else:
+        channel = re.search(r'channel\s*=\s*"([^"]+)"', rust)
+        has_target = "aarch64-linux-android" in rust
+        if channel and has_target:
+            print(f"  rust   OK  {channel.group(1):<16s} (rust-toolchain.toml, alvo aarch64-linux-android)")
+            rust_problem = False
+        else:
+            print("  rust   INCOMPLETO  falta channel ou o alvo aarch64-linux-android")
+            rust_problem = True
+
     doc = read("docs/fase0-setup.md")
     find(doc, r'NDK `([\d.]+)`', "ndk", "fase0-setup.md", found)
     find(doc, r'CMake `([\d.]+)`', "cmake", "fase0-setup.md", found)
     find(doc, r'JDK (\d+)', "jdk", "fase0-setup.md", found)
 
-    problems = 0
+    problems = 1 if rust_problem else 0
     for label in ("ndk", "cmake", "sdk", "jdk"):
         entries = found.get(label, [])
         if not entries:

@@ -1,0 +1,12 @@
+# Toolchain Rust do projeto — o librashader é compilado por cargo para o alvo Android.
+#
+# Por que pinar: sem isto, cada máquina compila o librashader com o rustc que tiver, e dois
+# builds do MESMO commit podem embutir binários gerados por compiladores diferentes. Para um
+# projeto cuja regra é que um A/B não vale se o toolchain mudou entre as duas medições, isso era
+# uma porta aberta — o NDK e o CMake já eram pinados, o Rust não.
+#
+# Trocar a versão aqui invalida comparações contra medições anteriores: anote a troca junto com
+# a próxima medição, em vez de silenciosamente comparar através dela.
+[toolchain]
+channel = "1.94.1"
+targets = ["aarch64-linux-android"]

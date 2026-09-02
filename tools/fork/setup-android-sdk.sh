@@ -22,10 +22,21 @@ CMAKE_VERSION="3.31.6"
 PLATFORM="platforms;android-37.0"
 BUILD_TOOLS="build-tools;37.0.0"
 CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip"
+# SHA-1 publicado pelo proprio Google em dl.google.com/android/repository/repository2-3.xml, que
+# e o manifesto que o sdkmanager usa. E SHA-1 porque e o que eles publicam; o SHA-256 abaixo foi
+# derivado de um download que passou nesse SHA-1, e existe para que uma colisao de SHA-1 nao
+# baste para trocar o arquivo por baixo.
+CMDLINE_TOOLS_SHA1="5fdcc763663eefb86a5b8879697aa6088b041e70"
+CMDLINE_TOOLS_SHA256="7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee"
+CMDLINE_TOOLS_SIZE=164760899
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-command -v java >/dev/null || { echo "ERRO: java não encontrado (instale um JDK 17+)." >&2; exit 1; }
+command -v java >/dev/null || { echo "ERRO: java não encontrado (instale um JDK 17)." >&2; exit 1; }
+# O CI compila o APK publicado com JDK 17. Um "verde local" produzido noutra major e uma garantia
+# mais fraca do que parece, entao o desvio e dito em voz alta em vez de passar batido.
+JDK_LOCAL="$(java -version 2>&1 | sed -n '1s/.*"\([0-9]*\).*/\1/p')"
+[ "${JDK_LOCAL}" = "17" ] || echo "AVISO: JDK ${JDK_LOCAL} local; o CI usa 17." >&2
 command -v unzip >/dev/null || { echo "ERRO: unzip não encontrado." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "ERRO: python3 não encontrado (o git-sync-deps do shaderc precisa)." >&2; exit 1; }
 
@@ -35,6 +46,30 @@ if [ ! -x "${SDK}/cmdline-tools/latest/bin/sdkmanager" ]; then
 	mkdir -p "${SDK}/cmdline-tools"
 	tmp="$(mktemp -d)"
 	curl -sSL -o "${tmp}/cmdline-tools.zip" "${CMDLINE_TOOLS_URL}"
+
+	# Conferir ANTES de descompactar: um zip corrompido ou trocado nao pode virar o toolchain que
+	# produz o APK publicado. Sem isto, o unico arquivo do setup sem verificacao de integridade
+	# era justamente este — o Gradle wrapper do mesmo projeto ja confere o dele por
+	# distributionSha256Sum.
+	verify() {
+		local algo="$1" esperado="$2" obtido
+		obtido="$(${algo}sum "${tmp}/cmdline-tools.zip" | cut -d" " -f1)"
+		[ "${obtido}" = "${esperado}" ] && return 0
+		echo "ERRO: ${algo} das command-line tools nao confere." >&2
+		echo "  esperado: ${esperado}" >&2
+		echo "  obtido:   ${obtido}" >&2
+		rm -rf "${tmp}"
+		exit 1
+	}
+	tamanho="$(stat -c%s "${tmp}/cmdline-tools.zip")"
+	if [ "${tamanho}" != "${CMDLINE_TOOLS_SIZE}" ]; then
+		echo "ERRO: tamanho inesperado (${tamanho}, esperado ${CMDLINE_TOOLS_SIZE})." >&2
+		rm -rf "${tmp}"; exit 1
+	fi
+	verify sha1 "${CMDLINE_TOOLS_SHA1}"
+	verify sha256 "${CMDLINE_TOOLS_SHA256}"
+	echo "    integridade conferida (sha1 + sha256)"
+
 	unzip -q "${tmp}/cmdline-tools.zip" -d "${tmp}/x"
 	mv "${tmp}/x/cmdline-tools" "${SDK}/cmdline-tools/latest"
 	rm -rf "${tmp}"
@@ -58,8 +93,10 @@ python3 "${REPO_ROOT}/platforms/android/app/src/main/cpp/3rdparty/shaderc/utils/
 # 3. Alvo Rust do librashader. Sem ele o cargo compila para o host e morre em
 #    "can't find crate for `core`" no meio da configuração do CMake.
 if command -v rustup >/dev/null; then
-	echo "==> Garantindo o alvo Rust aarch64-linux-android (librashader)"
-	rustup target add aarch64-linux-android >/dev/null
+	# `rustup show` materializa o que o rust-toolchain.toml na raiz pede — versao E alvo —
+	# em vez de instalar o alvo por cima de um rustc qualquer.
+	echo "==> Instalando a toolchain Rust pinada em rust-toolchain.toml"
+	( cd "${REPO_ROOT}" && rustup show >/dev/null )
 else
 	echo "AVISO: rustup não encontrado. O librashader precisa do alvo aarch64-linux-android;" >&2
 	echo "       instale a toolchain Rust ou a compilação nativa vai falhar." >&2
