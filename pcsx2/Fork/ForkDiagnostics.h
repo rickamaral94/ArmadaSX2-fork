@@ -105,6 +105,39 @@ namespace ForkDiagnostics
 
 	std::string FormatLoadLine(const Load& load);
 
+	/// O trabalho que o GS fez na janela, com foco na CÓPIA DE RENDER TARGET.
+	///
+	/// Existe por um motivo específico e mensurável: quando o driver não expõe leitura do próprio
+	/// attachment, todo draw com realimentação paga uma cópia do render target. A regra
+	/// `vk-turnip-attachment-self-read` força esse caminho no Turnip — e foi provada no Adreno
+	/// 650 com Mesa 26.1.2, sem limite de modelo nem de versão. Se ela está custando isso no
+	/// Adreno 740 sem motivo, o número que mostra é este.
+	///
+	/// Os contadores existiam, mas só saíam pelo JSON do PINE, que no Android exige
+	/// `adb forward` a partir de um PC. O testador de portátil — que é quem tem o aparelho — não
+	/// conseguia lê-los. Uma telemetria que não alcança quem mede não mede nada.
+	struct GsWork
+	{
+		/// Draws que precisaram clonar o render target nesta janela.
+		u32 feedback_copy_draws = 0;
+		/// Cópias emitidas. MAIOR que os draws quando a área de desenho e a de amostragem são
+		/// disjuntas: aí saem duas cópias em vez de uma.
+		u32 feedback_copies = 0;
+		/// Área copiada, em pixels. Explica a diferença entre duas janelas com a mesma contagem;
+		/// não é custo, porque ignora formato, bpp e o custo fixo por comando.
+		double feedback_copy_pixels = 0.0;
+		/// Total de cópias de textura da janela, para dar escala. As de realimentação estão
+		/// INCLUÍDAS aqui — DoCopyRect incrementa os dois —, então a diferença é que mostra
+		/// quanto do trabalho de cópia vem da realimentação.
+		u32 texture_copies = 0;
+		/// Draws e render passes da janela, para normalizar: dez cópias em mil draws é ruído,
+		/// dez em quinze é o gargalo.
+		u32 draw_calls = 0;
+		u32 render_passes = 0;
+	};
+
+	std::string FormatGsWorkLine(const GsWork& work);
+
 	/// Configurações que INVALIDAM uma medição, não que a deixam "insegura" — é uma lista mais
 	/// estreita e mais útil que o aviso de configuração insegura do PCSX2.
 	///

@@ -185,7 +185,10 @@ const char* GSUtil::GetPerfMonCounterName(GSPerfMon::counter_t counter, bool hw)
 {
 	if (hw)
 	{
-		static constexpr const char* names_hw[GSPerfMon::CounterLastHW] = {
+		// SEM tamanho explicito, de proposito. Declarado como [CounterLastHW], um nome que
+		// faltasse seria preenchido com nullptr em silencio e so estouraria ao ser usado; sem
+		// tamanho, o static_assert abaixo transforma o descuido em erro de compilacao.
+		static constexpr const char* names_hw[] = {
 			"Prim",
 			"Draw",
 			"DrawCalls",
@@ -209,11 +212,13 @@ const char* GSUtil::GetPerfMonCounterName(GSPerfMon::counter_t counter, bool hw)
 			"FeedbackLoopCopies",
 			"FeedbackLoopCopyPixels"
 		};
+		static_assert(std::size(names_hw) == GSPerfMon::CounterLastHW,
+			"names_hw tem de ter um nome por contador; acrescentou contador, acrescente o nome");
 		return counter < std::size(names_hw) ? names_hw[counter] : "";
 	}
 	else
 	{
-		static constexpr const char* names_sw[GSPerfMon::CounterLastSW] = {
+		static constexpr const char* names_sw[] = {
 			"Prim",
 			"Draw",
 			"DrawCalls",
@@ -223,6 +228,8 @@ const char* GSUtil::GetPerfMonCounterName(GSPerfMon::counter_t counter, bool hw)
 			"Fillrate",
 			"SyncPoint"
 		};
+		static_assert(std::size(names_sw) == GSPerfMon::CounterLastSW,
+			"names_sw tem de ter um nome por contador do caminho de software");
 		return counter < std::size(names_sw) ? names_sw[counter] : "";
 	}
 }
@@ -450,4 +457,3 @@ bool GSUtil::IsValidPSM(int psm)
 			return false;
 	}
 }
-

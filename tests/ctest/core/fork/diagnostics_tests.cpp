@@ -295,3 +295,63 @@ TEST(ForkDiagnostics, TheLoadLineSeparatesShaderKindAndCost)
     EXPECT_TRUE(Contains(cold_line, "shader_src=140")) << cold_line;
     EXPECT_TRUE(Contains(cold_line, "shader_ms=890.0")) << cold_line;
 }
+
+// FormatGsWorkLine: a linha que torna o custo da copia de render target legivel NO APARELHO.
+// Os contadores existiam e so saiam pelo JSON do PINE, que no Android exige adb forward — o
+// testador de portatil, que e quem tem o aparelho, nao conseguia le-los.
+TEST(ForkDiagnosticsGsWork, ZeroCopiesReadsAsZeroAndDoesNotDivideByZero)
+{
+	// Janela sem draw nenhum: a razao por mil nao pode virar NaN nem inf.
+	ForkDiagnostics::GsWork work;
+	const std::string line = ForkDiagnostics::FormatGsWorkLine(work);
+	EXPECT_NE(line.find("fb_copies=0"), std::string::npos) << line;
+	EXPECT_NE(line.find("fb_copies_per_1k_draws=0.0"), std::string::npos) << line;
+	EXPECT_EQ(line.find("nan"), std::string::npos) << line;
+	EXPECT_EQ(line.find("inf"), std::string::npos) << line;
+}
+
+TEST(ForkDiagnosticsGsWork, CopiesPerThousandDrawsIsComputed)
+{
+	// 10 copias em 1000 draws = 10 por mil. E a razao que responde se a realimentacao e marginal
+	// ou dominante, e deixa-la para quem le o log e convidar erro de conta num relato.
+	ForkDiagnostics::GsWork work;
+	work.feedback_copies = 10;
+	work.draw_calls = 1000;
+	EXPECT_NE(ForkDiagnostics::FormatGsWorkLine(work).find("fb_copies_per_1k_draws=10.0"),
+		std::string::npos);
+}
+
+TEST(ForkDiagnosticsGsWork, DisjointAreasProduceMoreCopiesThanDraws)
+{
+	// Quando a area de desenho e a de amostragem sao disjuntas saem DUAS copias por draw. A linha
+	// tem de conseguir mostrar copias > draws sem parecer inconsistente.
+	ForkDiagnostics::GsWork work;
+	work.feedback_copy_draws = 3;
+	work.feedback_copies = 6;
+	const std::string line = ForkDiagnostics::FormatGsWorkLine(work);
+	EXPECT_NE(line.find("fb_copy_draws=3"), std::string::npos) << line;
+	EXPECT_NE(line.find("fb_copies=6"), std::string::npos) << line;
+}
+
+TEST(ForkDiagnosticsGsWork, SaysFeedbackIsIncludedInTextureCopies)
+{
+	// DoCopyRect incrementa TextureCopies tambem, entao fb_copies e SUBCONJUNTO de tex_copies.
+	// Sem dizer isso, alguem soma os dois e conta a mesma copia duas vezes.
+	ForkDiagnostics::GsWork work;
+	work.feedback_copies = 4;
+	work.texture_copies = 9;
+	const std::string line = ForkDiagnostics::FormatGsWorkLine(work);
+	EXPECT_NE(line.find("tex_copies=9"), std::string::npos) << line;
+	EXPECT_NE(line.find("(fb of tex)"), std::string::npos) << line;
+}
+
+TEST(ForkDiagnosticsGsWork, PixelAreaIsPrintedWithoutScientificNotation)
+{
+	// Areas grandes sao comuns: 1920x1080 em algumas dezenas de copias passa de 1e8. Notacao
+	// cientifica num log que se le no celular e ilegivel.
+	ForkDiagnostics::GsWork work;
+	work.feedback_copy_pixels = 248832000.0;
+	const std::string line = ForkDiagnostics::FormatGsWorkLine(work);
+	EXPECT_NE(line.find("fb_px=248832000"), std::string::npos) << line;
+	EXPECT_EQ(line.find("e+"), std::string::npos) << line;
+}

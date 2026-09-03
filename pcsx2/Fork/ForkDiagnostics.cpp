@@ -7,6 +7,7 @@
 #include "Fork/ForkDriverIdentity.h"
 #include "Fork/ForkGpuCapabilities.h"
 
+#include "GS/GSPerfMon.h"
 #include "GS/GSShaderCompileIndicator.h"
 #include "PerformanceMetrics.h"
 
@@ -36,6 +37,24 @@ namespace
 	ForkDiagnostics::Accumulator s_accumulator;
 	u64 s_window_start = 0;
 	bool s_identity_written = false;
+	// Ultimo valor lido de cada contador de perfmon. Ele ZERA sozinho a cada 30 quadros, entao
+	// `agora - anterior` vira negativo na virada; quando isso acontece o valor atual JA e o delta.
+	// Mesmo tratamento que o bridge do Android usa em Host::BeginPresentFrame.
+	double s_last_fb_copy_draws = 0.0;
+	double s_last_fb_copies = 0.0;
+	double s_last_fb_copy_pixels = 0.0;
+	double s_last_tex_copies = 0.0;
+	double s_last_draw_calls = 0.0;
+	double s_last_render_passes = 0.0;
+
+	double PerfmonDelta(GSPerfMon::counter_t counter, double& last)
+	{
+		const double now = g_perfmon.GetCounter(counter);
+		const double delta = (now < last) ? now : (now - last);
+		last = now;
+		return delta;
+	}
+
 	u32 s_last_shader_compiles = 0;
 	u32 s_last_shader_source = 0;
 	u64 s_last_shader_time_ns = 0;
@@ -135,6 +154,26 @@ std::string ForkDiagnostics::FormatFrameGenLine(
 		accumulator.worst_generation_ms, budget, policy.min_speed_percent, policy.min_real_fps);
 }
 
+std::string ForkDiagnostics::FormatGsWorkLine(const GsWork& work)
+{
+	// A razao cópias/draws vem impressa em vez de deixada para quem le: e ela que responde se a
+	// realimentacao e marginal ou dominante, e uma conta de cabeca em cima de dois numeros no log
+	// e exatamente o tipo de coisa que se erra num relato.
+	const float por_mil = (work.draw_calls > 0)
+							  ? (1000.0f * static_cast<float>(work.feedback_copies) / static_cast<float>(work.draw_calls))
+							  : 0.0f;
+
+	std::string line = fmt::format(
+		"{} gswork    fb_copy_draws={} fb_copies={} fb_copies_per_1k_draws={:.1f} fb_px={:.0f}",
+		PREFIX, work.feedback_copy_draws, work.feedback_copies, por_mil, work.feedback_copy_pixels);
+
+	// `of=` deixa explicita a relacao de INCLUSAO: fb_copies e um subconjunto de tex_copies, nao
+	// uma parcela a somar. Sem isso alguem soma os dois e conta a mesma copia duas vezes.
+	line += fmt::format(" tex_copies={} (fb of tex) draws={} passes={}",
+		work.texture_copies, work.draw_calls, work.render_passes);
+	return line;
+}
+
 std::string ForkDiagnostics::FormatLoadLine(const Load& load)
 {
 	// Uma linha só, e sem FPS de apresentação nenhum: este bloco fala de CUSTO, e misturar aqui o
@@ -232,6 +271,12 @@ void ForkDiagnostics::Reset()
 	s_accumulator = Accumulator{};
 	s_window_start = 0;
 	s_identity_written = false;
+	s_last_fb_copy_draws = g_perfmon.GetCounter(GSPerfMon::FeedbackLoopCopyDraws);
+	s_last_fb_copies = g_perfmon.GetCounter(GSPerfMon::FeedbackLoopCopies);
+	s_last_fb_copy_pixels = g_perfmon.GetCounter(GSPerfMon::FeedbackLoopCopyPixels);
+	s_last_tex_copies = g_perfmon.GetCounter(GSPerfMon::TextureCopies);
+	s_last_draw_calls = g_perfmon.GetCounter(GSPerfMon::DrawCalls);
+	s_last_render_passes = g_perfmon.GetCounter(GSPerfMon::RenderPasses);
 	s_last_shader_compiles = GSShaderCompileIndicator::s_total_count.load(std::memory_order_relaxed);
 	s_last_shader_source = GSShaderCompileIndicator::s_total_source_count.load(std::memory_order_relaxed);
 	s_last_shader_time_ns = GSShaderCompileIndicator::s_total_time_ns.load(std::memory_order_relaxed);
@@ -250,6 +295,7 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 	std::string identity_line;
 	std::string hygiene_line;
 	std::string load_line;
+	std::string gswork_line;
 	std::string real_line;
 	std::string presented_line;
 	std::string framegen_line;
@@ -307,7 +353,16 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 		const u64 time_now = GSShaderCompileIndicator::s_total_time_ns.load(std::memory_order_relaxed);
 		load.shader_ms = static_cast<float>(time_now - s_last_shader_time_ns) / 1e6f;
 		s_last_shader_time_ns = time_now;
+		GsWork work;
+		work.feedback_copy_draws = static_cast<u32>(PerfmonDelta(GSPerfMon::FeedbackLoopCopyDraws, s_last_fb_copy_draws));
+		work.feedback_copies = static_cast<u32>(PerfmonDelta(GSPerfMon::FeedbackLoopCopies, s_last_fb_copies));
+		work.feedback_copy_pixels = PerfmonDelta(GSPerfMon::FeedbackLoopCopyPixels, s_last_fb_copy_pixels);
+		work.texture_copies = static_cast<u32>(PerfmonDelta(GSPerfMon::TextureCopies, s_last_tex_copies));
+		work.draw_calls = static_cast<u32>(PerfmonDelta(GSPerfMon::DrawCalls, s_last_draw_calls));
+		work.render_passes = static_cast<u32>(PerfmonDelta(GSPerfMon::RenderPasses, s_last_render_passes));
+
 		load_line = FormatLoadLine(load);
+		gswork_line = FormatGsWorkLine(work);
 		real_line = FormatRealLine(snapshot);
 		presented_line = FormatPresentedLine(snapshot);
 		framegen_line = FormatFrameGenLine(s_accumulator, ForkFrameGen::PolicyFromConfig(),
@@ -326,6 +381,7 @@ void ForkDiagnostics::NotePresent(const ForkFrameGen::Decision& decision, const 
 		Console.WriteLn("%s", hygiene_line.c_str());
 	}
 	Console.WriteLn("%s", load_line.c_str());
+	Console.WriteLn("%s", gswork_line.c_str());
 	Console.WriteLn("%s", real_line.c_str());
 	Console.WriteLn("%s", presented_line.c_str());
 	Console.WriteLn("%s", framegen_line.c_str());

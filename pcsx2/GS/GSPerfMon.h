@@ -38,8 +38,15 @@ public:
 
 		// Vulkan render-target copies used when attachment self-read is unavailable.
 		// Kept separate from TextureCopies so driver-workaround A/B runs can attribute cost.
+		//
+		// FeedbackLoopCopies OVERLAPS with TextureCopies: DoCopyRect increments that one too,
+		// so somar os dois conta a mesma copia duas vezes. Mesma relacao que TextureCopiesROV ja
+		// tem, e ela esta anotada ali por este exato motivo.
 		FeedbackLoopCopyDraws,
 		FeedbackLoopCopies,
+		// AREA copiada, nao custo. Ignora formato e bpp, e nao inclui o custo fixo por comando —
+		// serve para EXPLICAR um resultado, nunca para concluir um A/B. Quem decide isso e tempo
+		// de GPU.
 		FeedbackLoopCopyPixels,
 
 		CounterLast,
@@ -88,4 +95,3 @@ public:
 };
 
 extern GSPerfMon g_perfmon;
-
