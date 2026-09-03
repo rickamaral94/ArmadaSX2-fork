@@ -75,6 +75,25 @@ fbfetch=yes(in-tile)   texbarrier=on
 | `fbfetch=yes(in-tile)` e `texbarrier=on` | o Adreno 740 **suporta**, e a regra estava custando uma cópia de render target por draw com feedback |
 | `fbfetch=no` ou corrupção gráfica | a regra está certa para este modelo também; registrar e encerrar a hipótese |
 
+E agora o custo tem número. Na mesma sessão, procure a linha `gswork` do bloco `@@FORK@@`:
+
+```
+@@FORK@@ gswork    fb_copy_draws=N fb_copies=N fb_copies_per_1k_draws=N.N fb_px=N
+                   tex_copies=N (fb of tex) draws=N passes=N
+```
+
+`fb_copies_per_1k_draws` é o número que decide. Com a regra ativa ele mostra quantas cópias de
+render target a realimentação custa a cada mil draws; com a opção de sobrescrever ligada, ele
+deve **cair para perto de zero** se o aparelho de fato suporta leitura do próprio attachment.
+
+Duas armadilhas de leitura:
+
+* `fb_copies` está **incluído** em `tex_copies` — é subconjunto, não parcela. Somar os dois conta
+  a mesma cópia duas vezes; é por isso que a linha diz `(fb of tex)`.
+* `fb_px` é **área**, não custo: ignora formato, bpp e o custo fixo por comando. Serve para
+  explicar por que duas janelas com a mesma contagem custaram diferente, nunca para concluir o
+  A/B. Quem conclui é o frame time.
+
 Rodar **os dois lados**: com a opção ligada e desligada, mesmo jogo, mesma cena, mesmo savestate.
 Anotar frame time médio, P95 e 1% low de cada lado. Sem os dois lados não é A/B, é impressão.
 
