@@ -414,6 +414,8 @@ namespace PINEServer
 			"\"tc_source_hit\":{:.1f},\"tc_source_miss\":{:.1f},"
 			"\"tc_target_hit\":{:.1f},\"tc_target_miss\":{:.1f},"
 			"\"hash_cache_hit\":{:.1f},\"hash_cache_miss\":{:.1f},"
+			"\"feedback_copy_draws\":{:.1f},\"feedback_copies\":{:.1f},"
+			"\"feedback_copy_pixels\":{:.1f},"
 			"\"gs_memory\":\"{}\",\"frame_number\":{},\"gs_front_parser\":{},"
 			"\"renderer\":\"{}\",\"device_name\":\"{}\",\"driver_info\":\"{}\""
 			"}}",
@@ -436,6 +438,8 @@ namespace PINEServer
 			counter(GSPerfMon::TCSourceHit), counter(GSPerfMon::TCSourceMiss),
 			counter(GSPerfMon::TCTargetHit), counter(GSPerfMon::TCTargetMiss),
 			counter(GSPerfMon::HashCacheHit), counter(GSPerfMon::HashCacheMiss),
+			counter(GSPerfMon::FeedbackLoopCopyDraws), counter(GSPerfMon::FeedbackLoopCopies),
+			counter(GSPerfMon::FeedbackLoopCopyPixels),
 			// Whether the two-object split actually engaged, which the BackThreadMode setting
 			// alone does not tell you -- it downgrades to lockstep on an unsupported config.
 			// True is also what makes gs_back_thread_* worth reading next to gs_thread_*.
@@ -1271,3 +1275,4 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 	}
 	return IPCBuffer{(int)ret_cnt, MakeOkIPC(ret_buffer, ret_cnt)};
 }
+
