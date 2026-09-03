@@ -111,7 +111,6 @@ private const val UI_NAV_DEAD = 0.20f
 private const val UI_NAV_RELEASE_DEAD = 0.06f
 private const val UI_HAT_DEAD = 0.50f
 private const val UI_NAV_DOMINANCE = 1.35f
-private const val UI_OVERLAY_RELEASE_MS = 80L
 private const val UI_KEY_AXIS_SUPPRESS_MS = 220L
 // Hold-to-repeat cadence for controller menu navigation: first auto-repeat
 // after the initial hold, then steady repeats while the stick/dpad is held.
@@ -130,7 +129,6 @@ open class MainActivityRuntime : ComponentActivity() {
     private var lastUiNavWasAxis = false
     private var overlayAxisX = 0
     private var overlayAxisY = 0
-    private var overlayHorizontalReleaseAt = 0L
     private var libraryAxisX = 0
     private var libraryAxisY = 0
 
