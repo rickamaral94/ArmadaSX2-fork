@@ -8907,6 +8907,7 @@ void GSDeviceVK::DoRenderHW(GSHWDrawConfig& config)
 		draw_rt_clone = static_cast<GSTextureVK*>(CreateTexture(rtsize.x, rtsize.y, 1, draw_rt->GetFormat(), true));
 		if (draw_rt_clone)
 		{
+			g_perfmon.Put(GSPerfMon::FeedbackLoopCopyDraws, 1);
 			GL_PUSH("VK: Copy RT to temp texture {%d,%d %dx%d}",
 				config.drawarea.left, config.drawarea.top,
 				config.drawarea.width(), config.drawarea.height());
@@ -8923,16 +8924,26 @@ void GSDeviceVK::DoRenderHW(GSHWDrawConfig& config)
 				{
 					const GSVector4i snapped_drawarea = ProcessCopyArea(GSVector4i(0, 0, rtsize.x, rtsize.y), config.drawarea);
 					const GSVector4i snapped_samplearea = ProcessCopyArea(GSVector4i(0, 0, rtsize.x, rtsize.y), config.samplearea);
+					g_perfmon.Put(GSPerfMon::FeedbackLoopCopies, 2);
+					g_perfmon.Put(GSPerfMon::FeedbackLoopCopyPixels,
+						static_cast<double>(snapped_drawarea.width()) * snapped_drawarea.height() +
+						static_cast<double>(snapped_samplearea.width()) * snapped_samplearea.height());
 					DoCopyRect(draw_rt, draw_rt_clone, snapped_drawarea, snapped_drawarea.left, snapped_drawarea.top);
 					DoCopyRect(draw_rt, draw_rt_clone, snapped_samplearea, snapped_samplearea.left, snapped_samplearea.top);
 				}
 				else
 				{
+					g_perfmon.Put(GSPerfMon::FeedbackLoopCopies, 1);
+					g_perfmon.Put(GSPerfMon::FeedbackLoopCopyPixels,
+						static_cast<double>(union_rect.width()) * union_rect.height());
 					DoCopyRect(draw_rt, draw_rt_clone, union_rect, union_rect.left, union_rect.top);
 				}
 			}
 			else
 			{
+				g_perfmon.Put(GSPerfMon::FeedbackLoopCopies, 1);
+				g_perfmon.Put(GSPerfMon::FeedbackLoopCopyPixels,
+					static_cast<double>(config.drawarea.width()) * config.drawarea.height());
 				DoCopyRect(draw_rt, draw_rt_clone, config.drawarea, config.drawarea.left, config.drawarea.top);
 			}
 
@@ -9335,3 +9346,4 @@ void GSDeviceVK::SendHWDraw(const GSHWDrawConfig& config, GSTextureVK* draw_rt, 
 	if (config.ps.HasColorROV() || config.ps.HasDepthROV())
 		g_perfmon.Put(GSPerfMon::DrawCallsROV, 1);
 }
+

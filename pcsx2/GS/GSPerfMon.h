@@ -36,6 +36,12 @@ public:
 		HashCacheHit,
 		HashCacheMiss,
 
+		// Vulkan render-target copies used when attachment self-read is unavailable.
+		// Kept separate from TextureCopies so driver-workaround A/B runs can attribute cost.
+		FeedbackLoopCopyDraws,
+		FeedbackLoopCopies,
+		FeedbackLoopCopyPixels,
+
 		CounterLast,
 
 		// Reused counters for HW.
@@ -82,3 +88,4 @@ public:
 };
 
 extern GSPerfMon g_perfmon;
+
