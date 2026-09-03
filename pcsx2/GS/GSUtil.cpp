@@ -204,7 +204,10 @@ const char* GSUtil::GetPerfMonCounterName(GSPerfMon::counter_t counter, bool hw)
 			"TCSourceHit",
 			"TCSourceMiss",
 			"HashCacheHit",
-			"HashCacheMiss"
+			"HashCacheMiss",
+			"FeedbackLoopCopyDraws",
+			"FeedbackLoopCopies",
+			"FeedbackLoopCopyPixels"
 		};
 		return counter < std::size(names_hw) ? names_hw[counter] : "";
 	}
@@ -447,3 +450,4 @@ bool GSUtil::IsValidPSM(int psm)
 			return false;
 	}
 }
+
