@@ -74,6 +74,13 @@ jobs:
     name: CI verde neste SHA
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Este job LE execucoes de workflow, e para isso precisa de actions:read. Na primeira execucao
+    # o token trazia so Contents/Metadata/Packages e a consulta funcionou mesmo assim — porque o
+    # repositorio e publico, e a API de Actions de repositorio publico e legivel por qualquer um.
+    # Depender disso e depender de o repositorio nunca virar privado. Declarado explicitamente.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
